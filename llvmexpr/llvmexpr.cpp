@@ -5,6 +5,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "VSHelper.h"
@@ -92,6 +93,7 @@ OrcJit global_jit;
 
 class Compiler {
   private:
+    static constexpr int kStackSize = 1024; // TODO: remove hard limit
     std::string rpn_expr;
     const VSVideoInfo* vo;
     const std::vector<const VSVideoInfo*>& vi;
@@ -132,6 +134,8 @@ class Compiler {
           builder(*context) {}
 
     CompiledFunction compile() {
+        // Validate the RPN expression stack behavior before generating IR
+        validate_rpn_stack();
         define_function_signature();
         generate_loops();
 
@@ -153,6 +157,236 @@ class Compiler {
     }
 
   private:
+    // Validate stack balance and under/overflow for the RPN expression
+    void validate_rpn_stack() {
+        const int stack_limit = kStackSize;
+        int sp = 0;
+        int max_sp = 0;
+        std::unordered_set<std::string> defined_vars;
+
+        auto require = [&](int need, const std::string& op) {
+            if (sp < need) {
+                throw std::runtime_error("Stack underflow on '" + op + "'");
+            }
+        };
+        auto push_once = [&]() {
+            ++sp;
+            if (sp > max_sp)
+                max_sp = sp;
+            if (sp > stack_limit) {
+                throw std::runtime_error(
+                    "Stack overflow: requires depth " +
+                    std::to_string(sp) + " but limit is " +
+                    std::to_string(stack_limit));
+            }
+        };
+
+        std::stringstream ss(rpn_expr);
+        std::string token;
+
+        std::regex re_rel(
+            R"(^(?:src(\d+)|([x-za-w]))\((-?\d+),(-?\d+)\)(?::([cm]))?$)");
+        std::regex re_rel_bracket(
+            R"(^(?:src(\d+)|([x-za-w]))\[(-?\d+),(-?\d+)\](?::([cm]))?$)");
+        std::regex re_abs(R"(^(?:src(\d+)|([x-za-w]))\[\]$)");
+        std::regex re_cur(R"(^(?:src(\d+)|([x-za-w]))$)");
+
+        while (ss >> token) {
+            if (token == "+" || token == "-" || token == "*" ||
+                token == "/" || token == "%" || token == ">" ||
+                token == "<" || token == ">=" || token == "<=" ||
+                token == "=" || token == "and" || token == "or" ||
+                token == "xor" || token == "bitand" || token == "bitor" ||
+                token == "bitxor" || token == "min" || token == "max" ||
+                token == "pow" || token == "**" || token == "atan2") {
+                require(2, token);
+                // 2 -> 1
+                --sp;
+                continue;
+            }
+
+            if (token == "not" || token == "bitnot" || token == "sqrt" ||
+                token == "exp" || token == "log" || token == "abs" ||
+                token == "floor" || token == "ceil" || token == "trunc" ||
+                token == "round") {
+                require(1, token);
+                // 1 -> 1
+                continue;
+            }
+
+            if (token == "?" || token == "clip" || token == "clamp") {
+                int need = (token == "?") ? 3 : 3;
+                require(need, token);
+                // 3 -> 1
+                sp -= 2;
+                continue;
+            }
+
+            if (token == "dup") {
+                require(1, token);
+                push_once();
+                continue;
+            }
+            if (token.rfind("dup", 0) == 0 && token.length() > 3) {
+                try {
+                    int n = std::stoi(token.substr(3));
+                    if (n < 0)
+                        throw std::runtime_error("");
+                    if (sp < 1 + n)
+                        throw std::runtime_error("Stack underflow on '" +
+                                                 token + "'");
+                    push_once();
+                } catch (...) {
+                    throw std::runtime_error("Invalid dupN operator: " +
+                                             token);
+                }
+                continue;
+            }
+
+            if (token == "drop") {
+                require(1, token);
+                --sp;
+                continue;
+            }
+            if (token.rfind("drop", 0) == 0 && token.length() > 4) {
+                try {
+                    int n = std::stoi(token.substr(4));
+                    if (n < 0)
+                        throw std::runtime_error("");
+                    if (sp < n)
+                        throw std::runtime_error("Stack underflow on '" +
+                                                 token + "'");
+                    sp -= n;
+                } catch (...) {
+                    throw std::runtime_error("Invalid dropN operator: " +
+                                             token);
+                }
+                continue;
+            }
+
+            if (token == "swap") {
+                require(2, token);
+                // unchanged
+                continue;
+            }
+            if (token.rfind("swap", 0) == 0 && token.length() > 4) {
+                try {
+                    int n = std::stoi(token.substr(4));
+                    if (n < 0)
+                        throw std::runtime_error("");
+                    if (sp < 1 + n)
+                        throw std::runtime_error("Stack underflow on '" +
+                                                 token + "'");
+                } catch (...) {
+                    throw std::runtime_error("Invalid swapN operator: " +
+                                             token);
+                }
+                continue;
+            }
+
+            if (token.rfind("sort", 0) == 0 && token.length() > 4) {
+                try {
+                    int n = std::stoi(token.substr(4));
+                    if (n < 0)
+                        throw std::runtime_error("");
+                    if (n < 2)
+                        continue; // no-op
+                    if (sp < n)
+                        throw std::runtime_error("Stack underflow on '" +
+                                                 token + "'");
+                } catch (...) {
+                    throw std::runtime_error("Invalid sortN operator: " +
+                                             token);
+                }
+                continue;
+            }
+
+            if (token == "X" || token == "Y" || token == "width" ||
+                token == "height" || token == "N" || token == "pi") {
+                push_once();
+                continue;
+            }
+
+            if (!token.empty() && token.back() == '!') {
+                std::string var_name = token.substr(0, token.length() - 1);
+                require(1, token);
+                --sp;
+                defined_vars.insert(var_name);
+                continue;
+            }
+            if (!token.empty() && token.back() == '@') {
+                std::string var_name = token.substr(0, token.length() - 1);
+                if (defined_vars.find(var_name) == defined_vars.end()) {
+                    throw std::runtime_error("Unknown variable: " + var_name);
+                }
+                push_once();
+                continue;
+            }
+
+            // Clip access or number literal or invalid token
+            {
+                std::smatch match;
+                bool is_rel = std::regex_match(token, match, re_rel) ||
+                              std::regex_match(token, match, re_rel_bracket);
+                bool is_abs = !is_rel && std::regex_match(token, match, re_abs);
+                bool is_cur = !is_rel && !is_abs &&
+                              std::regex_match(token, match, re_cur);
+                if (is_rel || is_abs || is_cur) {
+                    int clip_idx = -1;
+                    if (match[1].matched)
+                        clip_idx = std::stoi(match[1].str());
+                    else if (match[2].matched) {
+                        char c = match[2].str()[0];
+                        if (c >= 'x' && c <= 'z')
+                            clip_idx = c - 'x';
+                        else
+                            clip_idx = c - 'a' + 3;
+                    }
+                    if (clip_idx < 0 || clip_idx >= num_inputs) {
+                        throw std::runtime_error(
+                            "Invalid clip index in token: " + token);
+                    }
+                    if (is_abs) {
+                        require(2, token);
+                        sp -= 2;
+                        push_once();
+                    } else {
+                        push_once();
+                    }
+                    continue;
+                }
+            }
+
+            // number literal detection
+            try {
+                size_t pos = 0;
+                (void)std::stod(token, &pos);
+                if (pos == token.length()) {
+                    push_once();
+                    continue;
+                }
+            } catch (...) {
+            }
+            try {
+                size_t pos = 0;
+                (void)std::stoll(token, &pos, 0);
+                if (pos == token.length()) {
+                    push_once();
+                    continue;
+                }
+            } catch (...) {
+            }
+
+            throw std::runtime_error("Invalid token: " + token);
+        }
+
+        if (sp != 1) {
+            throw std::runtime_error(
+                "Expression stack not balanced: final stack depth = " +
+                std::to_string(sp) + ", expected 1.");
+        }
+    }
+
     // Helper to declare cmath functions in the LLVM module
     llvm::Function* getOrDeclareMathFunc(const std::string& name,
                                          llvm::FunctionType* ty) {
@@ -256,7 +490,7 @@ class Compiler {
     }
 
     void generate_rpn_logic(llvm::Value* x, llvm::Value* y) {
-        const int stack_size = 32;
+        const int stack_size = kStackSize;
         llvm::Type* float_ty = builder.getFloatTy();
         llvm::Type* double_ty = builder.getDoubleTy();
         llvm::Type* i32_ty = builder.getInt32Ty();
