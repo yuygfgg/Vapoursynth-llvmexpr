@@ -1,0 +1,6 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+Vapoursynth-llvmexpr requires LLVM 20.0.0 or higher.
