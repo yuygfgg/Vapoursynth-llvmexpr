@@ -26,6 +26,9 @@
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/TargetParser/Host.h"
 
+#include "llvm/Support/FileSystem.h"
+#include <system_error>
+
 #include "optimal_sorting_networks.hpp"
 
 // For JIT functions to call cmath functions
@@ -164,6 +167,7 @@ class Compiler {
     const std::vector<const VSVideoInfo*>& vi;
     int num_inputs;
     bool mirror_boundary;
+    std::string dump_ir_path;
     const std::map<std::pair<int, std::string>, int>& prop_map;
 
     std::unique_ptr<llvm::LLVMContext> context;
@@ -194,9 +198,11 @@ class Compiler {
   public:
     Compiler(std::string expr, const VSVideoInfo* out_vi,
              const std::vector<const VSVideoInfo*>& in_vi, bool mirror,
+             std::string dump_path,
              const std::map<std::pair<int, std::string>, int>& p_map)
         : rpn_expr(std::move(expr)), vo(out_vi), vi(in_vi),
-          num_inputs(in_vi.size()), mirror_boundary(mirror), prop_map(p_map),
+          num_inputs(in_vi.size()), mirror_boundary(mirror),
+          dump_ir_path(std::move(dump_path)), prop_map(p_map),
           context(std::make_unique<llvm::LLVMContext>()),
           module(std::make_unique<llvm::Module>("ExprJITModule", *context)),
           builder(*context) {
@@ -210,6 +216,19 @@ class Compiler {
         validate_rpn_stack();
         define_function_signature();
         generate_loops();
+
+        if (!dump_ir_path.empty()) {
+            std::error_code EC;
+            llvm::raw_fd_ostream dest(dump_ir_path, EC, llvm::sys::fs::OF_None);
+            if (EC) {
+                throw std::runtime_error(
+                    "Could not open file: " + EC.message() +
+                    " for writing IR to " + dump_ir_path);
+            } else {
+                module->print(dest, nullptr);
+                dest.flush();
+            }
+        }
 
         if (llvm::verifyFunction(*func, &llvm::errs())) {
             module->print(llvm::errs(), nullptr);
@@ -1331,6 +1350,7 @@ struct ExprData {
     std::string expr[3];
     CompiledFunction compiled[3];
     bool mirror_boundary;
+    std::string dump_ir_path;
 
     std::vector<std::pair<int, std::string>> required_props;
     std::map<std::pair<int, std::string>, int> prop_map;
@@ -1545,6 +1565,11 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
 
         d->mirror_boundary = vsapi->propGetInt(in, "boundary", 0, &err) != 0;
 
+        const char* dump_path = vsapi->propGetData(in, "dump_ir", 0, &err);
+        if (!err && dump_path) {
+            d->dump_ir_path = dump_path;
+        }
+
         for (int i = 0; i < d->vi.format->numPlanes; ++i) {
             if (expr_strs[i].empty()) {
                 d->plane_op[i] = PO_COPY;
@@ -1565,7 +1590,7 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
                                    std::to_string(i) + ": " + d->expr[i])
                                       .c_str());
                 Compiler compiler(d->expr[i], &d->vi, vi, d->mirror_boundary,
-                                  d->prop_map);
+                                  d->dump_ir_path, d->prop_map);
                 d->compiled[i] = compiler.compile();
                 jit_cache[key] = d->compiled[i];
             }
@@ -1592,6 +1617,7 @@ VapourSynthPluginInit(VSConfigPlugin configFunc,
     configFunc("com.yuygfgg.llvmexpr", "yuygfgg",
                "LLVM JIT RPN Expression Filter", VAPOURSYNTH_API_VERSION, 1,
                plugin);
-    registerFunc("Expr", "clips:clip[];expr:data[];boundary:int:opt;",
+    registerFunc("Expr",
+                 "clips:clip[];expr:data[];boundary:int:opt;dump_ir:data:opt;",
                  exprCreate, nullptr, plugin);
 }
