@@ -237,7 +237,7 @@ class Compiler {
             }
 
             if (token == "?" || token == "clip" || token == "clamp") {
-                int need = (token == "?") ? 3 : 3;
+                const int need = 3;
                 require(need, token);
                 // 3 -> 1
                 sp -= 2;
@@ -908,8 +908,16 @@ class Compiler {
                 push(clamped);
             }
 
-            else if (token == "sin" || token == "cos" || token == "tan" ||
-                     token == "asin" || token == "acos" || token == "atan") {
+            else if (token == "sin" || token == "cos") {
+                llvm::Intrinsic::ID intrinsic_id =
+                    (token == "sin") ? llvm::Intrinsic::sin
+                                     : llvm::Intrinsic::cos;
+                push(builder.CreateCall(
+                    llvm::Intrinsic::getOrInsertDeclaration(
+                        module.get(), intrinsic_id, {float_ty}),
+                    {pop()}));
+            } else if (token == "tan" || token == "asin" || token == "acos" ||
+                       token == "atan") {
                 llvm::FunctionType* func_ty =
                     llvm::FunctionType::get(double_ty, {double_ty}, false);
                 llvm::Function* f = getOrDeclareMathFunc(token, func_ty);

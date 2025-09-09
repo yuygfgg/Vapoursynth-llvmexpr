@@ -69,7 +69,7 @@ Numeric literals are pushed directly onto the stack.
 - `asin`: (1 operand) `x asin` is the arc sine of x.
 - `acos`: (1 operand) `x acos` is the arc cosine of x.
 - `atan`: (1 operand) `x atan` is the arc tangent of x.
-- `atan2`: (2 operands) `y x atan2` is the arc tangent of `y/x`.
+- `atan2`: (2 operands) `y x atan2` computes the arc tangent of `y/x`, using the signs of both arguments to determine the correct quadrant. It is equivalent to the standard C function `atan2(y, x)`.
 
 #### **2.5. Comparison & Logical Operators (2 operands)**
 
@@ -159,7 +159,7 @@ These are special operators that push a specific value onto the stack.
 
 #### **3.6. Bitwise Operators**
 
-These operators work on integers. Set `opt=1` in the function parameters to ensure integer evaluation for clips with more than 24 bits.
+These operators work on integers by truncating the floating-point values on the stack before the operation.
 
 - `bitand`: Bitwise AND.
 - `bitor`: Bitwise OR.
