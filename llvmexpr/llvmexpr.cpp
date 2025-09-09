@@ -15,17 +15,20 @@
 #include "VSHelper.h"
 #include "VapourSynth.h"
 
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ExecutionEngine/Orc/LLJIT.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/Passes/PassBuilder.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/TargetParser/Host.h"
+#include "llvm/TargetParser/Triple.h"
 
 #include "llvm/Support/FileSystem.h"
 #include <system_error>
@@ -132,6 +135,10 @@ class OrcJit {
                 lljit->getDataLayout().getGlobalPrefix())));
     }
 
+    const llvm::DataLayout& getDataLayout() const {
+        return lljit->getDataLayout();
+    }
+
     void addModule(std::unique_ptr<llvm::Module> M,
                    std::unique_ptr<llvm::LLVMContext> Ctx) {
         llvm::cantFail(lljit->addIRModule(
@@ -183,6 +190,10 @@ class Compiler {
     llvm::Value* width_arg;
     llvm::Value* height_arg;
 
+    // Loop-invariant caches
+    std::vector<llvm::Value*> preloaded_base_ptrs;
+    std::vector<llvm::Value*> preloaded_strides;
+
     // Create allocas in the function entry block to avoid per-iteration stack
     // growth
     llvm::AllocaInst* createAllocaInEntry(llvm::Type* type,
@@ -221,6 +232,48 @@ class Compiler {
         define_function_signature();
         generate_loops();
 
+        module->setDataLayout(global_jit.getDataLayout());
+
+        if (llvm::verifyModule(*module, &llvm::errs())) {
+            module->print(llvm::errs(), nullptr);
+            throw std::runtime_error(
+                "LLVM module verification failed (pre-opt).");
+        }
+
+        // Dump pre-optimization IR
+        if (!dump_ir_path.empty()) {
+            std::error_code EC;
+            std::string pre_path = dump_ir_path + ".pre.ll";
+            llvm::raw_fd_ostream dest_pre(pre_path, EC, llvm::sys::fs::OF_None);
+            if (!EC) {
+                module->print(dest_pre, nullptr);
+                dest_pre.flush();
+            }
+        }
+
+        {
+            llvm::LoopAnalysisManager LAM;
+            llvm::FunctionAnalysisManager FAM;
+            llvm::CGSCCAnalysisManager CGAM;
+            llvm::ModuleAnalysisManager MAM;
+
+            llvm::PassBuilder PB;
+            PB.registerModuleAnalyses(MAM);
+            PB.registerFunctionAnalyses(FAM);
+            PB.registerCGSCCAnalyses(CGAM);
+            PB.registerLoopAnalyses(LAM);
+            PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
+
+            llvm::ModulePassManager MPM =
+                PB.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::O3);
+            MPM.run(*module, MAM);
+        }
+
+        if (llvm::verifyModule(*module, &llvm::errs())) {
+            module->print(llvm::errs(), nullptr);
+            throw std::runtime_error("LLVM module verification failed.");
+        }
+
         if (!dump_ir_path.empty()) {
             std::error_code EC;
             llvm::raw_fd_ostream dest(dump_ir_path, EC, llvm::sys::fs::OF_None);
@@ -232,11 +285,6 @@ class Compiler {
                 module->print(dest, nullptr);
                 dest.flush();
             }
-        }
-
-        if (llvm::verifyFunction(*func, &llvm::errs())) {
-            module->print(llvm::errs(), nullptr);
-            throw std::runtime_error("LLVM function verification failed.");
         }
 
         global_jit.addModule(std::move(module), std::move(context));
@@ -586,6 +634,9 @@ class Compiler {
         width_arg->setName("width");
         height_arg = &*args++;
         height_arg->setName("height");
+
+        func->addParamAttr(1, llvm::Attribute::ReadOnly); // strides (int32_t*)
+        func->addParamAttr(2, llvm::Attribute::ReadOnly); // props (float*)
     }
 
     void generate_loops() {
@@ -606,6 +657,23 @@ class Compiler {
         llvm::Value* x_var_entry =
             builder.CreateAlloca(builder.getInt32Ty(), nullptr, "x.var");
         builder.CreateStore(builder.getInt32(0), y_var);
+
+        // Index 0 = dst, 1..num_inputs = sources
+        preloaded_base_ptrs.resize(num_inputs + 1);
+        preloaded_strides.resize(num_inputs + 1);
+        for (int i = 0; i <= num_inputs; ++i) {
+            llvm::Value* base_ptr_i = builder.CreateLoad(
+                llvm::PointerType::get(*context, 0),
+                builder.CreateGEP(llvm::PointerType::get(*context, 0),
+                                  rwptrs_arg, builder.getInt32(i)));
+            llvm::Value* stride_i = builder.CreateLoad(
+                builder.getInt32Ty(),
+                builder.CreateGEP(builder.getInt32Ty(), strides_arg,
+                                  builder.getInt32(i)));
+            preloaded_base_ptrs[i] = base_ptr_i;
+            preloaded_strides[i] = stride_i;
+        }
+
         builder.CreateBr(loop_y_header);
 
         builder.SetInsertPoint(loop_y_header);
@@ -633,15 +701,31 @@ class Compiler {
             builder.CreateLoad(builder.getInt32Ty(), x_var, "x");
         llvm::Value* x_cond = builder.CreateICmpSLT(x_val, width_arg, "x.cond");
 
-        // Add metadata to hint loop vectorization
-        llvm::MDNode* loop_metadata = llvm::MDNode::get(
-            *context,
-            {llvm::MDString::get(*context, "llvm.loop.vectorize.enable"),
-             llvm::ConstantAsMetadata::get(
-                 llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 1))});
+        // Add proper loop metadata to hint vectorization/interleave
+        llvm::Metadata* enable_vec[] = {
+            llvm::MDString::get(*context, "llvm.loop.vectorize.enable"),
+            llvm::ConstantAsMetadata::get(
+                llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 1))};
+        llvm::MDNode* enable_vec_node = llvm::MDNode::get(*context, enable_vec);
+
+        llvm::Metadata* interleave_md[] = {
+            llvm::MDString::get(*context, "llvm.loop.interleave.count"),
+            llvm::ConstantAsMetadata::get(
+                llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 4))};
+        llvm::MDNode* interleave_node =
+            llvm::MDNode::get(*context, interleave_md);
+
+        llvm::SmallVector<llvm::Metadata*, 4> loop_md_elems;
+        loop_md_elems.push_back(nullptr); // to be replaced with self reference
+        loop_md_elems.push_back(enable_vec_node);
+        loop_md_elems.push_back(interleave_node);
+        llvm::MDNode* loop_id =
+            llvm::MDNode::getDistinct(*context, loop_md_elems);
+        loop_id->replaceOperandWith(0, loop_id);
+
         llvm::BranchInst* loop_br =
             builder.CreateCondBr(x_cond, loop_x_body, loop_x_exit);
-        loop_br->setMetadata(llvm::LLVMContext::MD_loop, loop_metadata);
+        loop_br->setMetadata(llvm::LLVMContext::MD_loop, loop_id);
 
         builder.SetInsertPoint(loop_x_body);
         generate_rpn_logic(x_val, y_val);
@@ -1207,14 +1291,8 @@ class Compiler {
         int bpp = format->bytesPerSample;
         int vs_clip_idx = clip_idx + 1; // 0 is dst
 
-        llvm::Value* base_ptr = builder.CreateLoad(
-            llvm::PointerType::get(*context, 0),
-            builder.CreateGEP(llvm::PointerType::get(*context, 0), rwptrs_arg,
-                              builder.getInt32(vs_clip_idx)));
-        llvm::Value* stride = builder.CreateLoad(
-            builder.getInt32Ty(),
-            builder.CreateGEP(builder.getInt32Ty(), strides_arg,
-                              builder.getInt32(vs_clip_idx)));
+        llvm::Value* base_ptr = preloaded_base_ptrs[vs_clip_idx];
+        llvm::Value* stride = preloaded_strides[vs_clip_idx];
 
         llvm::Value* y_offset = builder.CreateMul(clamped_y, stride);
         llvm::Value* x_offset =
@@ -1255,14 +1333,8 @@ class Compiler {
         int bpp = format->bytesPerSample;
         int dst_idx = 0;
 
-        llvm::Value* base_ptr = builder.CreateLoad(
-            llvm::PointerType::get(*context, 0),
-            builder.CreateGEP(llvm::PointerType::get(*context, 0), rwptrs_arg,
-                              builder.getInt32(dst_idx)));
-        llvm::Value* stride = builder.CreateLoad(
-            builder.getInt32Ty(),
-            builder.CreateGEP(builder.getInt32Ty(), strides_arg,
-                              builder.getInt32(dst_idx)));
+        llvm::Value* base_ptr = preloaded_base_ptrs[dst_idx];
+        llvm::Value* stride = preloaded_strides[dst_idx];
 
         llvm::Value* y_offset = builder.CreateMul(y, stride);
         llvm::Value* x_offset = builder.CreateMul(x, builder.getInt32(bpp));
@@ -1305,8 +1377,7 @@ class Compiler {
             if (bpp == 4) {
                 builder.CreateStore(value_to_store, pixel_addr);
             } else {
-                throw std::runtime_error("16-bit float output not supported in "
-                                         "this simplified JIT version.");
+                throw std::runtime_error("16-bit float output not supported.");
             }
         }
     }
