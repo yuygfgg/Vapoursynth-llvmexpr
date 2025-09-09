@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cctype>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -9,7 +10,6 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
-#include <cctype>
 
 #include "VSHelper.h"
 #include "VapourSynth.h"
@@ -578,34 +578,20 @@ class Compiler {
     }
 
     void generate_rpn_logic(llvm::Value* x, llvm::Value* y) {
-        const int stack_size = kStackSize;
         llvm::Type* float_ty = builder.getFloatTy();
         llvm::Type* double_ty = builder.getDoubleTy();
         llvm::Type* i32_ty = builder.getInt32Ty();
-        llvm::ArrayType* stack_ty = llvm::ArrayType::get(float_ty, stack_size);
-        llvm::Value* stack_ptr =
-            createAllocaInEntry(stack_ty, nullptr, "rpn_stack");
-        llvm::Value* sp = createAllocaInEntry(i32_ty, nullptr, "sp");
-        builder.CreateStore(builder.getInt32(0), sp);
 
         std::unordered_map<std::string, llvm::Value*> named_vars;
 
-        auto push = [&](llvm::Value* val) {
-            llvm::Value* sp_val = builder.CreateLoad(i32_ty, sp, "sp_val");
-            llvm::Value* slot_ptr = builder.CreateGEP(
-                stack_ty, stack_ptr, {builder.getInt32(0), sp_val});
-            builder.CreateStore(val, slot_ptr);
-            builder.CreateStore(builder.CreateAdd(sp_val, builder.getInt32(1)),
-                                sp);
-        };
+        std::vector<llvm::Value*> stack;
+        stack.reserve(128);
+
+        auto push = [&](llvm::Value* val) { stack.push_back(val); };
         auto pop = [&]() -> llvm::Value* {
-            llvm::Value* sp_val = builder.CreateLoad(i32_ty, sp, "sp_val");
-            llvm::Value* new_sp_val =
-                builder.CreateSub(sp_val, builder.getInt32(1));
-            builder.CreateStore(new_sp_val, sp);
-            llvm::Value* slot_ptr = builder.CreateGEP(
-                stack_ty, stack_ptr, {builder.getInt32(0), new_sp_val});
-            return builder.CreateLoad(float_ty, slot_ptr, "popped_val");
+            llvm::Value* v = stack.back();
+            stack.pop_back();
+            return v;
         };
 
         std::stringstream ss(rpn_expr);
@@ -789,63 +775,33 @@ class Compiler {
             }
 
             else if (token == "dup") {
-                auto a = pop();
-                push(a);
-                push(a);
+                push(stack.back());
             } else if (token.rfind("dup", 0) == 0 && token.length() > 3) {
                 try {
                     int n = std::stoi(token.substr(3));
-                    llvm::Value* sp_val =
-                        builder.CreateLoad(i32_ty, sp, "sp_val");
-                    llvm::Value* index =
-                        builder.CreateSub(sp_val, builder.getInt32(1 + n));
-                    llvm::Value* slot_ptr = builder.CreateGEP(
-                        stack_ty, stack_ptr, {builder.getInt32(0), index});
-                    llvm::Value* val = builder.CreateLoad(float_ty, slot_ptr);
+                    llvm::Value* val = stack[stack.size() - 1 - n];
                     push(val);
                 } catch (...) {
                     throw std::runtime_error("Invalid dupN operator: " + token);
                 }
             } else if (token == "drop") {
-                pop();
+                (void)pop();
             } else if (token.rfind("drop", 0) == 0 && token.length() > 4) {
                 try {
                     int n = std::stoi(token.substr(4));
-                    llvm::Value* sp_val =
-                        builder.CreateLoad(i32_ty, sp, "sp_val");
-                    builder.CreateStore(
-                        builder.CreateSub(sp_val, builder.getInt32(n)), sp);
+                    stack.resize(stack.size() - n);
                 } catch (...) {
                     throw std::runtime_error("Invalid dropN operator: " +
                                              token);
                 }
             } else if (token == "swap") {
-                auto b = pop();
-                auto a = pop();
-                push(b);
-                push(a);
+                std::swap(stack[stack.size() - 1], stack[stack.size() - 2]);
             } else if (token.rfind("swap", 0) == 0 && token.length() > 4) {
                 try {
                     int n = std::stoi(token.substr(4));
-                    llvm::Value* sp_val =
-                        builder.CreateLoad(i32_ty, sp, "sp_val");
-                    llvm::Value* top_idx =
-                        builder.CreateSub(sp_val, builder.getInt32(1));
-                    llvm::Value* n_idx =
-                        builder.CreateSub(sp_val, builder.getInt32(1 + n));
-
-                    llvm::Value* top_ptr = builder.CreateGEP(
-                        stack_ty, stack_ptr, {builder.getInt32(0), top_idx});
-                    llvm::Value* n_ptr = builder.CreateGEP(
-                        stack_ty, stack_ptr, {builder.getInt32(0), n_idx});
-
-                    llvm::Value* top_val =
-                        builder.CreateLoad(float_ty, top_ptr, "top_val");
-                    llvm::Value* n_val =
-                        builder.CreateLoad(float_ty, n_ptr, "n_val");
-
-                    builder.CreateStore(n_val, top_ptr);
-                    builder.CreateStore(top_val, n_ptr);
+                    size_t top_index = stack.size() - 1;
+                    size_t n_index = stack.size() - 1 - n;
+                    std::swap(stack[top_index], stack[n_index]);
                 } catch (...) {
                     throw std::runtime_error("Invalid swapN operator: " +
                                              token);
