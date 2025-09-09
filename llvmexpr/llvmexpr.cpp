@@ -24,16 +24,55 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetOptions.h"
+#include "llvm/TargetParser/Host.h"
+
+#include "optimal_sorting_networks.hpp"
 
 // For JIT functions to call cmath functions
 #include <cmath>
 
 namespace {
 
-extern "C" {
-void sort_floats_adapter(float* data, int size) {
-    std::sort(data, data + size);
+void compare_swap_ir(llvm::IRBuilder<>& builder, llvm::Value* array, int i,
+                     int j, llvm::Type* float_ty) {
+    llvm::Value* val_i_ptr =
+        builder.CreateGEP(float_ty, array, builder.getInt32(i));
+    llvm::Value* val_j_ptr =
+        builder.CreateGEP(float_ty, array, builder.getInt32(j));
+    llvm::Value* val_i = builder.CreateLoad(float_ty, val_i_ptr, "val_i");
+    llvm::Value* val_j = builder.CreateLoad(float_ty, val_j_ptr, "val_j");
+
+    llvm::Value* cond = builder.CreateFCmpOGT(val_i, val_j);
+
+    llvm::Value* min_val = builder.CreateSelect(cond, val_j, val_i);
+    llvm::Value* max_val = builder.CreateSelect(cond, val_i, val_j);
+
+    builder.CreateStore(min_val, val_i_ptr);
+    builder.CreateStore(max_val, val_j_ptr);
 }
+
+void oem_merge_pairs(std::vector<std::pair<int, int>>& pairs, int lo, int n,
+                     int r) {
+    int m = r * 2;
+    if (m < n) {
+        oem_merge_pairs(pairs, lo, n, m);
+        oem_merge_pairs(pairs, lo + r, n, m);
+        for (int i = lo + r; i < lo + n - r; i += m) {
+            pairs.push_back({i, i + r});
+        }
+    } else {
+        pairs.push_back({lo, lo + r});
+    }
+}
+
+void generate_oem_sort_pairs(std::vector<std::pair<int, int>>& pairs, int lo,
+                             int n) {
+    if (n > 1) {
+        int m = n / 2;
+        generate_oem_sort_pairs(pairs, lo, m);
+        generate_oem_sort_pairs(pairs, lo + m, m);
+        oem_merge_pairs(pairs, lo, n, 1);
+    }
 }
 
 class OrcJit {
@@ -53,6 +92,17 @@ class OrcJit {
         auto jtmb =
             llvm::cantFail(llvm::orc::JITTargetMachineBuilder::detectHost());
         jtmb.setCodeGenOptLevel(llvm::CodeGenOptLevel::Aggressive);
+
+        llvm::StringMap<bool> host_features = llvm::sys::getHostCPUFeatures();
+        if (host_features.size() > 0) {
+            std::vector<std::string> features;
+            for (auto& f : host_features) {
+                if (f.getValue()) {
+                    features.push_back("+" + f.getKey().str());
+                }
+            }
+            jtmb.addFeatures(features);
+        }
 
         llvm::TargetOptions Opts;
         Opts.AllowFPOpFusion = llvm::FPOpFusion::Fast;
@@ -559,7 +609,16 @@ class Compiler {
         llvm::Value* x_val =
             builder.CreateLoad(builder.getInt32Ty(), x_var, "x");
         llvm::Value* x_cond = builder.CreateICmpSLT(x_val, width_arg, "x.cond");
-        builder.CreateCondBr(x_cond, loop_x_body, loop_x_exit);
+
+        // Add metadata to hint loop vectorization
+        llvm::MDNode* loop_metadata = llvm::MDNode::get(
+            *context,
+            {llvm::MDString::get(*context, "llvm.loop.vectorize.enable"),
+             llvm::ConstantAsMetadata::get(
+                 llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 1))});
+        llvm::BranchInst* loop_br =
+            builder.CreateCondBr(x_cond, loop_x_body, loop_x_exit);
+        loop_br->setMetadata(llvm::LLVMContext::MD_loop, loop_metadata);
 
         builder.SetInsertPoint(loop_x_body);
         generate_rpn_logic(x_val, y_val);
@@ -579,7 +638,6 @@ class Compiler {
 
     void generate_rpn_logic(llvm::Value* x, llvm::Value* y) {
         llvm::Type* float_ty = builder.getFloatTy();
-        llvm::Type* double_ty = builder.getDoubleTy();
         llvm::Type* i32_ty = builder.getInt32Ty();
 
         std::unordered_map<std::string, llvm::Value*> named_vars;
@@ -822,14 +880,28 @@ class Compiler {
                         builder.CreateStore(val, elem_ptr);
                     }
 
-                    llvm::FunctionType* sort_func_ty = llvm::FunctionType::get(
-                        builder.getVoidTy(),
-                        {llvm::PointerType::get(float_ty, 0), i32_ty}, false);
-                    llvm::FunctionCallee sort_func =
-                        module->getOrInsertFunction("sort_floats_adapter",
-                                                    sort_func_ty);
-
-                    builder.CreateCall(sort_func, {array, builder.getInt32(n)});
+                    // Generate sorting network
+                    const auto network = get_optimal_sorting_network(n);
+                    if (!network.empty()) {
+                        for (const auto& pair : network) {
+                            if (pair.second < n) { // Bounds check
+                                compare_swap_ir(builder, array, pair.first,
+                                                pair.second, float_ty);
+                            }
+                        }
+                    } else {
+                        std::vector<std::pair<int, int>> pairs;
+                        int p = 1;
+                        while (p < n)
+                            p <<= 1;
+                        generate_oem_sort_pairs(pairs, 0, p);
+                        for (const auto& pair : pairs) {
+                            if (pair.second < n) {
+                                compare_swap_ir(builder, array, pair.first,
+                                                pair.second, float_ty);
+                            }
+                        }
+                    }
 
                     // Push the sorted values back onto the stack, so the
                     // smallest is on top
@@ -948,19 +1020,16 @@ class Compiler {
             } else if (token == "tan" || token == "asin" || token == "acos" ||
                        token == "atan") {
                 llvm::FunctionType* func_ty =
-                    llvm::FunctionType::get(double_ty, {double_ty}, false);
-                llvm::Function* f = getOrDeclareMathFunc(token, func_ty);
-                llvm::Value* arg = builder.CreateFPExt(pop(), double_ty);
-                llvm::Value* result = builder.CreateCall(f, {arg});
-                push(builder.CreateFPTrunc(result, float_ty));
+                    llvm::FunctionType::get(float_ty, {float_ty}, false);
+                llvm::Function* f = getOrDeclareMathFunc(token + "f", func_ty);
+                push(builder.CreateCall(f, {pop()}));
             } else if (token == "atan2") {
                 llvm::FunctionType* func_ty = llvm::FunctionType::get(
-                    double_ty, {double_ty, double_ty}, false);
-                llvm::Function* f = getOrDeclareMathFunc(token, func_ty);
-                llvm::Value* arg2 = builder.CreateFPExt(pop(), double_ty);
-                llvm::Value* arg1 = builder.CreateFPExt(pop(), double_ty);
-                llvm::Value* result = builder.CreateCall(f, {arg1, arg2});
-                push(builder.CreateFPTrunc(result, float_ty));
+                    float_ty, {float_ty, float_ty}, false);
+                llvm::Function* f = getOrDeclareMathFunc(token + "f", func_ty);
+                llvm::Value* arg2 = pop();
+                llvm::Value* arg1 = pop();
+                push(builder.CreateCall(f, {arg1, arg2}));
             }
 
             else if (token.back() == '!') {
