@@ -114,10 +114,12 @@ These are special operators that push a specific value onto the stack.
 - `width`: Pushes the width of the frame.
 - `height`: Pushes the height of the frame.
 
-#### **3.2. Frame Property Access (Not implemented yet)**
+#### **3.2. Frame Property Access**
 
-- `clip.PropertyName`: Loads a scalar numerical frame property.
-  - **Example:** `x.PlaneStatsAverage` pushes the average pixel value of the current plane from the first clip. If the property doesn't exist, the value is `NaN`.
+- `clip.PropertyName`: Loads a scalar numerical frame property. `clip` can be `x`, `y`, `z`, `a`-`w`, or `srcN`.
+  - **Example:** `x.PlaneStatsAverage` pushes the value of the `PlaneStatsAverage` property from the first clip's frame properties.
+  - If the property is not a scalar numerical property, its value will be its first byte.
+  - If the property does not exist, its value will be `NaN` (Not a Number).
 
 #### **3.3. Additional Math & Logic**
 

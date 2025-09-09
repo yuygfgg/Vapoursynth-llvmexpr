@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <regex>
@@ -6,6 +7,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "VSHelper.h"
@@ -17,8 +19,10 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/Support/CodeGen.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Target/TargetOptions.h"
 
 // For JIT functions to call cmath functions
 #include <cmath>
@@ -45,9 +49,19 @@ class OrcJit {
             }
         } initializer;
 
+        auto jtmb =
+            llvm::cantFail(llvm::orc::JITTargetMachineBuilder::detectHost());
+        jtmb.setCodeGenOptLevel(llvm::CodeGenOptLevel::Aggressive);
+
+        llvm::TargetOptions Opts;
+        Opts.AllowFPOpFusion = llvm::FPOpFusion::Fast;
+        Opts.UnsafeFPMath = true;
+        Opts.NoInfsFPMath = true;
+        Opts.NoNaNsFPMath = true;
+        jtmb.setOptions(Opts);
+
         auto jit_builder = llvm::orc::LLJITBuilder();
-        jit_builder.setJITTargetMachineBuilder(
-            llvm::cantFail(llvm::orc::JITTargetMachineBuilder::detectHost()));
+        jit_builder.setJITTargetMachineBuilder(std::move(jtmb));
         auto temp_jit = jit_builder.create();
         if (!temp_jit) {
             llvm::errs() << "Failed to create LLJIT instance: "
@@ -99,6 +113,7 @@ class Compiler {
     const std::vector<const VSVideoInfo*>& vi;
     int num_inputs;
     bool mirror_boundary;
+    const std::map<std::pair<int, std::string>, int>& prop_map;
 
     std::unique_ptr<llvm::LLVMContext> context;
     std::unique_ptr<llvm::Module> module;
@@ -111,7 +126,8 @@ class Compiler {
     llvm::Value* width_arg;
     llvm::Value* height_arg;
 
-    // Create allocas in the function entry block to avoid per-iteration stack growth
+    // Create allocas in the function entry block to avoid per-iteration stack
+    // growth
     llvm::AllocaInst* createAllocaInEntry(llvm::Type* type,
                                           llvm::Value* arraySize,
                                           const std::string& name) {
@@ -126,12 +142,17 @@ class Compiler {
 
   public:
     Compiler(std::string expr, const VSVideoInfo* out_vi,
-             const std::vector<const VSVideoInfo*>& in_vi, bool mirror)
+             const std::vector<const VSVideoInfo*>& in_vi, bool mirror,
+             const std::map<std::pair<int, std::string>, int>& p_map)
         : rpn_expr(std::move(expr)), vo(out_vi), vi(in_vi),
-          num_inputs(in_vi.size()), mirror_boundary(mirror),
+          num_inputs(in_vi.size()), mirror_boundary(mirror), prop_map(p_map),
           context(std::make_unique<llvm::LLVMContext>()),
           module(std::make_unique<llvm::Module>("ExprJITModule", *context)),
-          builder(*context) {}
+          builder(*context) {
+        llvm::FastMathFlags FMF;
+        FMF.setFast();
+        builder.setFastMathFlags(FMF);
+    }
 
     CompiledFunction compile() {
         // Validate the RPN expression stack behavior before generating IR
@@ -174,10 +195,9 @@ class Compiler {
             if (sp > max_sp)
                 max_sp = sp;
             if (sp > stack_limit) {
-                throw std::runtime_error(
-                    "Stack overflow: requires depth " +
-                    std::to_string(sp) + " but limit is " +
-                    std::to_string(stack_limit));
+                throw std::runtime_error("Stack overflow: requires depth " +
+                                         std::to_string(sp) + " but limit is " +
+                                         std::to_string(stack_limit));
             }
         };
 
@@ -190,15 +210,17 @@ class Compiler {
             R"(^(?:src(\d+)|([x-za-w]))\[(-?\d+),(-?\d+)\](?::([cm]))?$)");
         std::regex re_abs(R"(^(?:src(\d+)|([x-za-w]))\[\]$)");
         std::regex re_cur(R"(^(?:src(\d+)|([x-za-w]))$)");
+        std::regex re_prop(
+            R"(^(?:src(\d+)|([x-za-w]))\.([a-zA-Z_][a-zA-Z0-9_]*)$)");
 
         while (ss >> token) {
-            if (token == "+" || token == "-" || token == "*" ||
-                token == "/" || token == "%" || token == ">" ||
-                token == "<" || token == ">=" || token == "<=" ||
-                token == "=" || token == "and" || token == "or" ||
-                token == "xor" || token == "bitand" || token == "bitor" ||
-                token == "bitxor" || token == "min" || token == "max" ||
-                token == "pow" || token == "**" || token == "atan2") {
+            if (token == "+" || token == "-" || token == "*" || token == "/" ||
+                token == "%" || token == ">" || token == "<" || token == ">=" ||
+                token == "<=" || token == "=" || token == "and" ||
+                token == "or" || token == "xor" || token == "bitand" ||
+                token == "bitor" || token == "bitxor" || token == "min" ||
+                token == "max" || token == "pow" || token == "**" ||
+                token == "atan2") {
                 require(2, token);
                 // 2 -> 1
                 --sp;
@@ -237,8 +259,7 @@ class Compiler {
                                                  token + "'");
                     push_once();
                 } catch (...) {
-                    throw std::runtime_error("Invalid dupN operator: " +
-                                             token);
+                    throw std::runtime_error("Invalid dupN operator: " + token);
                 }
                 continue;
             }
@@ -321,6 +342,28 @@ class Compiler {
                 }
                 push_once();
                 continue;
+            }
+
+            {
+                std::smatch match;
+                if (std::regex_match(token, match, re_prop)) {
+                    int clip_idx = -1;
+                    if (match[1].matched)
+                        clip_idx = std::stoi(match[1].str());
+                    else if (match[2].matched) {
+                        char c = match[2].str()[0];
+                        if (c >= 'x' && c <= 'z')
+                            clip_idx = c - 'x';
+                        else
+                            clip_idx = c - 'a' + 3;
+                    }
+                    if (clip_idx < 0 || clip_idx >= num_inputs) {
+                        throw std::runtime_error(
+                            "Invalid clip index in property access: " + token);
+                    }
+                    push_once();
+                    continue;
+                }
             }
 
             // Clip access or number literal or invalid token
@@ -524,9 +567,13 @@ class Compiler {
         std::string token;
 
         std::regex re_rel(
+            R"(^(?:src(\d+)|([x-za-w]))\((-?\d+),(-?\d+)\)(?::([cm]))?$)");
+        std::regex re_rel_bracket(
             R"(^(?:src(\d+)|([x-za-w]))\[(-?\d+),(-?\d+)\](?::([cm]))?$)");
         std::regex re_abs(R"(^(?:src(\d+)|([x-za-w]))\[\]$)");
         std::regex re_cur(R"(^(?:src(\d+)|([x-za-w]))$)");
+        std::regex re_prop(
+            R"(^(?:src(\d+)|([x-za-w]))\.([a-zA-Z_][a-zA-Z0-9_]*)$)");
 
         while (ss >> token) {
             if (token == "+") {
@@ -901,69 +948,100 @@ class Compiler {
 
             else {
                 std::smatch match;
-                int clip_idx = -1;
-                bool is_rel = std::regex_match(token, match, re_rel);
-                bool is_abs = !is_rel && std::regex_match(token, match, re_abs);
-                bool is_cur = !is_rel && !is_abs &&
-                              std::regex_match(token, match, re_cur);
-
-                if (is_rel || is_abs || is_cur) {
+                if (std::regex_match(token, match, re_prop)) {
+                    int clip_idx = -1;
                     if (match[1].matched)
                         clip_idx = std::stoi(match[1].str());
                     else if (match[2].matched) {
                         char c = match[2].str()[0];
-                        if (c >= 'x' && c <= 'z') {
+                        if (c >= 'x' && c <= 'z')
                             clip_idx = c - 'x';
-                        } else { // a-w
+                        else
                             clip_idx = c - 'a' + 3;
-                        }
                     }
-
-                    if (clip_idx < 0 || clip_idx >= num_inputs)
+                    std::string prop_name = match[3].str();
+                    auto key = std::make_pair(clip_idx, prop_name);
+                    if (prop_map.count(key) == 0) {
+                        // This should not happen if logic is correct
                         throw std::runtime_error(
-                            "Invalid clip index in token: " + token);
+                            "Internal error: property not found in map: " +
+                            token);
+                    }
+                    int prop_idx = prop_map.at(key);
+                    llvm::Value* prop_val = builder.CreateLoad(
+                        float_ty,
+                        builder.CreateGEP(float_ty, props_arg,
+                                          builder.getInt32(prop_idx)));
+                    push(prop_val);
+                } else {
+                    int clip_idx = -1;
+                    bool is_rel =
+                        std::regex_match(token, match, re_rel) ||
+                        std::regex_match(token, match, re_rel_bracket);
+                    bool is_abs =
+                        !is_rel && std::regex_match(token, match, re_abs);
+                    bool is_cur = !is_rel && !is_abs &&
+                                  std::regex_match(token, match, re_cur);
 
-                    llvm::Value *coord_x, *coord_y;
-                    if (is_rel) {
-                        coord_x = builder.CreateAdd(
-                            x, builder.getInt32(std::stoi(match[3].str())));
-                        coord_y = builder.CreateAdd(
-                            y, builder.getInt32(std::stoi(match[4].str())));
-                        bool use_mirror = mirror_boundary;
-                        if (match[5].matched)
-                            use_mirror = (match[5].str() == "m");
-                        push(generate_pixel_load(clip_idx, coord_x, coord_y,
-                                                 use_mirror));
-                    } else if (is_abs) {
-                        coord_y = builder.CreateFPToSI(pop(), i32_ty);
-                        coord_x = builder.CreateFPToSI(pop(), i32_ty);
-                        push(generate_pixel_load(clip_idx, coord_x, coord_y,
-                                                 mirror_boundary));
-                    } else { // is_cur
-                        push(generate_pixel_load(clip_idx, x, y,
-                                                 mirror_boundary));
-                    }
-                } else { // Number
-                    try {
-                        size_t pos;
-                        double val = std::stod(token, &pos);
-                        if (pos == token.length()) {
-                            push(llvm::ConstantFP::get(float_ty, val));
-                            continue;
+                    if (is_rel || is_abs || is_cur) {
+                        if (match[1].matched)
+                            clip_idx = std::stoi(match[1].str());
+                        else if (match[2].matched) {
+                            char c = match[2].str()[0];
+                            if (c >= 'x' && c <= 'z') {
+                                clip_idx = c - 'x';
+                            } else { // a-w
+                                clip_idx = c - 'a' + 3;
+                            }
                         }
-                    } catch (...) {
-                    }
-                    try {
-                        size_t pos;
-                        long long val =
-                            std::stoll(token, &pos, 0); // 0 detects base
-                        if (pos == token.length()) {
-                            push(llvm::ConstantFP::get(float_ty, (double)val));
-                            continue;
+
+                        if (clip_idx < 0 || clip_idx >= num_inputs)
+                            throw std::runtime_error(
+                                "Invalid clip index in token: " + token);
+
+                        llvm::Value *coord_x, *coord_y;
+                        if (is_rel) {
+                            coord_x = builder.CreateAdd(
+                                x, builder.getInt32(std::stoi(match[3].str())));
+                            coord_y = builder.CreateAdd(
+                                y, builder.getInt32(std::stoi(match[4].str())));
+                            bool use_mirror = mirror_boundary;
+                            if (match[5].matched)
+                                use_mirror = (match[5].str() == "m");
+                            push(generate_pixel_load(clip_idx, coord_x, coord_y,
+                                                     use_mirror));
+                        } else if (is_abs) {
+                            coord_y = builder.CreateFPToSI(pop(), i32_ty);
+                            coord_x = builder.CreateFPToSI(pop(), i32_ty);
+                            push(generate_pixel_load(clip_idx, coord_x, coord_y,
+                                                     mirror_boundary));
+                        } else { // is_cur
+                            push(generate_pixel_load(clip_idx, x, y,
+                                                     mirror_boundary));
                         }
-                    } catch (...) {
+                    } else { // Number
+                        try {
+                            size_t pos;
+                            double val = std::stod(token, &pos);
+                            if (pos == token.length()) {
+                                push(llvm::ConstantFP::get(float_ty, val));
+                                continue;
+                            }
+                        } catch (...) {
+                        }
+                        try {
+                            size_t pos;
+                            long long val =
+                                std::stoll(token, &pos, 0); // 0 detects base
+                            if (pos == token.length()) {
+                                push(llvm::ConstantFP::get(float_ty,
+                                                           (double)val));
+                                continue;
+                            }
+                        } catch (...) {
+                        }
+                        throw std::runtime_error("Invalid token: " + token);
                     }
-                    throw std::runtime_error("Invalid token: " + token);
                 }
             }
         }
@@ -1129,15 +1207,22 @@ struct ExprData {
     std::string expr[3];
     CompiledFunction compiled[3];
     bool mirror_boundary;
+
+    std::vector<std::pair<int, std::string>> required_props;
+    std::map<std::pair<int, std::string>, int> prop_map;
 };
 
-std::string generate_cache_key(const std::string& expr, const VSVideoInfo* vo,
-                               const std::vector<const VSVideoInfo*>& vi,
-                               bool mirror) {
+std::string
+generate_cache_key(const std::string& expr, const VSVideoInfo* vo,
+                   const std::vector<const VSVideoInfo*>& vi, bool mirror,
+                   const std::map<std::pair<int, std::string>, int>& prop_map) {
     std::stringstream ss;
     ss << "expr=" << expr << "|mirror=" << mirror << "|out=" << vo->format->id;
     for (size_t i = 0; i < vi.size(); ++i) {
         ss << "|in" << i << "=" << vi[i]->format->id;
+    }
+    for (const auto& [key, val] : prop_map) {
+        ss << "|prop" << val << "=" << key.first << "." << key.second;
     }
     return ss.str();
 }
@@ -1177,7 +1262,42 @@ const VSFrameRef* VS_CC exprGetFrame(int n, int activationReason,
 
         std::vector<uint8_t*> rwptrs(d->num_inputs + 1);
         std::vector<int> strides(d->num_inputs + 1);
-        std::vector<float> props = {(float)n};
+        std::vector<float> props(1 + d->required_props.size());
+        props[0] = (float)n;
+
+        for (size_t i = 0; i < d->required_props.size(); ++i) {
+            const auto& prop_info = d->required_props[i];
+            int clip_idx = prop_info.first;
+            const std::string& prop_name = prop_info.second;
+            int prop_array_idx = i + 1;
+
+            const VSMap* props_map =
+                vsapi->getFramePropsRO(src_frames[clip_idx]);
+            int err = 0;
+            int type = vsapi->propGetType(props_map, prop_name.c_str());
+
+            if (type == ptInt) {
+                props[prop_array_idx] = (float)vsapi->propGetInt(
+                    props_map, prop_name.c_str(), 0, &err);
+            } else if (type == ptFloat) {
+                props[prop_array_idx] = (float)vsapi->propGetFloat(
+                    props_map, prop_name.c_str(), 0, &err);
+            } else if (type == ptData) {
+                if (vsapi->propGetDataSize(props_map, prop_name.c_str(), 0,
+                                           &err) > 0 &&
+                    !err)
+                    props[prop_array_idx] = (float)vsapi->propGetData(
+                        props_map, prop_name.c_str(), 0, &err)[0];
+                else
+                    err = 1;
+            } else {
+                err = 1;
+            }
+
+            if (err) {
+                props[prop_array_idx] = NAN;
+            }
+        }
 
         for (int plane = 0; plane < d->vi.format->numPlanes; ++plane) {
             if (d->plane_op[plane] == PO_PROCESS) {
@@ -1259,6 +1379,46 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
             expr_strs[i] = expr_strs[nexpr - 1];
         }
 
+        std::regex prop_re(
+            R"((?:src(\d+)|([x-za-w]))\.([a-zA-Z_][a-zA-Z0-9_]*))");
+
+        for (int i = 0; i < d->vi.format->numPlanes; ++i) {
+            if (expr_strs[i].empty())
+                continue;
+
+            std::stringstream ss(expr_strs[i]);
+            std::string token;
+            while (ss >> token) {
+                std::smatch match;
+                if (std::regex_match(token, match, prop_re)) {
+                    int clip_idx = -1;
+                    if (match[1].matched) {
+                        clip_idx = std::stoi(match[1].str());
+                    } else { // match[2]
+                        char c = match[2].str()[0];
+                        if (c >= 'x' && c <= 'z')
+                            clip_idx = c - 'x';
+                        else
+                            clip_idx = c - 'a' + 3;
+                    }
+                    std::string prop_name = match[3].str();
+
+                    if (clip_idx < 0 || clip_idx >= d->num_inputs) {
+                        throw std::runtime_error(
+                            "Invalid clip index in property access: " + token);
+                    }
+
+                    auto key = std::make_pair(clip_idx, prop_name);
+                    if (d->prop_map.find(key) == d->prop_map.end()) {
+                        d->prop_map[key] =
+                            1 +
+                            d->required_props.size(); // 0 is for frame number N
+                        d->required_props.push_back(key);
+                    }
+                }
+            }
+        }
+
         d->mirror_boundary = vsapi->propGetInt(in, "boundary", 0, &err) != 0;
 
         for (int i = 0; i < d->vi.format->numPlanes; ++i) {
@@ -1269,8 +1429,8 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
             d->plane_op[i] = PO_PROCESS;
             d->expr[i] = expr_strs[i];
 
-            std::string key =
-                generate_cache_key(d->expr[i], &d->vi, vi, d->mirror_boundary);
+            std::string key = generate_cache_key(
+                d->expr[i], &d->vi, vi, d->mirror_boundary, d->prop_map);
 
             std::lock_guard<std::mutex> lock(cache_mutex);
             if (jit_cache.count(key)) {
@@ -1280,7 +1440,8 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
                                   ("JIT compiling expression for plane " +
                                    std::to_string(i) + ": " + d->expr[i])
                                       .c_str());
-                Compiler compiler(d->expr[i], &d->vi, vi, d->mirror_boundary);
+                Compiler compiler(d->expr[i], &d->vi, vi, d->mirror_boundary,
+                                  d->prop_map);
                 d->compiled[i] = compiler.compile();
                 jit_cache[key] = d->compiled[i];
             }
