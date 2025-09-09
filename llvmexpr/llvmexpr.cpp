@@ -1022,20 +1022,20 @@ class Compiler {
                     } else { // Number
                         try {
                             size_t pos;
-                            double val = std::stod(token, &pos);
+                            long long val =
+                                std::stoll(token, &pos, 0); // 0 detects base
                             if (pos == token.length()) {
-                                push(llvm::ConstantFP::get(float_ty, val));
+                                push(llvm::ConstantFP::get(float_ty,
+                                                           (double)val));
                                 continue;
                             }
                         } catch (...) {
                         }
                         try {
                             size_t pos;
-                            long long val =
-                                std::stoll(token, &pos, 0); // 0 detects base
+                            double val = std::stod(token, &pos);
                             if (pos == token.length()) {
-                                push(llvm::ConstantFP::get(float_ty,
-                                                           (double)val));
+                                push(llvm::ConstantFP::get(float_ty, val));
                                 continue;
                             }
                         } catch (...) {
@@ -1176,7 +1176,7 @@ class Compiler {
 
             auto ge_max = builder.CreateICmpSGE(coord, max);
             auto v_ge_max = builder.CreateSub(
-                builder.CreateSub(builder.CreateMul(c2, max), c1), coord);
+                builder.CreateSub(builder.CreateMul(c2, max), c2), coord);
 
             auto result = builder.CreateSelect(lt0, v_lt0, coord);
             result = builder.CreateSelect(ge_max, v_ge_max, result);

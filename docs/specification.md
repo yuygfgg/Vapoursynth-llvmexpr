@@ -125,8 +125,8 @@ These are special operators that push a specific value onto the stack.
 
 - `**`: An alias for `pow`. `x 2 **` is the same as `x 2 pow`.
 - `%`: Implements C's `fmodf`. `x 1.0 %` gives the fractional part of `x`.
-- `clip` / `clamp`: (3 operands) Clamps a value. `x min max clip` is equivalent to `x max min`.
-  - **Example:** `x 16 235 clip` clamps the pixel value to the range.
+- `clip` / `clamp`: (3 operands) Clamps a value between a minimum and maximum. `x min_val max_val clip` ensures the result is not smaller than `min_val` and not larger than `max_val`.
+  - **Example:** `x 16 235 clip` clamps the pixel value to the range [16, 235].
 - `trunc`: (1 operand) Truncates the value towards zero.
 - `round`: (1 operand) Rounds the value to the nearest integer.
 - `floor`: (1 operand) Rounds the value down to the nearest integer.
