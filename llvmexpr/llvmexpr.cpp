@@ -9,6 +9,7 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+#include <cctype>
 
 #include "VSHelper.h"
 #include "VapourSynth.h"
@@ -107,7 +108,7 @@ OrcJit global_jit;
 
 class Compiler {
   private:
-    static constexpr int kStackSize = 1024; // TODO: remove hard limit
+    static constexpr int kStackSize = 4096; // TODO: remove hard limit
     std::string rpn_expr;
     const VSVideoInfo* vo;
     const std::vector<const VSVideoInfo*>& vi;
@@ -447,6 +448,20 @@ class Compiler {
                     continue;
                 }
             } catch (...) {
+            }
+
+            {
+                bool all_digits = !token.empty();
+                for (unsigned char ch : token) {
+                    if (!(ch >= '0' && ch <= '9')) {
+                        all_digits = false;
+                        break;
+                    }
+                }
+                if (all_digits) {
+                    push_once();
+                    continue;
+                }
             }
 
             throw std::runtime_error("Invalid token: " + token +
@@ -1105,6 +1120,23 @@ class Compiler {
                                 continue;
                             }
                         } catch (...) {
+                        }
+                        {
+                            bool all_digits = !token.empty();
+                            for (unsigned char ch : token) {
+                                if (!(ch >= '0' && ch <= '9')) {
+                                    all_digits = false;
+                                    break;
+                                }
+                            }
+                            if (all_digits) {
+                                double val = 0.0;
+                                for (unsigned char ch : token) {
+                                    val = val * 10.0 + (ch - '0');
+                                }
+                                push(llvm::ConstantFP::get(float_ty, val));
+                                continue;
+                            }
                         }
                         throw std::runtime_error(
                             "Invalid token: " + token +
