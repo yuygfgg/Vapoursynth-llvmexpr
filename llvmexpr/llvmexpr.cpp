@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cctype>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -169,6 +170,7 @@ class Compiler {
     bool mirror_boundary;
     std::string dump_ir_path;
     const std::map<std::pair<int, std::string>, int>& prop_map;
+    std::string func_name;
 
     std::unique_ptr<llvm::LLVMContext> context;
     std::unique_ptr<llvm::Module> module;
@@ -199,10 +201,12 @@ class Compiler {
     Compiler(std::string expr, const VSVideoInfo* out_vi,
              const std::vector<const VSVideoInfo*>& in_vi, bool mirror,
              std::string dump_path,
-             const std::map<std::pair<int, std::string>, int>& p_map)
+             const std::map<std::pair<int, std::string>, int>& p_map,
+             std::string function_name)
         : rpn_expr(std::move(expr)), vo(out_vi), vi(in_vi),
           num_inputs(in_vi.size()), mirror_boundary(mirror),
           dump_ir_path(std::move(dump_path)), prop_map(p_map),
+          func_name(std::move(function_name)),
           context(std::make_unique<llvm::LLVMContext>()),
           module(std::make_unique<llvm::Module>("ExprJITModule", *context)),
           builder(*context) {
@@ -236,7 +240,7 @@ class Compiler {
         }
 
         global_jit.addModule(std::move(module), std::move(context));
-        void* func_addr = global_jit.getFunctionAddress("process_plane");
+        void* func_addr = global_jit.getFunctionAddress(func_name);
 
         if (!func_addr) {
             throw std::runtime_error("Failed to get JIT'd function address.");
@@ -569,7 +573,7 @@ class Compiler {
             false);
 
         func = llvm::Function::Create(func_ty, llvm::Function::ExternalLinkage,
-                                      "process_plane", module.get());
+                                      func_name, module.get());
 
         auto args = func->arg_begin();
         rwptrs_arg = &*args++;
@@ -1240,8 +1244,7 @@ class Compiler {
             if (bpp == 4) {
                 return builder.CreateLoad(builder.getFloatTy(), pixel_addr);
             } else {
-                throw std::runtime_error("16-bit float input not supported in "
-                                         "this simplified JIT version.");
+                throw std::runtime_error("16-bit float input not supported.");
             }
         }
     }
@@ -1589,8 +1592,13 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
                                   ("JIT compiling expression for plane " +
                                    std::to_string(i) + ": " + d->expr[i])
                                       .c_str());
+                // Generate unique function name per compiled expression
+                size_t key_hash = std::hash<std::string>{}(key);
+                std::string func_name = "process_plane_" + std::to_string(i) +
+                                        "_" + std::to_string(key_hash);
+
                 Compiler compiler(d->expr[i], &d->vi, vi, d->mirror_boundary,
-                                  d->dump_ir_path, d->prop_map);
+                                  d->dump_ir_path, d->prop_map, func_name);
                 d->compiled[i] = compiler.compile();
                 jit_cache[key] = d->compiled[i];
             }
