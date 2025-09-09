@@ -203,6 +203,7 @@ class Compiler {
 
         std::stringstream ss(rpn_expr);
         std::string token;
+        size_t last_search_pos = 0;
 
         std::regex re_rel(
             R"(^(?:src(\d+)|([x-za-w]))\((-?\d+),(-?\d+)\)(?::([cm]))?$)");
@@ -214,6 +215,33 @@ class Compiler {
             R"(^(?:src(\d+)|([x-za-w]))\.([a-zA-Z_][a-zA-Z0-9_]*)$)");
 
         while (ss >> token) {
+            size_t current_token_start = 0;
+            {
+                std::streampos pos_end = ss.tellg();
+                if (pos_end != std::streampos(-1)) {
+                    size_t end_idx = static_cast<size_t>(pos_end);
+                    current_token_start = (end_idx >= token.size())
+                                              ? (end_idx - token.size())
+                                              : 0;
+                    last_search_pos = current_token_start + token.size();
+                } else {
+                    size_t found = rpn_expr.find(token, last_search_pos);
+                    if (found != std::string::npos) {
+                        current_token_start = found;
+                        last_search_pos = found + token.size();
+                    } else {
+                        current_token_start = 0;
+                    }
+                }
+            }
+            auto context_for_current = [&]() -> std::string {
+                size_t expr_len = rpn_expr.size();
+                size_t s =
+                    (current_token_start > 10) ? (current_token_start - 10) : 0;
+                size_t e =
+                    std::min(current_token_start + token.size() + 10, expr_len);
+                return rpn_expr.substr(s, e - s);
+            };
             if (token == "+" || token == "-" || token == "*" || token == "/" ||
                 token == "%" || token == ">" || token == "<" || token == ">=" ||
                 token == "<=" || token == "=" || token == "and" ||
@@ -230,15 +258,16 @@ class Compiler {
             if (token == "not" || token == "bitnot" || token == "sqrt" ||
                 token == "exp" || token == "log" || token == "abs" ||
                 token == "floor" || token == "ceil" || token == "trunc" ||
-                token == "round") {
+                token == "round" || token == "sin" || token == "cos" ||
+                token == "tan" || token == "asin" || token == "acos" ||
+                token == "atan") {
                 require(1, token);
                 // 1 -> 1
                 continue;
             }
 
             if (token == "?" || token == "clip" || token == "clamp") {
-                const int need = 3;
-                require(need, token);
+                require(3, token);
                 // 3 -> 1
                 sp -= 2;
                 continue;
@@ -420,7 +449,8 @@ class Compiler {
             } catch (...) {
             }
 
-            throw std::runtime_error("Invalid token: " + token);
+            throw std::runtime_error("Invalid token: " + token +
+                                     " | context: " + context_for_current());
         }
 
         if (sp != 1) {
@@ -565,6 +595,7 @@ class Compiler {
 
         std::stringstream ss(rpn_expr);
         std::string token;
+        size_t last_search_pos = 0;
 
         std::regex re_rel(
             R"(^(?:src(\d+)|([x-za-w]))\((-?\d+),(-?\d+)\)(?::([cm]))?$)");
@@ -576,6 +607,33 @@ class Compiler {
             R"(^(?:src(\d+)|([x-za-w]))\.([a-zA-Z_][a-zA-Z0-9_]*)$)");
 
         while (ss >> token) {
+            size_t current_token_start = 0;
+            {
+                std::streampos pos_end = ss.tellg();
+                if (pos_end != std::streampos(-1)) {
+                    size_t end_idx = static_cast<size_t>(pos_end);
+                    current_token_start = (end_idx >= token.size())
+                                              ? (end_idx - token.size())
+                                              : 0;
+                    last_search_pos = current_token_start + token.size();
+                } else {
+                    size_t found = rpn_expr.find(token, last_search_pos);
+                    if (found != std::string::npos) {
+                        current_token_start = found;
+                        last_search_pos = found + token.size();
+                    } else {
+                        current_token_start = 0;
+                    }
+                }
+            }
+            auto context_for_current = [&]() -> std::string {
+                size_t expr_len = rpn_expr.size();
+                size_t s =
+                    (current_token_start > 10) ? (current_token_start - 10) : 0;
+                size_t e =
+                    std::min(current_token_start + token.size() + 10, expr_len);
+                return rpn_expr.substr(s, e - s);
+            };
             if (token == "+") {
                 auto b = pop();
                 auto a = pop();
@@ -909,9 +967,9 @@ class Compiler {
             }
 
             else if (token == "sin" || token == "cos") {
-                llvm::Intrinsic::ID intrinsic_id =
-                    (token == "sin") ? llvm::Intrinsic::sin
-                                     : llvm::Intrinsic::cos;
+                llvm::Intrinsic::ID intrinsic_id = (token == "sin")
+                                                       ? llvm::Intrinsic::sin
+                                                       : llvm::Intrinsic::cos;
                 push(builder.CreateCall(
                     llvm::Intrinsic::getOrInsertDeclaration(
                         module.get(), intrinsic_id, {float_ty}),
@@ -1048,7 +1106,9 @@ class Compiler {
                             }
                         } catch (...) {
                         }
-                        throw std::runtime_error("Invalid token: " + token);
+                        throw std::runtime_error(
+                            "Invalid token: " + token +
+                            " | context: " + context_for_current());
                     }
                 }
             }
@@ -1176,7 +1236,6 @@ class Compiler {
                                          bool mirror) {
         if (mirror) {
             auto c0 = builder.getInt32(0);
-            auto c1 = builder.getInt32(1);
             auto c2 = builder.getInt32(2);
 
             auto lt0 = builder.CreateICmpSLT(coord, c0);
