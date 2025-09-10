@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -37,6 +38,8 @@
 #include "llvm/TargetParser/Triple.h"
 
 #include "optimal_sorting_networks.hpp"
+
+constexpr unsigned ALIGNMENT = 32; // Vapoursynth should guarantee this
 
 namespace {
 
@@ -607,7 +610,6 @@ class Compiler {
         }
     }
 
-    // Emit llvm.assume with an "align" operand bundle for the given pointer
     void assumeAligned(llvm::Value* ptrValue, unsigned alignment) {
         llvm::Function* assumeFn = llvm::Intrinsic::getOrInsertDeclaration(
             module.get(), llvm::Intrinsic::assume);
@@ -687,7 +689,7 @@ class Compiler {
 
             // Assume each base pointer is 32-byte aligned (VapourSynth
             // guarantee)
-            assumeAligned(base_ptr_i, 32);
+            assumeAligned(base_ptr_i, ALIGNMENT);
         }
 
         // Build alias scopes so distinct rwptrs[i] are considered noalias
@@ -748,7 +750,7 @@ class Compiler {
             builder.CreateLoad(builder.getInt32Ty(), x_var, "x");
         llvm::Value* x_cond = builder.CreateICmpSLT(x_val, width_arg, "x.cond");
 
-        // Add proper loop metadata to hint vectorization/interleave
+        // Add loop metadata to hint vectorization/interleaving
         llvm::Metadata* enable_vec[] = {
             llvm::MDString::get(*context, "llvm.loop.vectorize.enable"),
             llvm::ConstantAsMetadata::get(
@@ -1207,10 +1209,7 @@ class Compiler {
                     std::string prop_name = match[3].str();
                     auto key = std::make_pair(clip_idx, prop_name);
                     if (prop_map.count(key) == 0) {
-                        // This should not happen if logic is correct
-                        throw std::runtime_error(
-                            "Internal error: property not found in map: " +
-                            token);
+                        std::unreachable();
                     }
                     int prop_idx = prop_map.at(key);
                     llvm::Value* prop_val = builder.CreateLoad(
@@ -1267,7 +1266,7 @@ class Compiler {
                     } else { // Number
                         try {
                             size_t pos;
-                            long long val =
+                            int64_t val =
                                 std::stoll(token, &pos, 0); // 0 detects base
                             if (pos == token.length()) {
                                 push(llvm::ConstantFP::get(float_ty,

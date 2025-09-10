@@ -190,12 +190,11 @@ Access pixels from any clip at absolute or relative coordinates.
     - `:m`: Mirrored boundary.
 
 - **Dynamic Absolute Access:** `absX absY clip[]`
-  - Accesses a pixel at an absolute coordinate, where `absX` and `absY` can be computed by expressions. This is more flexible but potentially slower.
+  - Accesses a pixel at an absolute coordinate, where `absX` and `absY` can be computed by expressions.
+  - **Warning:** Dynamic Absolute Access may not be vectorized by the JIT compiler if coordinates are computed at runtime, causing severe performance degradation.
   - **Example:** `X 2 / Y x[]` reads the pixel at half the current X coordinate from the first clip.
 
 > Note: `X 2 + Y 3 - x[]` is equivalent to `x[2,-3]`.
->
-> **Warning:** Pixel Accesses may not be vectorized by the JIT compiler, causing severe performance degradation.
 
 ##### **Frame Property Access**
 
