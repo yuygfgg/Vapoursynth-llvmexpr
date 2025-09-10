@@ -1,9 +1,11 @@
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <numbers>
 #include <numeric>
 #include <regex>
 #include <sstream>
@@ -36,9 +38,6 @@
 #include <system_error>
 
 #include "optimal_sorting_networks.hpp"
-
-// For JIT functions to call cmath functions
-#include <cmath>
 
 namespace {
 
@@ -111,12 +110,6 @@ class OrcJit {
             throw std::runtime_error("LLJIT creation failed");
         }
         lljit = std::move(*temp_jit);
-
-        // Allow JIT to find symbols in the host process (for cmath functions)
-        auto& dylib = lljit->getMainJITDylib();
-        dylib.addGenerator(llvm::cantFail(
-            llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
-                lljit->getDataLayout().getGlobalPrefix())));
     }
 
     const llvm::DataLayout& getDataLayout() const {
@@ -196,6 +189,32 @@ class Compiler {
     llvm::AllocaInst* createAllocaInEntry(llvm::Type* type,
                                           const std::string& name) {
         return createAllocaInEntry(type, nullptr, name);
+    }
+
+    llvm::Value* createIntrinsicCall(llvm::Intrinsic::ID intrinsic_id,
+                                     const std::vector<llvm::Value*>& args) {
+        std::vector<llvm::Type*> types(args.size(), builder.getFloatTy());
+        llvm::Function* intrinsic_func =
+            llvm::Intrinsic::getOrInsertDeclaration(module.get(), intrinsic_id,
+                                                    types);
+        return builder.CreateCall(intrinsic_func, args);
+    }
+
+    llvm::Value* createUnaryIntrinsicCall(llvm::Intrinsic::ID intrinsic_id,
+                                          llvm::Value* arg) {
+        return builder.CreateCall(
+            llvm::Intrinsic::getOrInsertDeclaration(module.get(), intrinsic_id,
+                                                    {builder.getFloatTy()}),
+            {arg});
+    }
+
+    llvm::Value* createBinaryIntrinsicCall(llvm::Intrinsic::ID intrinsic_id,
+                                           llvm::Value* arg1,
+                                           llvm::Value* arg2) {
+        return builder.CreateCall(
+            llvm::Intrinsic::getOrInsertDeclaration(module.get(), intrinsic_id,
+                                                    {builder.getFloatTy()}),
+            {arg1, arg2});
     }
 
   public:
@@ -596,17 +615,6 @@ class Compiler {
         args.push_back(builder.getInt64(static_cast<uint64_t>(alignment)));
         llvm::OperandBundleDefT<llvm::Value*> alignBundle("align", args);
         builder.CreateCall(assumeFn, {cond}, {alignBundle});
-    }
-
-    // Helper to declare cmath functions in the LLVM module
-    llvm::Function* getOrDeclareMathFunc(const std::string& name,
-                                         llvm::FunctionType* ty) {
-        llvm::Function* f = module->getFunction(name);
-        if (!f) {
-            f = llvm::Function::Create(ty, llvm::Function::ExternalLinkage,
-                                       name, module.get());
-        }
-        return f;
     }
 
     void define_function_signature() {
@@ -1076,115 +1084,63 @@ class Compiler {
                     float_ty, builder.CreateGEP(float_ty, props_arg,
                                                 builder.getInt32(0))));
             else if (token == "pi")
-                push(llvm::ConstantFP::get(float_ty, M_PI));
+                push(llvm::ConstantFP::get(float_ty, std::numbers::pi));
 
             else if (token == "sqrt") {
-                push(builder.CreateCall(
-                    llvm::Intrinsic::getOrInsertDeclaration(
-                        module.get(), llvm::Intrinsic::sqrt, {float_ty}),
-                    {pop()}));
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::sqrt, pop()));
             } else if (token == "pow" || token == "**") {
                 auto b = pop();
                 auto a = pop();
-                push(builder.CreateCall(
-                    llvm::Intrinsic::getOrInsertDeclaration(
-                        module.get(), llvm::Intrinsic::pow, {float_ty}),
-                    {a, b}));
+                push(createBinaryIntrinsicCall(llvm::Intrinsic::pow, a, b));
             } else if (token == "exp") {
-                push(builder.CreateCall(
-                    llvm::Intrinsic::getOrInsertDeclaration(
-                        module.get(), llvm::Intrinsic::exp, {float_ty}),
-                    {pop()}));
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::exp, pop()));
             } else if (token == "log") {
-                push(builder.CreateCall(
-                    llvm::Intrinsic::getOrInsertDeclaration(
-                        module.get(), llvm::Intrinsic::log, {float_ty}),
-                    {pop()}));
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::log, pop()));
             } else if (token == "abs") {
-                push(builder.CreateCall(
-                    llvm::Intrinsic::getOrInsertDeclaration(
-                        module.get(), llvm::Intrinsic::fabs, {float_ty}),
-                    {pop()}));
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::fabs, pop()));
             } else if (token == "floor") {
-                push(builder.CreateCall(
-                    llvm::Intrinsic::getOrInsertDeclaration(
-                        module.get(), llvm::Intrinsic::floor, {float_ty}),
-                    {pop()}));
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::floor, pop()));
             } else if (token == "ceil") {
-                push(builder.CreateCall(
-                    llvm::Intrinsic::getOrInsertDeclaration(
-                        module.get(), llvm::Intrinsic::ceil, {float_ty}),
-                    {pop()}));
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::ceil, pop()));
             } else if (token == "trunc") {
-                push(builder.CreateCall(
-                    llvm::Intrinsic::getOrInsertDeclaration(
-                        module.get(), llvm::Intrinsic::trunc, {float_ty}),
-                    {pop()}));
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::trunc, pop()));
             } else if (token == "round") {
-                push(builder.CreateCall(
-                    llvm::Intrinsic::getOrInsertDeclaration(
-                        module.get(), llvm::Intrinsic::round, {float_ty}),
-                    {pop()}));
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::round, pop()));
             } else if (token == "min") {
                 auto b = pop();
                 auto a = pop();
-                push(builder.CreateCall(
-                    llvm::Intrinsic::getOrInsertDeclaration(
-                        module.get(), llvm::Intrinsic::minnum, {float_ty}),
-                    {a, b}));
+                push(createBinaryIntrinsicCall(llvm::Intrinsic::minnum, a, b));
             } else if (token == "max") {
                 auto b = pop();
                 auto a = pop();
-                push(builder.CreateCall(
-                    llvm::Intrinsic::getOrInsertDeclaration(
-                        module.get(), llvm::Intrinsic::maxnum, {float_ty}),
-                    {a, b}));
+                push(createBinaryIntrinsicCall(llvm::Intrinsic::maxnum, a, b));
             } else if (token == "clip" || token == "clamp") {
                 auto max_val = pop();
                 auto min_val = pop();
                 auto val = pop();
-                auto temp = builder.CreateCall(
-                    llvm::Intrinsic::getOrInsertDeclaration(
-                        module.get(), llvm::Intrinsic::maxnum, {float_ty}),
-                    {val, min_val});
-                auto clamped = builder.CreateCall(
-                    llvm::Intrinsic::getOrInsertDeclaration(
-                        module.get(), llvm::Intrinsic::minnum, {float_ty}),
-                    {temp, max_val});
+                auto temp = createBinaryIntrinsicCall(llvm::Intrinsic::maxnum,
+                                                      val, min_val);
+                auto clamped = createBinaryIntrinsicCall(
+                    llvm::Intrinsic::minnum, temp, max_val);
                 push(clamped);
             }
 
-            else if (token == "sin" || token == "cos") {
-                llvm::Intrinsic::ID intrinsic_id = (token == "sin")
-                                                       ? llvm::Intrinsic::sin
-                                                       : llvm::Intrinsic::cos;
-                push(builder.CreateCall(
-                    llvm::Intrinsic::getOrInsertDeclaration(
-                        module.get(), intrinsic_id, {float_ty}),
-                    {pop()}));
+            else if (token == "sin") {
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::sin, pop()));
+            } else if (token == "cos") {
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::cos, pop()));
             } else if (token == "tan") {
-                llvm::Value* arg = pop();
-                llvm::Value* sin_val = builder.CreateCall(
-                    llvm::Intrinsic::getOrInsertDeclaration(
-                        module.get(), llvm::Intrinsic::sin, {float_ty}),
-                    {arg});
-                llvm::Value* cos_val = builder.CreateCall(
-                    llvm::Intrinsic::getOrInsertDeclaration(
-                        module.get(), llvm::Intrinsic::cos, {float_ty}),
-                    {arg});
-                push(builder.CreateFDiv(sin_val, cos_val));
-            } else if (token == "asin" || token == "acos" || token == "atan") {
-                llvm::FunctionType* func_ty =
-                    llvm::FunctionType::get(float_ty, {float_ty}, false);
-                llvm::Function* f = getOrDeclareMathFunc(token + "f", func_ty);
-                push(builder.CreateCall(f, {pop()}));
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::tan, pop()));
+            } else if (token == "asin") {
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::asin, pop()));
+            } else if (token == "acos") {
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::acos, pop()));
+            } else if (token == "atan") {
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::atan, pop()));
             } else if (token == "atan2") {
-                llvm::FunctionType* func_ty = llvm::FunctionType::get(
-                    float_ty, {float_ty, float_ty}, false);
-                llvm::Function* f = getOrDeclareMathFunc(token + "f", func_ty);
-                llvm::Value* arg2 = pop();
-                llvm::Value* arg1 = pop();
-                push(builder.CreateCall(f, {arg1, arg2}));
+                auto b = pop();
+                auto a = pop();
+                push(createBinaryIntrinsicCall(llvm::Intrinsic::atan2, a, b));
             }
 
             else if (token.back() == '!') {
@@ -1431,16 +1387,10 @@ class Compiler {
             llvm::Value* max_f =
                 llvm::ConstantFP::get(builder.getFloatTy(), (double)max_val);
 
-            llvm::Value* temp =
-                builder.CreateCall(llvm::Intrinsic::getOrInsertDeclaration(
-                                       module.get(), llvm::Intrinsic::maxnum,
-                                       {builder.getFloatTy()}),
-                                   {value_to_store, zero_f});
+            llvm::Value* temp = createBinaryIntrinsicCall(
+                llvm::Intrinsic::maxnum, value_to_store, zero_f);
             llvm::Value* clamped_f =
-                builder.CreateCall(llvm::Intrinsic::getOrInsertDeclaration(
-                                       module.get(), llvm::Intrinsic::minnum,
-                                       {builder.getFloatTy()}),
-                                   {temp, max_f});
+                createBinaryIntrinsicCall(llvm::Intrinsic::minnum, temp, max_f);
 
             final_val = builder.CreateFPToUI(clamped_f, builder.getInt32Ty());
 
