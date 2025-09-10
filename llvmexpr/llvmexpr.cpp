@@ -2,6 +2,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <functional>
 #include <map>
 #include <memory>
@@ -148,7 +149,6 @@ OrcJit global_jit;
 
 class Compiler {
   private:
-    static constexpr int kStackSize = 4096; // TODO: remove hard limit
     std::string rpn_expr;
     const VSVideoInfo* vo;
     const std::vector<const VSVideoInfo*>& vi;
@@ -218,6 +218,15 @@ class Compiler {
                                                     {builder.getFloatTy()}),
             {arg1, arg2});
     }
+
+    const std::regex re_rel{
+        R"(^(?:src(\d+)|([x-za-w]))\((-?\d+),(-?\d+)\)(?::([cm]))?$)"};
+    const std::regex re_rel_bracket{
+        R"(^(?:src(\d+)|([x-za-w]))\[(-?\d+),(-?\d+)\](?::([cm]))?$)"};
+    const std::regex re_abs{R"(^(?:src(\d+)|([x-za-w]))\[\]$)"};
+    const std::regex re_cur{R"(^(?:src(\d+)|([x-za-w]))$)"};
+    const std::regex re_prop{
+        R"(^(?:src(\d+)|([x-za-w]))\.([a-zA-Z_][a-zA-Z0-9_]*)$)"};
 
   public:
     Compiler(std::string expr, const VSVideoInfo* out_vi,
@@ -313,7 +322,6 @@ class Compiler {
   private:
     // Validate stack balance and under/overflow for the RPN expression
     void validate_rpn_stack() {
-        const int stack_limit = kStackSize;
         int sp = 0;
         int max_sp = 0;
         std::unordered_set<std::string> defined_vars;
@@ -327,25 +335,11 @@ class Compiler {
             ++sp;
             if (sp > max_sp)
                 max_sp = sp;
-            if (sp > stack_limit) {
-                throw std::runtime_error("Stack overflow: requires depth " +
-                                         std::to_string(sp) + " but limit is " +
-                                         std::to_string(stack_limit));
-            }
         };
 
         std::stringstream ss(rpn_expr);
         std::string token;
         size_t last_search_pos = 0;
-
-        std::regex re_rel(
-            R"(^(?:src(\d+)|([x-za-w]))\((-?\d+),(-?\d+)\)(?::([cm]))?$)");
-        std::regex re_rel_bracket(
-            R"(^(?:src(\d+)|([x-za-w]))\[(-?\d+),(-?\d+)\](?::([cm]))?$)");
-        std::regex re_abs(R"(^(?:src(\d+)|([x-za-w]))\[\]$)");
-        std::regex re_cur(R"(^(?:src(\d+)|([x-za-w]))$)");
-        std::regex re_prop(
-            R"(^(?:src(\d+)|([x-za-w]))\.([a-zA-Z_][a-zA-Z0-9_]*)$)");
 
         while (ss >> token) {
             size_t current_token_start = 0;
@@ -605,8 +599,9 @@ class Compiler {
 
         if (sp != 1) {
             throw std::runtime_error(
-                "Expression stack not balanced: final stack depth = " +
-                std::to_string(sp) + ", expected 1.");
+                std::format("Expression stack not balanced: final stack depth "
+                            "= {}, expected 1.",
+                            sp));
         }
     }
 
@@ -701,9 +696,8 @@ class Compiler {
             elems.push_back(nullptr); // placeholder for self-reference
             // Wrap the string in an MDNode
             llvm::Metadata* name_node = llvm::MDNode::get(
-                *context,
-                {llvm::MDString::get(*context,
-                                     ("rwptrs_" + std::to_string(i)).c_str())});
+                *context, {llvm::MDString::get(
+                              *context, std::format("rwptrs_{}", i).c_str())});
             elems.push_back(name_node);
             alias_scopes[i] = llvm::MDNode::getDistinct(*context, elems);
             // Replace the placeholder with self-reference
@@ -811,15 +805,6 @@ class Compiler {
         std::stringstream ss(rpn_expr);
         std::string token;
         size_t last_search_pos = 0;
-
-        std::regex re_rel(
-            R"(^(?:src(\d+)|([x-za-w]))\((-?\d+),(-?\d+)\)(?::([cm]))?$)");
-        std::regex re_rel_bracket(
-            R"(^(?:src(\d+)|([x-za-w]))\[(-?\d+),(-?\d+)\](?::([cm]))?$)");
-        std::regex re_abs(R"(^(?:src(\d+)|([x-za-w]))\[\]$)");
-        std::regex re_cur(R"(^(?:src(\d+)|([x-za-w]))$)");
-        std::regex re_prop(
-            R"(^(?:src(\d+)|([x-za-w]))\.([a-zA-Z_][a-zA-Z0-9_]*)$)");
 
         while (ss >> token) {
             size_t current_token_start = 0;
@@ -1535,15 +1520,18 @@ std::string
 generate_cache_key(const std::string& expr, const VSVideoInfo* vo,
                    const std::vector<const VSVideoInfo*>& vi, bool mirror,
                    const std::map<std::pair<int, std::string>, int>& prop_map) {
-    std::stringstream ss;
-    ss << "expr=" << expr << "|mirror=" << mirror << "|out=" << vo->format->id;
+    std::string result =
+        std::format("expr={}|mirror={}|out={}", expr, mirror, vo->format->id);
+
     for (size_t i = 0; i < vi.size(); ++i) {
-        ss << "|in" << i << "=" << vi[i]->format->id;
+        result += std::format("|in{}={}", i, vi[i]->format->id);
     }
+
     for (const auto& [key, val] : prop_map) {
-        ss << "|prop" << val << "=" << key.first << "." << key.second;
+        result += std::format("|prop{}={}.{}", val, key.first, key.second);
     }
-    return ss.str();
+
+    return result;
 }
 
 void VS_CC exprInit([[maybe_unused]] VSMap* in, [[maybe_unused]] VSMap* out,
@@ -1760,14 +1748,15 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
             if (jit_cache.count(key)) {
                 d->compiled[i] = jit_cache.at(key);
             } else {
-                vsapi->logMessage(mtDebug,
-                                  ("JIT compiling expression for plane " +
-                                   std::to_string(i) + ": " + d->expr[i])
-                                      .c_str());
+                vsapi->logMessage(
+                    mtDebug,
+                    std::format("JIT compiling expression for plane {}: {}", i,
+                                d->expr[i])
+                        .c_str());
                 // Generate unique function name per compiled expression
                 size_t key_hash = std::hash<std::string>{}(key);
-                std::string func_name = "process_plane_" + std::to_string(i) +
-                                        "_" + std::to_string(key_hash);
+                std::string func_name =
+                    std::format("process_plane_{}_{}", i, key_hash);
 
                 Compiler compiler(d->expr[i], &d->vi, vi, d->mirror_boundary,
                                   d->dump_ir_path, d->prop_map, func_name);
