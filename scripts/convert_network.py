@@ -2,7 +2,7 @@ import os
 import re
 import sys
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 def fetch_html(url):
     try:
@@ -17,35 +17,39 @@ def fetch_html(url):
 
 def extract_optimal_networks_data(html_content):
     soup = BeautifulSoup(html_content, 'lxml')
-    # { num_inputs: {'depth': int, 'stages': list_of_stages} }
+    # { num_inputs: {'depth': int, 'ce': int, 'stages': list_of_stages} }
     optimal_networks = {}
 
     networks_table = soup.find('table', id='Networks')
-    if not networks_table:
+    if not isinstance(networks_table, Tag):
         print("Error: Could not find table with id 'Networks' in HTML.", file=sys.stderr)
         return {}
 
     for row in networks_table.find_all('tr'):
+        if not isinstance(row, Tag):
+            continue
         data_cell = row.find('td')
-        if not data_cell:
+        if not isinstance(data_cell, Tag):
             continue
 
         description_text = data_cell.get_text()
         inputs_match = re.search(r"for (\d+) inputs", description_text)
         depth_match = re.search(r"(\d+) layers", description_text)
+        ce_match = re.search(r"(\d+)\s+CEs", description_text)
 
-        if not inputs_match or not depth_match:
+        if not inputs_match or not depth_match or not ce_match:
             continue
 
         num_inputs = int(inputs_match.group(1))
         depth = int(depth_match.group(1))
+        ce = int(ce_match.group(1))
 
         mono_p = data_cell.find('p', class_='mono')
-        if not mono_p:
+        if not isinstance(mono_p, Tag):
             continue
 
-        structure_html = mono_p.decode_contents()
-        structure_lines = structure_html.replace('<br>', '\n').replace('<br/>', '\n').strip().split('\n')
+        structure_text = mono_p.get_text(separator='\n')
+        structure_lines = structure_text.strip().split('\n')
 
         network_stages = []
         for line in structure_lines:
@@ -60,9 +64,16 @@ def extract_optimal_networks_data(html_content):
         if not network_stages:
             continue
 
-        if num_inputs not in optimal_networks or depth < optimal_networks[num_inputs]['depth']:
+        flat_count = sum(len(stage) for stage in network_stages)
+        if flat_count != ce:
+            print(f"Warning: CE count mismatch for N={num_inputs}: parsed={ce}, computed={flat_count}", file=sys.stderr)
+
+        if (num_inputs not in optimal_networks or
+            ce < optimal_networks[num_inputs]['ce'] or
+            (ce == optimal_networks[num_inputs]['ce'] and depth < optimal_networks[num_inputs]['depth'])):
             optimal_networks[num_inputs] = {
                 'depth': depth,
+                'ce': ce,
                 'stages': network_stages
             }
 
