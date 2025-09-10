@@ -1,131 +1,173 @@
-import regex as re
+import os
+import re
 import sys
+import requests
+from bs4 import BeautifulSoup
 
-
-def parse_line(line):
+def fetch_html(url):
     try:
-        pairs = re.findall(r"\((\d+),(\d+)\)", line)
-        return [(int(p[0]), int(p[1])) for p in pairs]
-    except (ValueError, IndexError):
-        print(f"Error parsing line: {line}", file=sys.stderr)
-        return []
-
-
-def format_stage(stage):
-    return "{" + ", ".join([f"{{{p[0]}, {p[1]}}}" for p in stage]) + "}"
-
-
-def main():
-    input_file = "./optimal_networks.txt"
-    try:
-        with open(input_file, "r") as f:
-            content = f.read()
-    except FileNotFoundError:
-        print(f"Error: Input file '{input_file}' not found.", file=sys.stderr)
+        print(f"Downloading data from {url}...", file=sys.stderr)
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        print("Download successful.", file=sys.stderr)
+        return response.text
+    except requests.RequestException as e:
+        print(f"Error: Could not get web content: {e}", file=sys.stderr)
         sys.exit(1)
 
-    networks = {}
-    blocks = re.split(r"\n\s*\n", content.strip())
+def extract_optimal_networks_data(html_content):
+    soup = BeautifulSoup(html_content, 'lxml')
+    # { num_inputs: {'depth': int, 'stages': list_of_stages} }
+    optimal_networks = {}
 
-    for block in blocks:
-        lines = block.strip().split("\n")
-        try:
-            n_inputs = int(lines[0])
-            stages_lines = lines[1:]
+    networks_table = soup.find('table', id='Networks')
+    if not networks_table:
+        print("Error: Could not find table with id 'Networks' in HTML.", file=sys.stderr)
+        return {}
 
-            network_stages = []
-            for line in stages_lines:
-                stage = parse_line(line)
-                if stage:
-                    network_stages.append(stage)
-
-            if network_stages:
-                networks[n_inputs] = network_stages
-        except (ValueError, IndexError):
-            print(f"Skipping invalid block:\n---\n{block}\n---", file=sys.stderr)
+    for row in networks_table.find_all('tr'):
+        data_cell = row.find('td')
+        if not data_cell:
             continue
 
-    if not networks:
-        print("No valid networks found in the file.", file=sys.stderr)
-        return
+        description_text = data_cell.get_text()
+        inputs_match = re.search(r"for (\d+) inputs", description_text)
+        depth_match = re.search(r"(\d+) layers", description_text)
 
-    flat_networks = {}
-    for n, stages in networks.items():
-        flat_networks[n] = [pair for stage in stages for pair in stage]
+        if not inputs_match or not depth_match:
+            continue
+
+        num_inputs = int(inputs_match.group(1))
+        depth = int(depth_match.group(1))
+
+        mono_p = data_cell.find('p', class_='mono')
+        if not mono_p:
+            continue
+
+        structure_html = mono_p.decode_contents()
+        structure_lines = structure_html.replace('<br>', '\n').replace('<br/>', '\n').strip().split('\n')
+
+        network_stages = []
+        for line in structure_lines:
+            try:
+                pairs = re.findall(r"\((\d+),(\d+)\)", line)
+                stage = [(int(p[0]), int(p[1])) for p in pairs]
+                if stage:
+                    network_stages.append(stage)
+            except (ValueError, IndexError):
+                print(f"Warning: Failed to parse line: {line}", file=sys.stderr)
+        
+        if not network_stages:
+            continue
+
+        if num_inputs not in optimal_networks or depth < optimal_networks[num_inputs]['depth']:
+            optimal_networks[num_inputs] = {
+                'depth': depth,
+                'stages': network_stages
+            }
+
+    return optimal_networks
+
+def generate_cpp_header(networks, output_path, source_url):
+    if not networks:
+        print("No valid network data found, cannot generate header file.", file=sys.stderr)
+        return
 
     all_comparators = []
     meta_data = []
     offset = 0
-
-    sorted_n = sorted(flat_networks.keys())
+    
+    sorted_n = sorted(networks.keys())
 
     for n in sorted_n:
-        pairs = flat_networks[n]
+        data = networks[n]
+        stages = data['stages']
+        depth = data['depth']
+        
+        pairs = [pair for stage in stages for pair in stage]
         count = len(pairs)
-        meta_data.append(
-            {"n": n, "offset": offset, "count": count, "num_comparators": count}
-        )
+        
+        meta_data.append({"n": n, "offset": offset, "count": count, "depth": depth})
         all_comparators.extend(pairs)
         offset += count
 
-    print("#pragma once")
-    print()
-    print("#include <array>")
-    print("#include <utility>")
-    print("#include <cstddef>")
-    print()
+    output_lines = [
+        "#include <array>",
+        "#include <utility>",
+        "#include <cstddef>",
+        "",
+        "using Comparator = std::pair<int, int>;",
+        "",
+        f"// Generated from {source_url}",
+        f"constexpr std::array<Comparator, {len(all_comparators)}> all_sorting_network_comparators = {{{{",
+    ]
 
-    print("using Comparator = std::pair<int, int>;")
-    print()
-
-    print(
-        "// Modified from https://bertdobbelaere.github.io/sorting_networks_extended.html"
-    )
-    print(
-        f"constexpr std::array<Comparator, {len(all_comparators)}> all_sorting_network_comparators = {{{{"
-    )
     if all_comparators:
-        print("    " + ", ".join([f"{{{p[0]}, {p[1]}}}" for p in all_comparators]))
-    print("}};")
-    print()
+        comparators_str = ", ".join([f"{{{p[0]}, {p[1]}}}" for p in all_comparators])
+        output_lines.append(f"    {comparators_str}")
 
-    print("struct SortingNetwork {")
-    print("    int n_inputs;")
-    print("    size_t offset;")
-    print("    size_t count;")
-    print("};")
-    print()
+    output_lines.extend([
+        "}};",
+        "",
+        "struct SortingNetwork {",
+        "    int n_inputs;",
+        "    size_t offset;",
+        "    size_t count;",
+        "};",
+        "",
+        f"constexpr std::array<SortingNetwork, {len(meta_data)}> optimal_sorting_networks_meta = {{{{",
+    ])
 
-    print(
-        f"constexpr std::array<SortingNetwork, {len(meta_data)}> optimal_sorting_networks_meta = {{{{"
-    )
     for meta in meta_data:
-        print(
-            f"    {{ {meta['n']}, {meta['offset']}u, {meta['count']}u }}, // N={meta['n']}, {meta['num_comparators']} comparators"
+        comment = f"// N={meta['n']}, {meta['count']} comparators, {meta['depth']} layers"
+        output_lines.append(
+            f"    {{ {meta['n']}, {meta['offset']}u, {meta['count']}u }}, {comment}"
         )
-    print("}};")
-    print()
+    
+    output_lines.extend([
+        "}};",
+        "",
+        "struct SortingNetworkView {",
+        "    const Comparator* data = nullptr;",
+        "    size_t count = 0;",
+        "    constexpr auto begin() const { return data; }",
+        "    constexpr auto end() const { return data + count; }",
+        "    constexpr bool empty() const { return count == 0; }",
+        "};",
+        "",
+        "constexpr SortingNetworkView get_optimal_sorting_network(int n) {",
+        "    for (const auto& meta : optimal_sorting_networks_meta) {",
+        "        if (meta.n_inputs == n) {",
+        "            return { &all_sorting_network_comparators[meta.offset], meta.count };",
+        "        }",
+        "    }",
+        "    return {};",
+        "}",
+        ""
+    ])
+    
+    try:
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(output_lines))
+            
+        print(f"Successfully generated C++ header file: {output_path}", file=sys.stderr)
+        
+    except IOError as e:
+        print(f"Error: Could not write file {output_path}: {e}", file=sys.stderr)
+        sys.exit(1)
 
-    print("struct SortingNetworkView {")
-    print("    const Comparator* data = nullptr;")
-    print("    size_t count = 0;")
-    print("    constexpr auto begin() const { return data; }")
-    print("    constexpr auto end() const { return data + count; }")
-    print("    constexpr bool empty() const { return count == 0; }")
-    print("};")
-    print()
 
-    print("constexpr SortingNetworkView get_optimal_sorting_network(int n) {")
-    print("    for (const auto& meta : optimal_sorting_networks_meta) {")
-    print("        if (meta.n_inputs == n) {")
-    print(
-        "            return { &all_sorting_network_comparators[meta.offset], meta.count };"
-    )
-    print("        }")
-    print("    }")
-    print("    return {};")
-    print("}")
-
+def main():
+    source_url = "https://bertdobbelaere.github.io/sorting_networks_extended.html"
+    output_path = os.path.join("..", "llvmexpr", "optimal_sorting_networks.hpp")
+    
+    html_content = fetch_html(source_url)
+    networks_data = extract_optimal_networks_data(html_content)
+    generate_cpp_header(networks_data, output_path, source_url)
 
 if __name__ == "__main__":
     main()
