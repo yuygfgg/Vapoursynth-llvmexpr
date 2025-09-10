@@ -4,6 +4,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -18,6 +19,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ExecutionEngine/Orc/LLJIT.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
@@ -193,6 +195,12 @@ class Compiler {
     // Loop-invariant caches
     std::vector<llvm::Value*> preloaded_base_ptrs;
     std::vector<llvm::Value*> preloaded_strides;
+
+    // Alias scope metadata (per rwptrs element)
+    llvm::MDNode* alias_scope_domain = nullptr;
+    std::vector<llvm::MDNode*> alias_scopes; // distinct scopes for each pointer
+    std::vector<llvm::MDNode*> alias_scope_lists;   // !alias.scope lists (self)
+    std::vector<llvm::MDNode*> noalias_scope_lists; // !noalias lists (others)
 
     // Create allocas in the function entry block to avoid per-iteration stack
     // growth
@@ -596,6 +604,18 @@ class Compiler {
         }
     }
 
+    // Emit llvm.assume with an "align" operand bundle for the given pointer
+    void assumeAligned(llvm::Value* ptrValue, unsigned alignment) {
+        llvm::Function* assumeFn = llvm::Intrinsic::getOrInsertDeclaration(
+            module.get(), llvm::Intrinsic::assume);
+        llvm::Value* cond = builder.getInt1(true);
+        llvm::SmallVector<llvm::Value*, 2> args;
+        args.push_back(ptrValue);
+        args.push_back(builder.getInt64(static_cast<uint64_t>(alignment)));
+        llvm::OperandBundleDefT<llvm::Value*> alignBundle("align", args);
+        builder.CreateCall(assumeFn, {cond}, {alignBundle});
+    }
+
     // Helper to declare cmath functions in the LLVM module
     llvm::Function* getOrDeclareMathFunc(const std::string& name,
                                          llvm::FunctionType* ty) {
@@ -672,6 +692,41 @@ class Compiler {
                                   builder.getInt32(i)));
             preloaded_base_ptrs[i] = base_ptr_i;
             preloaded_strides[i] = stride_i;
+
+            // Assume each base pointer is 32-byte aligned (VapourSynth
+            // guarantee)
+            assumeAligned(base_ptr_i, 32);
+        }
+
+        // Build alias scopes so distinct rwptrs[i] are considered noalias
+        alias_scope_domain = llvm::MDNode::getDistinct(*context, {});
+        alias_scopes.resize(num_inputs + 1);
+        for (int i = 0; i <= num_inputs; ++i) {
+            // Create self-referential scope nodes
+            llvm::SmallVector<llvm::Metadata*, 2> elems;
+            elems.push_back(nullptr); // placeholder for self-reference
+            // Wrap the string in an MDNode
+            llvm::Metadata* name_node = llvm::MDNode::get(
+                *context,
+                {llvm::MDString::get(*context,
+                                     ("rwptrs_" + std::to_string(i)).c_str())});
+            elems.push_back(name_node);
+            alias_scopes[i] = llvm::MDNode::getDistinct(*context, elems);
+            // Replace the placeholder with self-reference
+            alias_scopes[i]->replaceOperandWith(0, alias_scopes[i]);
+        }
+        alias_scope_lists.resize(num_inputs + 1);
+        noalias_scope_lists.resize(num_inputs + 1);
+        for (int i = 0; i <= num_inputs; ++i) {
+            std::vector<llvm::Metadata*> self_list = {alias_scopes[i]};
+            alias_scope_lists[i] = llvm::MDNode::get(*context, self_list);
+            std::vector<llvm::Metadata*> others;
+            for (int j = 0; j <= num_inputs; ++j) {
+                if (j == i)
+                    continue;
+                others.push_back(alias_scopes[j]);
+            }
+            noalias_scope_lists[i] = llvm::MDNode::get(*context, others);
         }
 
         builder.CreateBr(loop_y_header);
@@ -1301,26 +1356,55 @@ class Compiler {
         llvm::Value* pixel_addr =
             builder.CreateGEP(builder.getInt8Ty(), base_ptr, total_offset);
 
+        // Assume pixel address alignment, safe as gcd(32, bpp)
+        int pixel_align = std::gcd(32, bpp);
+        assumeAligned(pixel_addr, static_cast<unsigned>(pixel_align));
+
         llvm::Value* loaded_val;
         if (format->sampleType == stInteger) {
             if (bpp == 1) {
-                loaded_val =
+                llvm::LoadInst* li =
                     builder.CreateLoad(builder.getInt8Ty(), pixel_addr);
+                li->setAlignment(llvm::Align(pixel_align));
+                li->setMetadata(llvm::LLVMContext::MD_alias_scope,
+                                alias_scope_lists[vs_clip_idx]);
+                li->setMetadata(llvm::LLVMContext::MD_noalias,
+                                noalias_scope_lists[vs_clip_idx]);
+                loaded_val = li;
                 loaded_val =
                     builder.CreateZExt(loaded_val, builder.getInt32Ty());
             } else if (bpp == 2) {
-                loaded_val =
+                llvm::LoadInst* li =
                     builder.CreateLoad(builder.getInt16Ty(), pixel_addr);
+                li->setAlignment(llvm::Align(pixel_align));
+                li->setMetadata(llvm::LLVMContext::MD_alias_scope,
+                                alias_scope_lists[vs_clip_idx]);
+                li->setMetadata(llvm::LLVMContext::MD_noalias,
+                                noalias_scope_lists[vs_clip_idx]);
+                loaded_val = li;
                 loaded_val =
                     builder.CreateZExt(loaded_val, builder.getInt32Ty());
             } else { // bpp == 4
-                loaded_val =
+                llvm::LoadInst* li =
                     builder.CreateLoad(builder.getInt32Ty(), pixel_addr);
+                li->setAlignment(llvm::Align(pixel_align));
+                li->setMetadata(llvm::LLVMContext::MD_alias_scope,
+                                alias_scope_lists[vs_clip_idx]);
+                li->setMetadata(llvm::LLVMContext::MD_noalias,
+                                noalias_scope_lists[vs_clip_idx]);
+                loaded_val = li;
             }
             return builder.CreateSIToFP(loaded_val, builder.getFloatTy());
         } else { // stFloat
             if (bpp == 4) {
-                return builder.CreateLoad(builder.getFloatTy(), pixel_addr);
+                llvm::LoadInst* li =
+                    builder.CreateLoad(builder.getFloatTy(), pixel_addr);
+                li->setAlignment(llvm::Align(pixel_align));
+                li->setMetadata(llvm::LLVMContext::MD_alias_scope,
+                                alias_scope_lists[vs_clip_idx]);
+                li->setMetadata(llvm::LLVMContext::MD_noalias,
+                                noalias_scope_lists[vs_clip_idx]);
+                return li;
             } else {
                 throw std::runtime_error("16-bit float input not supported.");
             }
@@ -1341,6 +1425,10 @@ class Compiler {
         llvm::Value* total_offset = builder.CreateAdd(y_offset, x_offset);
         llvm::Value* pixel_addr =
             builder.CreateGEP(builder.getInt8Ty(), base_ptr, total_offset);
+
+        // Assume pixel address alignment, safe as gcd(32, bpp)
+        int pixel_align = std::gcd(32, bpp);
+        assumeAligned(pixel_addr, static_cast<unsigned>(pixel_align));
 
         llvm::Value* final_val;
         if (format->sampleType == stInteger) {
@@ -1365,17 +1453,41 @@ class Compiler {
 
             if (bpp == 1) {
                 final_val = builder.CreateTrunc(final_val, builder.getInt8Ty());
-                builder.CreateStore(final_val, pixel_addr);
+                llvm::StoreInst* si =
+                    builder.CreateStore(final_val, pixel_addr);
+                si->setAlignment(llvm::Align(pixel_align));
+                si->setMetadata(llvm::LLVMContext::MD_alias_scope,
+                                alias_scope_lists[dst_idx]);
+                si->setMetadata(llvm::LLVMContext::MD_noalias,
+                                noalias_scope_lists[dst_idx]);
             } else if (bpp == 2) {
                 final_val =
                     builder.CreateTrunc(final_val, builder.getInt16Ty());
-                builder.CreateStore(final_val, pixel_addr);
+                llvm::StoreInst* si =
+                    builder.CreateStore(final_val, pixel_addr);
+                si->setAlignment(llvm::Align(pixel_align));
+                si->setMetadata(llvm::LLVMContext::MD_alias_scope,
+                                alias_scope_lists[dst_idx]);
+                si->setMetadata(llvm::LLVMContext::MD_noalias,
+                                noalias_scope_lists[dst_idx]);
             } else { // bpp == 4
-                builder.CreateStore(final_val, pixel_addr);
+                llvm::StoreInst* si =
+                    builder.CreateStore(final_val, pixel_addr);
+                si->setAlignment(llvm::Align(pixel_align));
+                si->setMetadata(llvm::LLVMContext::MD_alias_scope,
+                                alias_scope_lists[dst_idx]);
+                si->setMetadata(llvm::LLVMContext::MD_noalias,
+                                noalias_scope_lists[dst_idx]);
             }
         } else { // stFloat
             if (bpp == 4) {
-                builder.CreateStore(value_to_store, pixel_addr);
+                llvm::StoreInst* si =
+                    builder.CreateStore(value_to_store, pixel_addr);
+                si->setAlignment(llvm::Align(pixel_align));
+                si->setMetadata(llvm::LLVMContext::MD_alias_scope,
+                                alias_scope_lists[dst_idx]);
+                si->setMetadata(llvm::LLVMContext::MD_noalias,
+                                noalias_scope_lists[dst_idx]);
             } else {
                 throw std::runtime_error("16-bit float output not supported.");
             }

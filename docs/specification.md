@@ -155,6 +155,8 @@ These are special operators that push a specific value onto the stack.
   - Accesses a pixel at an absolute coordinate. `absX` and `absY` can be computed by expressions. This is more flexible but potentially slower.
   - **Example:** `X 2 / Y x[]` reads the pixel at half the current X coordinate from the first clip.
 
+**Warning:** Pixel Accesses may not be vectorized by the JIT compiler, causing severe performance degradation.
+
 > Note: `X 2 + Y 3 - x[]` is equal to `x[2,-3]`.
 
 #### **3.6. Bitwise Operators**
