@@ -1162,8 +1162,18 @@ class Compiler {
                     llvm::Intrinsic::getOrInsertDeclaration(
                         module.get(), intrinsic_id, {float_ty}),
                     {pop()}));
-            } else if (token == "tan" || token == "asin" || token == "acos" ||
-                       token == "atan") {
+            } else if (token == "tan") {
+                llvm::Value* arg = pop();
+                llvm::Value* sin_val = builder.CreateCall(
+                    llvm::Intrinsic::getOrInsertDeclaration(
+                        module.get(), llvm::Intrinsic::sin, {float_ty}),
+                    {arg});
+                llvm::Value* cos_val = builder.CreateCall(
+                    llvm::Intrinsic::getOrInsertDeclaration(
+                        module.get(), llvm::Intrinsic::cos, {float_ty}),
+                    {arg});
+                push(builder.CreateFDiv(sin_val, cos_val));
+            } else if (token == "asin" || token == "acos" || token == "atan") {
                 llvm::FunctionType* func_ty =
                     llvm::FunctionType::get(float_ty, {float_ty}, false);
                 llvm::Function* f = getOrDeclareMathFunc(token + "f", func_ty);
