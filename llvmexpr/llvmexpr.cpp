@@ -42,24 +42,6 @@
 
 namespace {
 
-void compare_swap_ir(llvm::IRBuilder<>& builder, llvm::Value* array, int i,
-                     int j, llvm::Type* float_ty) {
-    llvm::Value* val_i_ptr =
-        builder.CreateGEP(float_ty, array, builder.getInt32(i));
-    llvm::Value* val_j_ptr =
-        builder.CreateGEP(float_ty, array, builder.getInt32(j));
-    llvm::Value* val_i = builder.CreateLoad(float_ty, val_i_ptr, "val_i");
-    llvm::Value* val_j = builder.CreateLoad(float_ty, val_j_ptr, "val_j");
-
-    llvm::Value* cond = builder.CreateFCmpOGT(val_i, val_j);
-
-    llvm::Value* min_val = builder.CreateSelect(cond, val_j, val_i);
-    llvm::Value* max_val = builder.CreateSelect(cond, val_i, val_j);
-
-    builder.CreateStore(min_val, val_i_ptr);
-    builder.CreateStore(max_val, val_j_ptr);
-}
-
 void oem_merge_pairs(std::vector<std::pair<int, int>>& pairs, int lo, int n,
                      int r) {
     int m = r * 2;
@@ -1032,23 +1014,29 @@ class Compiler {
                     if (n < 2)
                         continue;
 
-                    llvm::Value* array = createAllocaInEntry(
-                        float_ty, builder.getInt32(n), "sort_array");
-
+                    std::vector<llvm::Value*> values;
+                    values.reserve(n);
                     for (int i = 0; i < n; ++i) {
-                        llvm::Value* val = pop();
-                        llvm::Value* elem_ptr = builder.CreateGEP(
-                            float_ty, array, builder.getInt32(n - 1 - i));
-                        builder.CreateStore(val, elem_ptr);
+                        values.push_back(pop());
                     }
+                    std::reverse(values.begin(), values.end());
+
+                    auto compare_swap = [&](int i, int j) {
+                        llvm::Value* val_i = values[i];
+                        llvm::Value* val_j = values[j];
+                        llvm::Value* cond = builder.CreateFCmpOGT(val_i, val_j);
+                        values[i] =
+                            builder.CreateSelect(cond, val_j, val_i); // min
+                        values[j] =
+                            builder.CreateSelect(cond, val_i, val_j); // max
+                    };
 
                     // Generate sorting network
                     const auto network = get_optimal_sorting_network(n);
                     if (!network.empty()) {
                         for (const auto& pair : network) {
                             if (pair.second < n) { // Bounds check
-                                compare_swap_ir(builder, array, pair.first,
-                                                pair.second, float_ty);
+                                compare_swap(pair.first, pair.second);
                             }
                         }
                     } else {
@@ -1059,20 +1047,15 @@ class Compiler {
                         generate_oem_sort_pairs(pairs, 0, p);
                         for (const auto& pair : pairs) {
                             if (pair.second < n) {
-                                compare_swap_ir(builder, array, pair.first,
-                                                pair.second, float_ty);
+                                compare_swap(pair.first, pair.second);
                             }
                         }
                     }
 
                     // Push the sorted values back onto the stack, so the
                     // smallest is on top
-                    for (int i = 0; i < n; ++i) {
-                        llvm::Value* elem_ptr = builder.CreateGEP(
-                            float_ty, array, builder.getInt32(n - 1 - i));
-                        llvm::Value* val =
-                            builder.CreateLoad(float_ty, elem_ptr);
-                        push(val);
+                    for (int i = n - 1; i >= 0; --i) {
+                        push(values[i]);
                     }
                 } catch (...) {
                     throw std::runtime_error("Invalid sortN operator: " +
@@ -1394,7 +1377,7 @@ class Compiler {
                                 noalias_scope_lists[vs_clip_idx]);
                 loaded_val = li;
             }
-            return builder.CreateSIToFP(loaded_val, builder.getFloatTy());
+            return builder.CreateUIToFP(loaded_val, builder.getFloatTy());
         } else { // stFloat
             if (bpp == 4) {
                 llvm::LoadInst* li =
@@ -1449,7 +1432,7 @@ class Compiler {
                                        {builder.getFloatTy()}),
                                    {temp, max_f});
 
-            final_val = builder.CreateFPToSI(clamped_f, builder.getInt32Ty());
+            final_val = builder.CreateFPToUI(clamped_f, builder.getInt32Ty());
 
             if (bpp == 1) {
                 final_val = builder.CreateTrunc(final_val, builder.getInt8Ty());
