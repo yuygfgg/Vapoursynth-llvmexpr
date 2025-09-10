@@ -70,6 +70,14 @@ Numeric literals are pushed directly onto the stack.
 - `acos`: (1 operand) `x acos` is the arc cosine of x.
 - `atan`: (1 operand) `x atan` is the arc tangent of x.
 - `atan2`: (2 operands) `y x atan2` computes the arc tangent of `y/x`, using the signs of both arguments to determine the correct quadrant. It is equivalent to the standard C function `atan2(y, x)`.
+- `copysign`: (2 operands) `x y copysign` returns a value with the magnitude of `x` and the sign of `y`.
+- `cosh`: (1 operand) `x cosh` is the hyperbolic cosine of x.
+- `exp2`: (1 operand) `x exp2` computes 2^x.
+- `log10`: (1 operand) `x log10` computes the base-10 logarithm of `x`.
+- `log2`: (1 operand) `x log2` computes the base-2 logarithm of `x`.
+- `sinh`: (1 operand) `x sinh` is the hyperbolic sine of x.
+- `tanh`: (1 operand) `x tanh` is the hyperbolic tangent of x.
+- `fma`: (3 operands) `a b c fma` computes `(a * b) + c` as a single fused multiply-add operation.
 
 #### **2.5. Comparison & Logical Operators (2 operands)**
 

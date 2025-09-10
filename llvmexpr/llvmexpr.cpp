@@ -379,7 +379,7 @@ class Compiler {
                 token == "or" || token == "xor" || token == "bitand" ||
                 token == "bitor" || token == "bitxor" || token == "min" ||
                 token == "max" || token == "pow" || token == "**" ||
-                token == "atan2") {
+                token == "atan2" || token == "copysign") {
                 require(2, token);
                 // 2 -> 1
                 --sp;
@@ -391,13 +391,16 @@ class Compiler {
                 token == "floor" || token == "ceil" || token == "trunc" ||
                 token == "round" || token == "sin" || token == "cos" ||
                 token == "tan" || token == "asin" || token == "acos" ||
-                token == "atan") {
+                token == "atan" || token == "exp2" || token == "log10" ||
+                token == "log2" || token == "sinh" || token == "cosh" ||
+                token == "tanh") {
                 require(1, token);
                 // 1 -> 1
                 continue;
             }
 
-            if (token == "?" || token == "clip" || token == "clamp") {
+            if (token == "?" || token == "clip" || token == "clamp" ||
+                token == "fma") {
                 require(3, token);
                 // 3 -> 1
                 sp -= 2;
@@ -1141,6 +1144,32 @@ class Compiler {
                 auto b = pop();
                 auto a = pop();
                 push(createBinaryIntrinsicCall(llvm::Intrinsic::atan2, a, b));
+            } else if (token == "exp2") {
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::exp2, pop()));
+            } else if (token == "log10") {
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::log10, pop()));
+            } else if (token == "log2") {
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::log2, pop()));
+            } else if (token == "sinh") {
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::sinh, pop()));
+            } else if (token == "cosh") {
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::cosh, pop()));
+            } else if (token == "tanh") {
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::tanh, pop()));
+            } else if (token == "copysign") {
+                auto b = pop();
+                auto a = pop();
+                push(
+                    createBinaryIntrinsicCall(llvm::Intrinsic::copysign, a, b));
+            } else if (token == "fma") {
+                auto c = pop();
+                auto b = pop();
+                auto a = pop();
+                push(builder.CreateCall(llvm::Intrinsic::getOrInsertDeclaration(
+                                            module.get(),
+                                            llvm::Intrinsic::fmuladd,
+                                            {builder.getFloatTy()}),
+                                        {a, b, c}));
             }
 
             else if (token.back() == '!') {
