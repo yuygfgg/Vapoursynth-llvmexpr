@@ -1383,8 +1383,17 @@ class Compiler {
                 li->setMetadata(llvm::LLVMContext::MD_noalias,
                                 noalias_scope_lists[vs_clip_idx]);
                 return li;
+            } else if (bpp == 2) {
+                llvm::LoadInst* li =
+                    builder.CreateLoad(builder.getHalfTy(), pixel_addr);
+                li->setAlignment(llvm::Align(pixel_align));
+                li->setMetadata(llvm::LLVMContext::MD_alias_scope,
+                                alias_scope_lists[vs_clip_idx]);
+                li->setMetadata(llvm::LLVMContext::MD_noalias,
+                                noalias_scope_lists[vs_clip_idx]);
+                return builder.CreateFPExt(li, builder.getFloatTy());
             } else {
-                throw std::runtime_error("16-bit float input not supported.");
+                throw std::runtime_error("Unsupported float sample size.");
             }
         }
     }
@@ -1460,8 +1469,18 @@ class Compiler {
                                 alias_scope_lists[dst_idx]);
                 si->setMetadata(llvm::LLVMContext::MD_noalias,
                                 noalias_scope_lists[dst_idx]);
+            } else if (bpp == 2) {
+                llvm::Value* truncated_val =
+                    builder.CreateFPTrunc(value_to_store, builder.getHalfTy());
+                llvm::StoreInst* si =
+                    builder.CreateStore(truncated_val, pixel_addr);
+                si->setAlignment(llvm::Align(pixel_align));
+                si->setMetadata(llvm::LLVMContext::MD_alias_scope,
+                                alias_scope_lists[dst_idx]);
+                si->setMetadata(llvm::LLVMContext::MD_noalias,
+                                noalias_scope_lists[dst_idx]);
             } else {
-                throw std::runtime_error("16-bit float output not supported.");
+                throw std::runtime_error("Unsupported float sample size.");
             }
         }
     }
