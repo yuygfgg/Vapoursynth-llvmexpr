@@ -32,158 +32,174 @@ When mixing formats, scale values accordingly. For example, to add an 8-bit valu
 
 ---
 
-### **2. Syntax**
+### **2. Operands: Pushing Values onto the Stack**
 
 #### **2.1. Clip Identifiers**
 
-Input clips are referred to by letters. Up to 26 clips can be used.
+Input clips are the primary source of pixel values. They can be referenced in two ways:
 
-- `x`: The first input clip.
-- `y`: The second input clip.
-- `z`: The third input clip.
-- `a` to `w`: The 4th to 26th clips.
+- **By Letter (up to 26 clips):**
+  - `x`: The first input clip.
+  - `y`: The second input clip.
+  - `z`: The third input clip.
+  - `a` to `w`: The 4th to 26th clips.
 
-#### **2.2. Constants**
+- **By Index (arbitrary number of clips):**
+  - `srcN`: Accesses the N-th input clip (0-indexed).
+  - `src0` is equivalent to `x`.
+  - `src1` is equivalent to `y`.
+  - `src26` accesses the 27th clip.
 
-Numeric literals are pushed directly onto the stack.
+#### **2.2. Numeric Constants**
 
-- **Example:** `x 128 -` (Subtracts 128 from each pixel value of the first clip).
+Literals are pushed directly onto the stack.
 
-#### **2.3. Arithmetic Operators (2 operands)**
+- **Standard:** `128`, `3.14`, `-0.5`
+- **Hexadecimal:** `0x10` (16), `0xFF` (255).
+- **Octal:** `010` (8). Note that invalid octal numbers like `09` are parsed as floats (`9.0`).
 
-- `+`: Addition
-- `-`: Subtraction
-- `*`: Multiplication
-- `/`: Division
+**Example:** `x 128 -` (Subtracts 128 from each pixel value of the first clip).
 
-#### **2.4. Math Functions**
+#### **2.3. Special Constants & Coordinates**
 
-- `pow`: (2 operands) `x y pow` raises `x` to the power of `y`.
-- `exp`: (1 operand) `x exp` is e^x.
-- `log`: (1 operand) `x log` is the natural logarithm of `x`.
-- `sqrt`: (1 operand) `x sqrt` is the square root of `x`.
-- `abs`: (1 operand) `x abs` is the absolute value of `x`.
-- `sin`: (1 operand) `x sin` is the sine of x.
-- `cos`: (1 operand) `x cos` is the cosine of x.
-- `tan`: (1 operand) `x tan` is the tangent of x.
-- `asin`: (1 operand) `x asin` is the arc sine of x.
-- `acos`: (1 operand) `x acos` is the arc cosine of x.
-- `atan`: (1 operand) `x atan` is the arc tangent of x.
-- `atan2`: (2 operands) `y x atan2` computes the arc tangent of `y/x`, using the signs of both arguments to determine the correct quadrant. It is equivalent to the standard C function `atan2(y, x)`.
-- `copysign`: (2 operands) `x y copysign` returns a value with the magnitude of `x` and the sign of `y`.
-- `cosh`: (1 operand) `x cosh` is the hyperbolic cosine of x.
-- `exp2`: (1 operand) `x exp2` computes 2^x.
-- `log10`: (1 operand) `x log10` computes the base-10 logarithm of `x`.
-- `log2`: (1 operand) `x log2` computes the base-2 logarithm of `x`.
-- `sinh`: (1 operand) `x sinh` is the hyperbolic sine of x.
-- `tanh`: (1 operand) `x tanh` is the hyperbolic tangent of x.
-- `fma`: (3 operands) `a b c fma` computes `(a * b) + c` as a single fused multiply-add operation.
+These operators push a specific value onto the stack without needing an operand.
 
-#### **2.5. Comparison & Logical Operators (2 operands)**
+- `pi`: The mathematical constant π (approximately 3.14159).
+- `N`: The current frame number.
+- `X`: The current pixel's column coordinate.
+- `Y`: The current pixel's row coordinate.
+- `width`: The width of the frame.
+- `height`: The height of the frame.
+
+---
+
+### **3. Operators: Manipulating the Stack**
+
+#### **3.1. Arithmetic Operators**
+
+| Operator | Operands | Description |
+| :--- | :--- | :--- |
+| `+` | 2 | Addition |
+| `-` | 2 | Subtraction |
+| `*` | 2 | Multiplication |
+| `/` | 2 | Division |
+| `%` | 2 | C's `fmodf`. `x 1.0 %` gives the fractional part of `x`. |
+
+#### **3.2. Comparison & Logical Operators**
 
 These operators treat any value greater than 0 as `true`. They return `1.0` for true and `0.0` for false.
 
-- `>`: Greater than
-- `<`: Less than
-- `=`: Equal to
-- `>=`: Greater than or equal to
-- `<=`: Less than or equal to
-- `and`: Logical AND
-- `or`: Logical OR
-- `xor`: Logical XOR
-- `not`: (1 operand) Logical NOT.
+| Operator | Operands | Description |
+| :--- | :--- | :--- |
+| `>` | 2 | Greater than |
+| `<` | 2 | Less than |
+| `=` | 2 | Equal to |
+| `>=` | 2 | Greater than or equal to |
+| `<=` | 2 | Less than or equal to |
+| `and` | 2 | Logical AND |
+| `or` | 2 | Logical OR |
+| `xor` | 2 | Logical XOR |
+| `not` | 1 | Logical NOT |
 
-#### **2.6. Conditional Operator (3 operands)**
+#### **3.3. Mathematical Functions**
 
-- `?`: A ternary operator, `C A B ?` is equivalent to `C ? A : B`. If `C` is true (non-zero), `A` is evaluated and its result is pushed. Otherwise, `B` is evaluated and its result is pushed.
+| Function | Operands | Description |
+| :--- | :--- | :--- |
+| **Power & Root** | | |
+| `pow` or `**` | 2 | `x y pow` raises `x` to the power of `y`. `**` is an alias. |
+| `sqrt` | 1 | `x sqrt` is the square root of `x`. |
+| **Exponential & Logarithmic** | | |
+| `exp` | 1 | `x exp` is e^x. |
+| `exp2` | 1 | `x exp2` computes 2^x. |
+| `log` | 1 | `x log` is the natural logarithm of `x`. |
+| `log2` | 1 | `x log2` computes the base-2 logarithm of `x`. |
+| `log10` | 1 | `x log10` computes the base-10 logarithm of `x`. |
+| **Trigonometric** | | |
+| `sin`, `cos`, `tan` | 1 | Sine, Cosine, Tangent. |
+| `asin`, `acos`, `atan` | 1 | Arc Sine, Arc Cosine, Arc Tangent. |
+| `atan2` | 2 | `y x atan2` computes `atan(y/x)` using signs to find the correct quadrant. |
+| `sinh`, `cosh`, `tanh` | 1 | Hyperbolic Sine, Cosine, Tangent. |
+| **Rounding** | | |
+| `floor` | 1 | Rounds down to the nearest integer. |
+| `ceil` | 1 | Rounds up to the nearest integer. |
+| `round` | 1 | Rounds to the nearest integer. |
+| `trunc` | 1 | Truncates towards zero. |
+| **Other** | | |
+| `abs` | 1 | `x abs` is the absolute value of `x`. |
+| `copysign` | 2 | `x y copysign` returns a value with the magnitude of `x` and the sign of `y`. |
+| `fma` | 3 | `a b c fma` computes `(a * b) + c` as a single fused multiply-add. |
+
+#### **3.4. Conditional Operator**
+
+- `?`: A ternary operator. `C A B ?` is equivalent to `C ? A : B`. If `C` is true (non-zero), `A` is evaluated and its result is pushed. Otherwise, `B` is evaluated and its result is pushed.
   - **Example:** `x 128 > x 0 ?` (If the pixel value is greater than 128, keep it, otherwise set it to 0).
 
-#### **2.7. Min/Max Operators (2 operands)**
+#### **3.5. Min/Max & Clamping**
 
-- `max`: Returns the larger of the two values.
-- `min`: Returns the smaller of the two values.
+| Operator | Operands | Description |
+| :--- | :--- | :--- |
+| `max` | 2 | Returns the larger of the two values. |
+| `min` | 2 | Returns the smaller of the two values. |
+| `clip` or `clamp` | 3 | `x min_val max_val clip` clamps `x` to the range `[min_val, max_val]`. |
 
-#### **2.8. Stack Manipulation Operators**
+**Example:** `x 16 235 clip` clamps the pixel value to the broadcast-safe range [16, 235].
 
-- `dup`: (1 operand) Duplicates the top item on the stack. `x dup *` is equivalent to `x x *` or `x 2 pow`.
-- `swap`: (2 operands) Swaps the top two items on the stack. `x y swap -` is equivalent to `y x -`.
-- `dupN`: Duplicates the item at N positions from the top of the stack. `dup0` is `dup`.
-- `swapN`: Swaps the top item with the item N positions down the stack. `swap1` is `swap`.
+#### **3.6. Bitwise Operators**
 
+These operators truncate floating-point values to integers before the operation.
 
-#### **3.1. Special Variables & Constants**
+| Operator | Description |
+| :--- | :--- |
+| `bitand` | Bitwise AND |
+| `bitor` | Bitwise OR |
+| `bitxor` | Bitwise XOR |
+| `bitnot` | Bitwise NOT |
 
-These are special operators that push a specific value onto the stack.
+---
 
-- `pi`: Pushes the mathematical constant π (approximately 3.14159).
-- `N`: Pushes the current frame number.
-- `X`: Pushes the current pixel's column coordinate (width).
-- `Y`: Pushes the current pixel's row coordinate (height).
-- `width`: Pushes the width of the frame.
-- `height`: Pushes the height of the frame.
+### **4. Advanced Operations**
 
-#### **3.2. Frame Property Access**
+#### **4.1. Stack Manipulation**
 
-- `clip.PropertyName`: Loads a scalar numerical frame property. `clip` can be `x`, `y`, `z`, `a`-`w`, or `srcN`.
-  - **Example:** `x.PlaneStatsAverage` pushes the value of the `PlaneStatsAverage` property from the first clip's frame properties.
-  - If the property is not a scalar numerical property, its value will be its first byte.
-  - If the property does not exist, its value will be `NaN` (Not a Number).
+| Operator | Description | Example |
+| :--- | :--- | :--- |
+| `dup` | (1 operand) Duplicates the top item. | `x dup *` is equivalent to `x 2 pow`. |
+| `swap` | (2 operands) Swaps the top two items. | `x y swap -` is equivalent to `y x -`. |
+| `dupN` | Duplicates the item N positions from the top. `dup0` is `dup`. | |
+| `swapN` | Swaps the top item with the item N positions down. `swap1` is `swap`. | |
+| `drop` / `dropN` | Drops the top N items. `drop` is an alias for `drop1`. | `1 2 3 drop2` results in a stack of `[1]`. |
+| `sortN` | Sorts the top N items, with the smallest value ending up on top. | `3 1 2 sort3` results in a stack of `[3, 2, 1]`. |
 
-#### **3.3. Additional Math & Logic**
+#### **4.2. Named Variables**
 
-- `**`: An alias for `pow`. `x 2 **` is the same as `x 2 pow`.
-- `%`: Implements C's `fmodf`. `x 1.0 %` gives the fractional part of `x`.
-- `clip` / `clamp`: (3 operands) Clamps a value between a minimum and maximum. `x min_val max_val clip` ensures the result is not smaller than `min_val` and not larger than `max_val`.
-  - **Example:** `x 16 235 clip` clamps the pixel value to the range [16, 235].
-- `trunc`: (1 operand) Truncates the value towards zero.
-- `round`: (1 operand) Rounds the value to the nearest integer.
-- `floor`: (1 operand) Rounds the value down to the nearest integer.
-- `ceil`: (1 operand) Rounds the value up to the nearest integer.
+- `var!`: Pops the top value from the stack and stores it in a variable named `var`.
+- `var@`: Pushes the value of the variable `var` onto the stack.
+- **Example:** `x 2 / my_var! my_var@ my_var@ *` (Calculates `(x/2)^2`).
 
-#### **3.4. Advanced Stack Manipulation**
+#### **4.3. Data Access**
 
-- **Named Variables:**
-  - `var!`: Pops the top value from the stack and stores it in a variable named `var`.
-  - `var@`: Pushes the value of the variable `var` onto the stack.
-  - **Example:** `x 2 / my_var! my_var@ my_var@ *` (Calculates `(x/2)^2`).
-- `dropN`: Drops the top `N` items from the stack. `drop` is an alias for `drop1`.
-  - **Example:** `1 2 3 drop2` results in a stack of `[1]`.
-- `sortN`: Sorts the top `N` items on the stack, with the smallest value ending up on top.
-  - **Example:** `3 1 2 sort3` results in a stack of `[3, 2, 1]`, with `1` at the top.
+##### **Pixel Access**
 
-#### **3.5. Pixel Access**
+Access pixels from any clip at absolute or relative coordinates.
 
 - **Static Relative Access:** `clip[relX, relY]`
   - Accesses a pixel relative to the current coordinate. `relX` and `relY` must be constants.
   - **Example:** `y[-1, 0]` accesses the pixel to the immediate left in the second clip (`y`).
   - **Boundary Suffixes:**
-    - `:c`: Clamped boundary (edge pixels are repeated). This is the default. `x[relX, relY]:c`.
-    - `:m`: Mirrored boundary. `x[relX, relY]:m`.
+    - `:c`: Clamped boundary (edge pixels are repeated). This is the default.
+    - `:m`: Mirrored boundary.
+
 - **Dynamic Absolute Access:** `absX absY clip[]`
-  - Accesses a pixel at an absolute coordinate. `absX` and `absY` can be computed by expressions. This is more flexible but potentially slower.
+  - Accesses a pixel at an absolute coordinate, where `absX` and `absY` can be computed by expressions. This is more flexible but potentially slower.
   - **Example:** `X 2 / Y x[]` reads the pixel at half the current X coordinate from the first clip.
 
-**Warning:** Pixel Accesses may not be vectorized by the JIT compiler, causing severe performance degradation.
+> Note: `X 2 + Y 3 - x[]` is equivalent to `x[2,-3]`.
+>
+> **Warning:** Pixel Accesses may not be vectorized by the JIT compiler, causing severe performance degradation.
 
-> Note: `X 2 + Y 3 - x[]` is equal to `x[2,-3]`.
+##### **Frame Property Access**
 
-#### **3.6. Bitwise Operators**
-
-These operators work on integers by truncating the floating-point values on the stack before the operation.
-
-- `bitand`: Bitwise AND.
-- `bitor`: Bitwise OR.
-- `bitxor`: Bitwise XOR.
-- `bitnot`: Bitwise NOT.
-
-#### **3.7. Extended Numeric Formats**
-
-- **Hexadecimal:** `0x10` (16), `0xFF` (255).
-- **Octal:** `010` (8). Note that invalid octal numbers like `09` are parsed as floats (`9.0`).
-
-#### **3.8. Arbitrary Number of Clips**
-
-- `srcN`: Accesses the N-th input clip (0-indexed).
-  - `src0` is equivalent to `x`.
-  - `src1` is equivalent to `y`.
-  - `src26` accesses the 27th clip.
+- `clip.PropertyName`: Loads a scalar numerical frame property. `clip` can be any clip identifier (`x`, `y`, `srcN`, etc.).
+  - **Example:** `x.PlaneStatsAverage` pushes the value of the `PlaneStatsAverage` property from the first clip's frame properties.
+  - If the property is not a scalar numerical property, its value will be its first byte.
+  - If the property does not exist, its value will be `NaN` (Not a Number).
