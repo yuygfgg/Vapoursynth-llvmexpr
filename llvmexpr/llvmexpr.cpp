@@ -16,6 +16,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "VSHelper.h"
@@ -43,6 +44,314 @@
 constexpr unsigned ALIGNMENT = 32; // Vapoursynth should guarantee this
 
 namespace {
+
+enum class TokenType {
+    // Literals & Constants
+    NUMBER,
+    CONSTANT_X,
+    CONSTANT_Y,
+    CONSTANT_WIDTH,
+    CONSTANT_HEIGHT,
+    CONSTANT_N,
+    CONSTANT_PI,
+
+    // Variable Ops
+    VAR_STORE, // my_var!
+    VAR_LOAD,  // my_var@
+
+    // Data Access
+    CLIP_REL,    // src[x,y]
+    CLIP_ABS,    // src[]
+    CLIP_CUR,    // src
+    PROP_ACCESS, // src.prop
+
+    // Binary Operators
+    ADD,
+    SUB,
+    MUL,
+    DIV,
+    MOD,
+    GT,
+    LT,
+    GE,
+    LE,
+    EQ,
+    AND,
+    OR,
+    XOR,
+    BITAND,
+    BITOR,
+    BITXOR,
+    POW,
+    ATAN2,
+    COPYSIGN,
+    MIN,
+    MAX,
+
+    // Unary Operators
+    NOT,
+    BITNOT,
+    SQRT,
+    EXP,
+    LOG,
+    ABS,
+    FLOOR,
+    CEIL,
+    TRUNC,
+    ROUND,
+    SIN,
+    COS,
+    TAN,
+    ASIN,
+    ACOS,
+    ATAN,
+    EXP2,
+    LOG10,
+    LOG2,
+    SINH,
+    COSH,
+    TANH,
+
+    // Ternary and other multi-arg
+    TERNARY, // ?
+    CLIP,
+    CLAMP, // same op, 3 args
+    FMA,   // 3 args
+
+    // Stack manipulation
+    DUP,
+    DROP,
+    SWAP,
+    SORTN,
+};
+
+// Payloads for different token types
+struct TokenPayload_Number {
+    double value;
+};
+struct TokenPayload_Var {
+    std::string name;
+};
+struct TokenPayload_StackOp {
+    int n;
+};
+struct TokenPayload_ClipAccess {
+    int clip_idx;
+    int rel_x = 0;
+    int rel_y = 0;
+    bool use_mirror = false;
+    bool has_mode = false;
+};
+struct TokenPayload_PropAccess {
+    int clip_idx;
+    std::string prop_name;
+};
+
+struct Token {
+    TokenType type;
+    std::string text;
+    std::variant<std::monostate, TokenPayload_Number, TokenPayload_Var,
+                 TokenPayload_StackOp, TokenPayload_ClipAccess,
+                 TokenPayload_PropAccess>
+        payload;
+};
+
+namespace {
+const std::regex re_rel{
+    R"(^(?:src(\d+)|([x-za-w]))\((-?\d+),(-?\d+)\)(?::([cm]))?$)"};
+const std::regex re_rel_bracket{
+    R"(^(?:src(\d+)|([x-za-w]))\[(-?\d+),(-?\d+)\](?::([cm]))?$)"};
+const std::regex re_abs{R"(^(?:src(\d+)|([x-za-w]))\[\]$)"};
+const std::regex re_cur{R"(^(?:src(\d+)|([x-za-w]))$)"};
+const std::regex re_prop{
+    R"(^(?:src(\d+)|([x-za-w]))\.([a-zA-Z_][a-zA-Z0-9_]*)$)"};
+
+int parse_clip_idx_from_match(const std::smatch& match) {
+    if (match[1].matched) {
+        return std::stoi(match[1].str());
+    }
+    if (match[2].matched) {
+        char c = match[2].str()[0];
+        if (c >= 'x' && c <= 'z') {
+            return c - 'x';
+        }
+        return c - 'a' + 3;
+    }
+    std::unreachable();
+}
+} // namespace
+
+std::vector<Token> tokenize(const std::string& expr, int num_inputs) {
+    std::vector<Token> tokens;
+    std::stringstream ss(expr);
+    std::string str_token;
+
+    static const std::unordered_map<std::string, TokenType> keyword_map = {
+        {"+", TokenType::ADD},
+        {"-", TokenType::SUB},
+        {"*", TokenType::MUL},
+        {"/", TokenType::DIV},
+        {"%", TokenType::MOD},
+        {">", TokenType::GT},
+        {"<", TokenType::LT},
+        {">=", TokenType::GE},
+        {"<=", TokenType::LE},
+        {"=", TokenType::EQ},
+        {"and", TokenType::AND},
+        {"or", TokenType::OR},
+        {"xor", TokenType::XOR},
+        {"not", TokenType::NOT},
+        {"bitand", TokenType::BITAND},
+        {"bitor", TokenType::BITOR},
+        {"bitxor", TokenType::BITXOR},
+        {"bitnot", TokenType::BITNOT},
+        {"pow", TokenType::POW},
+        {"**", TokenType::POW},
+        {"min", TokenType::MIN},
+        {"max", TokenType::MAX},
+        {"atan2", TokenType::ATAN2},
+        {"copysign", TokenType::COPYSIGN},
+        {"?", TokenType::TERNARY},
+        {"clip", TokenType::CLIP},
+        {"clamp", TokenType::CLAMP},
+        {"fma", TokenType::FMA},
+        {"sqrt", TokenType::SQRT},
+        {"exp", TokenType::EXP},
+        {"log", TokenType::LOG},
+        {"abs", TokenType::ABS},
+        {"floor", TokenType::FLOOR},
+        {"ceil", TokenType::CEIL},
+        {"trunc", TokenType::TRUNC},
+        {"round", TokenType::ROUND},
+        {"sin", TokenType::SIN},
+        {"cos", TokenType::COS},
+        {"tan", TokenType::TAN},
+        {"asin", TokenType::ASIN},
+        {"acos", TokenType::ACOS},
+        {"atan", TokenType::ATAN},
+        {"exp2", TokenType::EXP2},
+        {"log10", TokenType::LOG10},
+        {"log2", TokenType::LOG2},
+        {"sinh", TokenType::SINH},
+        {"cosh", TokenType::COSH},
+        {"tanh", TokenType::TANH},
+        {"X", TokenType::CONSTANT_X},
+        {"Y", TokenType::CONSTANT_Y},
+        {"width", TokenType::CONSTANT_WIDTH},
+        {"height", TokenType::CONSTANT_HEIGHT},
+        {"N", TokenType::CONSTANT_N},
+        {"pi", TokenType::CONSTANT_PI},
+    };
+
+    while (ss >> str_token) {
+        Token t;
+        t.text = str_token;
+        std::smatch match;
+
+        if (auto it = keyword_map.find(str_token); it != keyword_map.end()) {
+            t.type = it->second;
+        } else if (str_token.rfind("dup", 0) == 0) {
+            t.type = TokenType::DUP;
+            int n =
+                (str_token.length() > 3) ? std::stoi(str_token.substr(3)) : 0;
+            if (n < 0)
+                throw std::runtime_error("Invalid dupN operator: " + str_token);
+            t.payload = TokenPayload_StackOp{n};
+        } else if (str_token.rfind("drop", 0) == 0) {
+            t.type = TokenType::DROP;
+            int n =
+                (str_token.length() > 4) ? std::stoi(str_token.substr(4)) : 1;
+            if (n < 0)
+                throw std::runtime_error("Invalid dropN operator: " +
+                                         str_token);
+            t.payload = TokenPayload_StackOp{n};
+        } else if (str_token.rfind("swap", 0) == 0) {
+            t.type = TokenType::SWAP;
+            int n =
+                (str_token.length() > 4) ? std::stoi(str_token.substr(4)) : 1;
+            if (n < 0)
+                throw std::runtime_error("Invalid swapN operator: " +
+                                         str_token);
+            t.payload = TokenPayload_StackOp{n};
+        } else if (str_token.rfind("sort", 0) == 0 && str_token.length() > 4) {
+            t.type = TokenType::SORTN;
+            int n = std::stoi(str_token.substr(4));
+            if (n < 0)
+                throw std::runtime_error("Invalid sortN operator: " +
+                                         str_token);
+            t.payload = TokenPayload_StackOp{n};
+        } else if (std::regex_match(str_token, match, re_rel) ||
+                   std::regex_match(str_token, match, re_rel_bracket)) {
+            t.type = TokenType::CLIP_REL;
+            TokenPayload_ClipAccess data;
+            data.clip_idx = parse_clip_idx_from_match(match);
+            data.rel_x = std::stoi(match[3].str());
+            data.rel_y = std::stoi(match[4].str());
+            if (match[5].matched) {
+                data.has_mode = true;
+                data.use_mirror = (match[5].str() == "m");
+            }
+            t.payload = data;
+        } else if (std::regex_match(str_token, match, re_abs)) {
+            t.type = TokenType::CLIP_ABS;
+            t.payload = TokenPayload_ClipAccess{
+                .clip_idx = parse_clip_idx_from_match(match)};
+        } else if (std::regex_match(str_token, match, re_cur)) {
+            t.type = TokenType::CLIP_CUR;
+            t.payload = TokenPayload_ClipAccess{
+                .clip_idx = parse_clip_idx_from_match(match)};
+        } else if (std::regex_match(str_token, match, re_prop)) {
+            t.type = TokenType::PROP_ACCESS;
+            t.payload = TokenPayload_PropAccess{
+                .clip_idx = parse_clip_idx_from_match(match),
+                .prop_name = match[3].str()};
+        } else if (!str_token.empty() && str_token.back() == '!') {
+            t.type = TokenType::VAR_STORE;
+            t.payload = TokenPayload_Var{
+                .name = str_token.substr(0, str_token.length() - 1)};
+        } else if (!str_token.empty() && str_token.back() == '@') {
+            t.type = TokenType::VAR_LOAD;
+            t.payload = TokenPayload_Var{
+                .name = str_token.substr(0, str_token.length() - 1)};
+        } else {
+            t.type = TokenType::NUMBER;
+            try {
+                size_t pos = 0;
+                double val = (double)std::stoll(str_token, &pos, 0);
+                if (pos != str_token.length()) { // Not a full integer match
+                    pos = 0;
+                    val = std::stod(str_token, &pos);
+                    if (pos != str_token.length()) {
+                        throw std::runtime_error("Invalid number format");
+                    }
+                }
+                t.payload = TokenPayload_Number{val};
+            } catch (const std::exception&) {
+                throw std::runtime_error("Invalid token: " + str_token);
+            }
+        }
+
+        if (t.type == TokenType::CLIP_REL || t.type == TokenType::CLIP_ABS ||
+            t.type == TokenType::CLIP_CUR) {
+            if (std::get<TokenPayload_ClipAccess>(t.payload).clip_idx < 0 ||
+                std::get<TokenPayload_ClipAccess>(t.payload).clip_idx >=
+                    num_inputs) {
+                throw std::runtime_error("Invalid clip index in token: " +
+                                         str_token);
+            }
+        } else if (t.type == TokenType::PROP_ACCESS) {
+            if (std::get<TokenPayload_PropAccess>(t.payload).clip_idx < 0 ||
+                std::get<TokenPayload_PropAccess>(t.payload).clip_idx >=
+                    num_inputs) {
+                throw std::runtime_error("Invalid clip index in token: " +
+                                         str_token);
+            }
+        }
+
+        tokens.push_back(t);
+    }
+    return tokens;
+}
 
 void oem_merge_pairs(std::vector<std::pair<int, int>>& pairs, int lo, int n,
                      int r) {
@@ -149,7 +458,7 @@ OrcJit global_jit;
 
 class Compiler {
   private:
-    std::string rpn_expr;
+    std::vector<Token> tokens;
     const VSVideoInfo* vo;
     const std::vector<const VSVideoInfo*>& vi;
     int num_inputs;
@@ -179,62 +488,13 @@ class Compiler {
     std::vector<llvm::MDNode*> alias_scope_lists;   // !alias.scope lists (self)
     std::vector<llvm::MDNode*> noalias_scope_lists; // !noalias lists (others)
 
-    // Create allocas in the function entry block to avoid per-iteration stack
-    // growth
-    llvm::AllocaInst* createAllocaInEntry(llvm::Type* type,
-                                          llvm::Value* arraySize,
-                                          const std::string& name) {
-        llvm::IRBuilder<> entryBuilder(&func->getEntryBlock(),
-                                       func->getEntryBlock().begin());
-        return entryBuilder.CreateAlloca(type, arraySize, name);
-    }
-    llvm::AllocaInst* createAllocaInEntry(llvm::Type* type,
-                                          const std::string& name) {
-        return createAllocaInEntry(type, nullptr, name);
-    }
-
-    llvm::Value* createIntrinsicCall(llvm::Intrinsic::ID intrinsic_id,
-                                     const std::vector<llvm::Value*>& args) {
-        std::vector<llvm::Type*> types(args.size(), builder.getFloatTy());
-        llvm::Function* intrinsic_func =
-            llvm::Intrinsic::getOrInsertDeclaration(module.get(), intrinsic_id,
-                                                    types);
-        return builder.CreateCall(intrinsic_func, args);
-    }
-
-    llvm::Value* createUnaryIntrinsicCall(llvm::Intrinsic::ID intrinsic_id,
-                                          llvm::Value* arg) {
-        return builder.CreateCall(
-            llvm::Intrinsic::getOrInsertDeclaration(module.get(), intrinsic_id,
-                                                    {builder.getFloatTy()}),
-            {arg});
-    }
-
-    llvm::Value* createBinaryIntrinsicCall(llvm::Intrinsic::ID intrinsic_id,
-                                           llvm::Value* arg1,
-                                           llvm::Value* arg2) {
-        return builder.CreateCall(
-            llvm::Intrinsic::getOrInsertDeclaration(module.get(), intrinsic_id,
-                                                    {builder.getFloatTy()}),
-            {arg1, arg2});
-    }
-
-    const std::regex re_rel{
-        R"(^(?:src(\d+)|([x-za-w]))\((-?\d+),(-?\d+)\)(?::([cm]))?$)"};
-    const std::regex re_rel_bracket{
-        R"(^(?:src(\d+)|([x-za-w]))\[(-?\d+),(-?\d+)\](?::([cm]))?$)"};
-    const std::regex re_abs{R"(^(?:src(\d+)|([x-za-w]))\[\]$)"};
-    const std::regex re_cur{R"(^(?:src(\d+)|([x-za-w]))$)"};
-    const std::regex re_prop{
-        R"(^(?:src(\d+)|([x-za-w]))\.([a-zA-Z_][a-zA-Z0-9_]*)$)"};
-
   public:
-    Compiler(std::string expr, const VSVideoInfo* out_vi,
+    Compiler(std::vector<Token>&& tokens_in, const VSVideoInfo* out_vi,
              const std::vector<const VSVideoInfo*>& in_vi, bool mirror,
              std::string dump_path,
              const std::map<std::pair<int, std::string>, int>& p_map,
              std::string function_name)
-        : rpn_expr(std::move(expr)), vo(out_vi), vi(in_vi),
+        : tokens(std::move(tokens_in)), vo(out_vi), vi(in_vi),
           num_inputs(in_vi.size()), mirror_boundary(mirror),
           dump_ir_path(std::move(dump_path)), prop_map(p_map),
           func_name(std::move(function_name)),
@@ -247,8 +507,6 @@ class Compiler {
     }
 
     CompiledFunction compile() {
-        // Validate the RPN expression stack behavior before generating IR
-        validate_rpn_stack();
         define_function_signature();
         generate_loops();
 
@@ -320,289 +578,28 @@ class Compiler {
     }
 
   private:
-    // Validate stack balance and under/overflow for the RPN expression
-    void validate_rpn_stack() {
-        int sp = 0;
-        int max_sp = 0;
-        std::unordered_set<std::string> defined_vars;
+    llvm::AllocaInst* createAllocaInEntry(llvm::Type* type,
+                                          const std::string& name) {
+        llvm::IRBuilder<> entryBuilder(&func->getEntryBlock(),
+                                       func->getEntryBlock().begin());
+        return entryBuilder.CreateAlloca(type, nullptr, name);
+    }
 
-        auto require = [&](int need, const std::string& op) {
-            if (sp < need) {
-                throw std::runtime_error("Stack underflow on '" + op + "'");
-            }
-        };
-        auto push_once = [&]() {
-            ++sp;
-            if (sp > max_sp)
-                max_sp = sp;
-        };
+    llvm::Value* createUnaryIntrinsicCall(llvm::Intrinsic::ID intrinsic_id,
+                                          llvm::Value* arg) {
+        return builder.CreateCall(
+            llvm::Intrinsic::getOrInsertDeclaration(module.get(), intrinsic_id,
+                                                    {builder.getFloatTy()}),
+            {arg});
+    }
 
-        std::stringstream ss(rpn_expr);
-        std::string token;
-        size_t last_search_pos = 0;
-
-        while (ss >> token) {
-            size_t current_token_start = 0;
-            {
-                std::streampos pos_end = ss.tellg();
-                if (pos_end != std::streampos(-1)) {
-                    size_t end_idx = static_cast<size_t>(pos_end);
-                    current_token_start = (end_idx >= token.size())
-                                              ? (end_idx - token.size())
-                                              : 0;
-                    last_search_pos = current_token_start + token.size();
-                } else {
-                    size_t found = rpn_expr.find(token, last_search_pos);
-                    if (found != std::string::npos) {
-                        current_token_start = found;
-                        last_search_pos = found + token.size();
-                    } else {
-                        current_token_start = 0;
-                    }
-                }
-            }
-            auto context_for_current = [&]() -> std::string {
-                size_t expr_len = rpn_expr.size();
-                size_t s =
-                    (current_token_start > 10) ? (current_token_start - 10) : 0;
-                size_t e =
-                    std::min(current_token_start + token.size() + 10, expr_len);
-                return rpn_expr.substr(s, e - s);
-            };
-            if (token == "+" || token == "-" || token == "*" || token == "/" ||
-                token == "%" || token == ">" || token == "<" || token == ">=" ||
-                token == "<=" || token == "=" || token == "and" ||
-                token == "or" || token == "xor" || token == "bitand" ||
-                token == "bitor" || token == "bitxor" || token == "min" ||
-                token == "max" || token == "pow" || token == "**" ||
-                token == "atan2" || token == "copysign") {
-                require(2, token);
-                // 2 -> 1
-                --sp;
-                continue;
-            }
-
-            if (token == "not" || token == "bitnot" || token == "sqrt" ||
-                token == "exp" || token == "log" || token == "abs" ||
-                token == "floor" || token == "ceil" || token == "trunc" ||
-                token == "round" || token == "sin" || token == "cos" ||
-                token == "tan" || token == "asin" || token == "acos" ||
-                token == "atan" || token == "exp2" || token == "log10" ||
-                token == "log2" || token == "sinh" || token == "cosh" ||
-                token == "tanh") {
-                require(1, token);
-                // 1 -> 1
-                continue;
-            }
-
-            if (token == "?" || token == "clip" || token == "clamp" ||
-                token == "fma") {
-                require(3, token);
-                // 3 -> 1
-                sp -= 2;
-                continue;
-            }
-
-            if (token == "dup") {
-                require(1, token);
-                push_once();
-                continue;
-            }
-            if (token.rfind("dup", 0) == 0 && token.length() > 3) {
-                try {
-                    int n = std::stoi(token.substr(3));
-                    if (n < 0)
-                        throw std::runtime_error("");
-                    if (sp < 1 + n)
-                        throw std::runtime_error("Stack underflow on '" +
-                                                 token + "'");
-                    push_once();
-                } catch (...) {
-                    throw std::runtime_error("Invalid dupN operator: " + token);
-                }
-                continue;
-            }
-
-            if (token == "drop") {
-                require(1, token);
-                --sp;
-                continue;
-            }
-            if (token.rfind("drop", 0) == 0 && token.length() > 4) {
-                try {
-                    int n = std::stoi(token.substr(4));
-                    if (n < 0)
-                        throw std::runtime_error("");
-                    if (sp < n)
-                        throw std::runtime_error("Stack underflow on '" +
-                                                 token + "'");
-                    sp -= n;
-                } catch (...) {
-                    throw std::runtime_error("Invalid dropN operator: " +
-                                             token);
-                }
-                continue;
-            }
-
-            if (token == "swap") {
-                require(2, token);
-                // unchanged
-                continue;
-            }
-            if (token.rfind("swap", 0) == 0 && token.length() > 4) {
-                try {
-                    int n = std::stoi(token.substr(4));
-                    if (n < 0)
-                        throw std::runtime_error("");
-                    if (sp < 1 + n)
-                        throw std::runtime_error("Stack underflow on '" +
-                                                 token + "'");
-                } catch (...) {
-                    throw std::runtime_error("Invalid swapN operator: " +
-                                             token);
-                }
-                continue;
-            }
-
-            if (token.rfind("sort", 0) == 0 && token.length() > 4) {
-                try {
-                    int n = std::stoi(token.substr(4));
-                    if (n < 0)
-                        throw std::runtime_error("");
-                    if (n < 2)
-                        continue; // no-op
-                    if (sp < n)
-                        throw std::runtime_error("Stack underflow on '" +
-                                                 token + "'");
-                } catch (...) {
-                    throw std::runtime_error("Invalid sortN operator: " +
-                                             token);
-                }
-                continue;
-            }
-
-            if (token == "X" || token == "Y" || token == "width" ||
-                token == "height" || token == "N" || token == "pi") {
-                push_once();
-                continue;
-            }
-
-            if (!token.empty() && token.back() == '!') {
-                std::string var_name = token.substr(0, token.length() - 1);
-                require(1, token);
-                --sp;
-                defined_vars.insert(var_name);
-                continue;
-            }
-            if (!token.empty() && token.back() == '@') {
-                std::string var_name = token.substr(0, token.length() - 1);
-                if (defined_vars.find(var_name) == defined_vars.end()) {
-                    throw std::runtime_error("Unknown variable: " + var_name);
-                }
-                push_once();
-                continue;
-            }
-
-            {
-                std::smatch match;
-                if (std::regex_match(token, match, re_prop)) {
-                    int clip_idx = -1;
-                    if (match[1].matched)
-                        clip_idx = std::stoi(match[1].str());
-                    else if (match[2].matched) {
-                        char c = match[2].str()[0];
-                        if (c >= 'x' && c <= 'z')
-                            clip_idx = c - 'x';
-                        else
-                            clip_idx = c - 'a' + 3;
-                    }
-                    if (clip_idx < 0 || clip_idx >= num_inputs) {
-                        throw std::runtime_error(
-                            "Invalid clip index in property access: " + token);
-                    }
-                    push_once();
-                    continue;
-                }
-            }
-
-            // Clip access or number literal or invalid token
-            {
-                std::smatch match;
-                bool is_rel = std::regex_match(token, match, re_rel) ||
-                              std::regex_match(token, match, re_rel_bracket);
-                bool is_abs = !is_rel && std::regex_match(token, match, re_abs);
-                bool is_cur = !is_rel && !is_abs &&
-                              std::regex_match(token, match, re_cur);
-                if (is_rel || is_abs || is_cur) {
-                    int clip_idx = -1;
-                    if (match[1].matched)
-                        clip_idx = std::stoi(match[1].str());
-                    else if (match[2].matched) {
-                        char c = match[2].str()[0];
-                        if (c >= 'x' && c <= 'z')
-                            clip_idx = c - 'x';
-                        else
-                            clip_idx = c - 'a' + 3;
-                    }
-                    if (clip_idx < 0 || clip_idx >= num_inputs) {
-                        throw std::runtime_error(
-                            "Invalid clip index in token: " + token);
-                    }
-                    if (is_abs) {
-                        require(2, token);
-                        sp -= 2;
-                        push_once();
-                    } else {
-                        push_once();
-                    }
-                    continue;
-                }
-            }
-
-            // number literal detection
-            try {
-                size_t pos = 0;
-                (void)std::stod(token, &pos);
-                if (pos == token.length()) {
-                    push_once();
-                    continue;
-                }
-            } catch (...) {
-            }
-            try {
-                size_t pos = 0;
-                (void)std::stoll(token, &pos, 0);
-                if (pos == token.length()) {
-                    push_once();
-                    continue;
-                }
-            } catch (...) {
-            }
-
-            {
-                bool all_digits = !token.empty();
-                for (unsigned char ch : token) {
-                    if (!(ch >= '0' && ch <= '9')) {
-                        all_digits = false;
-                        break;
-                    }
-                }
-                if (all_digits) {
-                    push_once();
-                    continue;
-                }
-            }
-
-            throw std::runtime_error("Invalid token: " + token +
-                                     " | context: " + context_for_current());
-        }
-
-        if (sp != 1) {
-            throw std::runtime_error(
-                std::format("Expression stack not balanced: final stack depth "
-                            "= {}, expected 1.",
-                            sp));
-        }
+    llvm::Value* createBinaryIntrinsicCall(llvm::Intrinsic::ID intrinsic_id,
+                                           llvm::Value* arg1,
+                                           llvm::Value* arg2) {
+        return builder.CreateCall(
+            llvm::Intrinsic::getOrInsertDeclaration(module.get(), intrinsic_id,
+                                                    {builder.getFloatTy()}),
+            {arg1, arg2});
     }
 
     void assumeAligned(llvm::Value* ptrValue, unsigned alignment) {
@@ -771,7 +768,7 @@ class Compiler {
         loop_br->setMetadata(llvm::LLVMContext::MD_loop, loop_id);
 
         builder.SetInsertPoint(loop_x_body);
-        generate_rpn_logic(x_val, y_val);
+        generate_ir_from_tokens(x_val, y_val);
 
         llvm::Value* x_next = builder.CreateAdd(x_val, builder.getInt32(1));
         builder.CreateStore(x_next, x_var);
@@ -786,15 +783,21 @@ class Compiler {
         builder.CreateRetVoid();
     }
 
-    void generate_rpn_logic(llvm::Value* x, llvm::Value* y) {
+    void generate_ir_from_tokens(llvm::Value* x, llvm::Value* y) {
         llvm::Type* float_ty = builder.getFloatTy();
         llvm::Type* i32_ty = builder.getInt32Ty();
 
-        std::unordered_map<std::string, llvm::Value*> named_vars;
-
         std::vector<llvm::Value*> stack;
         stack.reserve(128);
+        std::unordered_set<std::string> defined_vars;
+        std::unordered_map<std::string, llvm::Value*> named_vars;
 
+        auto require = [&](int need, const std::string& op_text) {
+            if (stack.size() < static_cast<size_t>(need)) {
+                throw std::runtime_error("Stack underflow on '" + op_text +
+                                         "'");
+            }
+        };
         auto push = [&](llvm::Value* val) { stack.push_back(val); };
         auto pop = [&]() -> llvm::Value* {
             llvm::Value* v = stack.back();
@@ -802,308 +805,419 @@ class Compiler {
             return v;
         };
 
-        std::stringstream ss(rpn_expr);
-        std::string token;
-        size_t last_search_pos = 0;
-
-        while (ss >> token) {
-            size_t current_token_start = 0;
-            {
-                std::streampos pos_end = ss.tellg();
-                if (pos_end != std::streampos(-1)) {
-                    size_t end_idx = static_cast<size_t>(pos_end);
-                    current_token_start = (end_idx >= token.size())
-                                              ? (end_idx - token.size())
-                                              : 0;
-                    last_search_pos = current_token_start + token.size();
-                } else {
-                    size_t found = rpn_expr.find(token, last_search_pos);
-                    if (found != std::string::npos) {
-                        current_token_start = found;
-                        last_search_pos = found + token.size();
-                    } else {
-                        current_token_start = 0;
-                    }
-                }
+        for (const auto& token : tokens) {
+            switch (token.type) {
+            // Literals & Constants
+            case TokenType::NUMBER: {
+                const auto& payload =
+                    std::get<TokenPayload_Number>(token.payload);
+                push(llvm::ConstantFP::get(float_ty, payload.value));
+                break;
             }
-            auto context_for_current = [&]() -> std::string {
-                size_t expr_len = rpn_expr.size();
-                size_t s =
-                    (current_token_start > 10) ? (current_token_start - 10) : 0;
-                size_t e =
-                    std::min(current_token_start + token.size() + 10, expr_len);
-                return rpn_expr.substr(s, e - s);
-            };
-            if (token == "+") {
+            case TokenType::CONSTANT_X:
+                push(builder.CreateSIToFP(x, float_ty));
+                break;
+            case TokenType::CONSTANT_Y:
+                push(builder.CreateSIToFP(y, float_ty));
+                break;
+            case TokenType::CONSTANT_WIDTH:
+                push(builder.CreateSIToFP(width_arg, float_ty));
+                break;
+            case TokenType::CONSTANT_HEIGHT:
+                push(builder.CreateSIToFP(height_arg, float_ty));
+                break;
+            case TokenType::CONSTANT_N:
+                push(builder.CreateLoad(
+                    float_ty, builder.CreateGEP(float_ty, props_arg,
+                                                builder.getInt32(0))));
+                break;
+            case TokenType::CONSTANT_PI:
+                push(llvm::ConstantFP::get(float_ty, std::numbers::pi));
+                break;
+
+            // Variable Ops
+            case TokenType::VAR_STORE: {
+                require(1, token.text);
+                const auto& payload = std::get<TokenPayload_Var>(token.payload);
+                llvm::Value* val_to_store = pop();
+                llvm::Value* var_ptr;
+                if (named_vars.find(payload.name) == named_vars.end()) {
+                    var_ptr = createAllocaInEntry(float_ty, payload.name);
+                    named_vars[payload.name] = var_ptr;
+                } else {
+                    var_ptr = named_vars[payload.name];
+                }
+                builder.CreateStore(val_to_store, var_ptr);
+                defined_vars.insert(payload.name);
+                break;
+            }
+            case TokenType::VAR_LOAD: {
+                const auto& payload = std::get<TokenPayload_Var>(token.payload);
+                if (defined_vars.find(payload.name) == defined_vars.end()) {
+                    throw std::runtime_error("Unknown variable: " +
+                                             payload.name);
+                }
+                llvm::Value* var_ptr = named_vars[payload.name];
+                push(builder.CreateLoad(float_ty, var_ptr));
+                break;
+            }
+
+            // Data Access
+            case TokenType::CLIP_REL: {
+                const auto& payload =
+                    std::get<TokenPayload_ClipAccess>(token.payload);
+                llvm::Value* coord_x =
+                    builder.CreateAdd(x, builder.getInt32(payload.rel_x));
+                llvm::Value* coord_y =
+                    builder.CreateAdd(y, builder.getInt32(payload.rel_y));
+                bool use_mirror =
+                    payload.has_mode ? payload.use_mirror : mirror_boundary;
+                push(generate_pixel_load(payload.clip_idx, coord_x, coord_y,
+                                         use_mirror));
+                break;
+            }
+            case TokenType::CLIP_ABS: {
+                require(2, token.text);
+                const auto& payload =
+                    std::get<TokenPayload_ClipAccess>(token.payload);
+                llvm::Value* coord_y = builder.CreateFPToSI(pop(), i32_ty);
+                llvm::Value* coord_x = builder.CreateFPToSI(pop(), i32_ty);
+                push(generate_pixel_load(payload.clip_idx, coord_x, coord_y,
+                                         mirror_boundary));
+                break;
+            }
+            case TokenType::CLIP_CUR: {
+                const auto& payload =
+                    std::get<TokenPayload_ClipAccess>(token.payload);
+                push(generate_pixel_load(payload.clip_idx, x, y,
+                                         mirror_boundary));
+                break;
+            }
+            case TokenType::PROP_ACCESS: {
+                const auto& payload =
+                    std::get<TokenPayload_PropAccess>(token.payload);
+                auto key = std::make_pair(payload.clip_idx, payload.prop_name);
+                if (prop_map.count(key) == 0) {
+                    std::unreachable();
+                }
+                int prop_idx = prop_map.at(key);
+                llvm::Value* prop_val = builder.CreateLoad(
+                    float_ty, builder.CreateGEP(float_ty, props_arg,
+                                                builder.getInt32(prop_idx)));
+                push(prop_val);
+                break;
+            }
+
+            // Binary Operators
+            case TokenType::ADD: {
+                require(2, token.text);
                 auto b = pop();
                 auto a = pop();
                 push(builder.CreateFAdd(a, b));
-            } else if (token == "-") {
+                break;
+            }
+            case TokenType::SUB: {
+                require(2, token.text);
                 auto b = pop();
                 auto a = pop();
                 push(builder.CreateFSub(a, b));
-            } else if (token == "*") {
+                break;
+            }
+            case TokenType::MUL: {
+                require(2, token.text);
                 auto b = pop();
                 auto a = pop();
                 push(builder.CreateFMul(a, b));
-            } else if (token == "/") {
+                break;
+            }
+            case TokenType::DIV: {
+                require(2, token.text);
                 auto b = pop();
                 auto a = pop();
                 push(builder.CreateFDiv(a, b));
-            } else if (token == "%") {
+                break;
+            }
+            case TokenType::MOD: {
+                require(2, token.text);
                 auto b = pop();
                 auto a = pop();
                 push(builder.CreateFRem(a, b));
+                break;
             }
-
-            else if (token == ">") {
+            case TokenType::GT: {
+                require(2, token.text);
                 auto b = pop();
                 auto a = pop();
                 push(
                     builder.CreateSelect(builder.CreateFCmpOGT(a, b),
                                          llvm::ConstantFP::get(float_ty, 1.0),
                                          llvm::ConstantFP::get(float_ty, 0.0)));
-            } else if (token == "<") {
+                break;
+            }
+            case TokenType::LT: {
+                require(2, token.text);
                 auto b = pop();
                 auto a = pop();
                 push(
                     builder.CreateSelect(builder.CreateFCmpOLT(a, b),
                                          llvm::ConstantFP::get(float_ty, 1.0),
                                          llvm::ConstantFP::get(float_ty, 0.0)));
-            } else if (token == ">=") {
+                break;
+            }
+            case TokenType::GE: {
+                require(2, token.text);
                 auto b = pop();
                 auto a = pop();
                 push(
                     builder.CreateSelect(builder.CreateFCmpOGE(a, b),
                                          llvm::ConstantFP::get(float_ty, 1.0),
                                          llvm::ConstantFP::get(float_ty, 0.0)));
-            } else if (token == "<=") {
+                break;
+            }
+            case TokenType::LE: {
+                require(2, token.text);
                 auto b = pop();
                 auto a = pop();
                 push(
                     builder.CreateSelect(builder.CreateFCmpOLE(a, b),
                                          llvm::ConstantFP::get(float_ty, 1.0),
                                          llvm::ConstantFP::get(float_ty, 0.0)));
-            } else if (token == "=") {
+                break;
+            }
+            case TokenType::EQ: {
+                require(2, token.text);
                 auto b = pop();
                 auto a = pop();
                 push(
                     builder.CreateSelect(builder.CreateFCmpOEQ(a, b),
                                          llvm::ConstantFP::get(float_ty, 1.0),
                                          llvm::ConstantFP::get(float_ty, 0.0)));
+                break;
             }
-
-            else if (token == "and") {
+            case TokenType::AND: {
+                require(2, token.text);
                 auto b = pop();
                 auto a = pop();
                 push(builder.CreateSelect(
                     builder.CreateAnd(
-                        builder.CreateFCmpOGT(
+                        builder.CreateFCmpONE(
                             a, llvm::ConstantFP::get(float_ty, 0.0)),
-                        builder.CreateFCmpOGT(
+                        builder.CreateFCmpONE(
                             b, llvm::ConstantFP::get(float_ty, 0.0))),
                     llvm::ConstantFP::get(float_ty, 1.0),
                     llvm::ConstantFP::get(float_ty, 0.0)));
-            } else if (token == "or") {
+                break;
+            }
+            case TokenType::OR: {
+                require(2, token.text);
                 auto b = pop();
                 auto a = pop();
                 push(builder.CreateSelect(
                     builder.CreateOr(
-                        builder.CreateFCmpOGT(
+                        builder.CreateFCmpONE(
                             a, llvm::ConstantFP::get(float_ty, 0.0)),
-                        builder.CreateFCmpOGT(
+                        builder.CreateFCmpONE(
                             b, llvm::ConstantFP::get(float_ty, 0.0))),
                     llvm::ConstantFP::get(float_ty, 1.0),
                     llvm::ConstantFP::get(float_ty, 0.0)));
-            } else if (token == "xor") {
+                break;
+            }
+            case TokenType::XOR: {
+                require(2, token.text);
                 auto b = pop();
                 auto a = pop();
                 push(builder.CreateSelect(
                     builder.CreateXor(
-                        builder.CreateFCmpOGT(
+                        builder.CreateFCmpONE(
                             a, llvm::ConstantFP::get(float_ty, 0.0)),
-                        builder.CreateFCmpOGT(
+                        builder.CreateFCmpONE(
                             b, llvm::ConstantFP::get(float_ty, 0.0))),
                     llvm::ConstantFP::get(float_ty, 1.0),
                     llvm::ConstantFP::get(float_ty, 0.0)));
-            } else if (token == "not") {
-                auto a = pop();
-                push(builder.CreateSelect(
-                    builder.CreateFCmpOLE(a,
-                                          llvm::ConstantFP::get(float_ty, 0.0)),
-                    llvm::ConstantFP::get(float_ty, 1.0),
-                    llvm::ConstantFP::get(float_ty, 0.0)));
+                break;
             }
-
-            else if (token == "bitand") {
+            case TokenType::BITAND: {
+                require(2, token.text);
                 auto b = pop();
                 auto a = pop();
                 push(builder.CreateSIToFP(
                     builder.CreateAnd(builder.CreateFPToSI(a, i32_ty),
                                       builder.CreateFPToSI(b, i32_ty)),
                     float_ty));
-            } else if (token == "bitor") {
+                break;
+            }
+            case TokenType::BITOR: {
+                require(2, token.text);
                 auto b = pop();
                 auto a = pop();
                 push(builder.CreateSIToFP(
                     builder.CreateOr(builder.CreateFPToSI(a, i32_ty),
                                      builder.CreateFPToSI(b, i32_ty)),
                     float_ty));
-            } else if (token == "bitxor") {
+                break;
+            }
+            case TokenType::BITXOR: {
+                require(2, token.text);
                 auto b = pop();
                 auto a = pop();
                 push(builder.CreateSIToFP(
                     builder.CreateXor(builder.CreateFPToSI(a, i32_ty),
                                       builder.CreateFPToSI(b, i32_ty)),
                     float_ty));
-            } else if (token == "bitnot") {
+                break;
+            }
+            case TokenType::POW: {
+                require(2, token.text);
+                auto b = pop();
+                auto a = pop();
+                push(createBinaryIntrinsicCall(llvm::Intrinsic::pow, a, b));
+                break;
+            }
+            case TokenType::ATAN2: {
+                require(2, token.text);
+                auto b = pop();
+                auto a = pop();
+                push(createBinaryIntrinsicCall(llvm::Intrinsic::atan2, a, b));
+                break;
+            }
+            case TokenType::COPYSIGN: {
+                require(2, token.text);
+                auto b = pop();
+                auto a = pop();
+                push(
+                    createBinaryIntrinsicCall(llvm::Intrinsic::copysign, a, b));
+                break;
+            }
+            case TokenType::MIN: {
+                require(2, token.text);
+                auto b = pop();
+                auto a = pop();
+                push(createBinaryIntrinsicCall(llvm::Intrinsic::minnum, a, b));
+                break;
+            }
+            case TokenType::MAX: {
+                require(2, token.text);
+                auto b = pop();
+                auto a = pop();
+                push(createBinaryIntrinsicCall(llvm::Intrinsic::maxnum, a, b));
+                break;
+            }
+
+            // Unary Operators
+            case TokenType::NOT: {
+                require(1, token.text);
+                auto a = pop();
+                push(builder.CreateSelect(
+                    builder.CreateFCmpOEQ(a,
+                                          llvm::ConstantFP::get(float_ty, 0.0)),
+                    llvm::ConstantFP::get(float_ty, 1.0),
+                    llvm::ConstantFP::get(float_ty, 0.0)));
+                break;
+            }
+            case TokenType::BITNOT: {
+                require(1, token.text);
                 auto a = pop();
                 push(builder.CreateSIToFP(
                     builder.CreateNot(builder.CreateFPToSI(a, i32_ty)),
                     float_ty));
+                break;
             }
+            case TokenType::SQRT:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::sqrt, pop()));
+                break;
+            case TokenType::EXP:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::exp, pop()));
+                break;
+            case TokenType::LOG:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::log, pop()));
+                break;
+            case TokenType::ABS:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::fabs, pop()));
+                break;
+            case TokenType::FLOOR:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::floor, pop()));
+                break;
+            case TokenType::CEIL:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::ceil, pop()));
+                break;
+            case TokenType::TRUNC:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::trunc, pop()));
+                break;
+            case TokenType::ROUND:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::round, pop()));
+                break;
+            case TokenType::SIN:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::sin, pop()));
+                break;
+            case TokenType::COS:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::cos, pop()));
+                break;
+            case TokenType::TAN:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::tan, pop()));
+                break;
+            case TokenType::ASIN:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::asin, pop()));
+                break;
+            case TokenType::ACOS:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::acos, pop()));
+                break;
+            case TokenType::ATAN:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::atan, pop()));
+                break;
+            case TokenType::EXP2:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::exp2, pop()));
+                break;
+            case TokenType::LOG10:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::log10, pop()));
+                break;
+            case TokenType::LOG2:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::log2, pop()));
+                break;
+            case TokenType::SINH:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::sinh, pop()));
+                break;
+            case TokenType::COSH:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::cosh, pop()));
+                break;
+            case TokenType::TANH:
+                require(1, token.text);
+                push(createUnaryIntrinsicCall(llvm::Intrinsic::tanh, pop()));
+                break;
 
-            else if (token == "?") {
+            // Ternary and other multi-arg
+            case TokenType::TERNARY: {
+                require(3, token.text);
                 auto c = pop();
                 auto b = pop();
                 auto a = pop();
                 push(builder.CreateSelect(
-                    builder.CreateFCmpOGT(a,
+                    builder.CreateFCmpONE(a,
                                           llvm::ConstantFP::get(float_ty, 0.0)),
                     b, c));
+                break;
             }
-
-            else if (token == "dup") {
-                push(stack.back());
-            } else if (token.rfind("dup", 0) == 0 && token.length() > 3) {
-                try {
-                    int n = std::stoi(token.substr(3));
-                    llvm::Value* val = stack[stack.size() - 1 - n];
-                    push(val);
-                } catch (...) {
-                    throw std::runtime_error("Invalid dupN operator: " + token);
-                }
-            } else if (token == "drop") {
-                (void)pop();
-            } else if (token.rfind("drop", 0) == 0 && token.length() > 4) {
-                try {
-                    int n = std::stoi(token.substr(4));
-                    stack.resize(stack.size() - n);
-                } catch (...) {
-                    throw std::runtime_error("Invalid dropN operator: " +
-                                             token);
-                }
-            } else if (token == "swap") {
-                std::swap(stack[stack.size() - 1], stack[stack.size() - 2]);
-            } else if (token.rfind("swap", 0) == 0 && token.length() > 4) {
-                try {
-                    int n = std::stoi(token.substr(4));
-                    size_t top_index = stack.size() - 1;
-                    size_t n_index = stack.size() - 1 - n;
-                    std::swap(stack[top_index], stack[n_index]);
-                } catch (...) {
-                    throw std::runtime_error("Invalid swapN operator: " +
-                                             token);
-                }
-            } else if (token.rfind("sort", 0) == 0 && token.length() > 4) {
-                try {
-                    int n = std::stoi(token.substr(4));
-                    if (n < 2)
-                        continue;
-
-                    std::vector<llvm::Value*> values;
-                    values.reserve(n);
-                    for (int i = 0; i < n; ++i) {
-                        values.push_back(pop());
-                    }
-                    std::reverse(values.begin(), values.end());
-
-                    auto compare_swap = [&](int i, int j) {
-                        llvm::Value* val_i = values[i];
-                        llvm::Value* val_j = values[j];
-                        llvm::Value* cond = builder.CreateFCmpOGT(val_i, val_j);
-                        values[i] =
-                            builder.CreateSelect(cond, val_j, val_i); // min
-                        values[j] =
-                            builder.CreateSelect(cond, val_i, val_j); // max
-                    };
-
-                    // Generate sorting network
-                    const auto network = get_optimal_sorting_network(n);
-                    if (!network.empty()) {
-                        for (const auto& pair : network) {
-                            if (pair.second < n) { // Bounds check
-                                compare_swap(pair.first, pair.second);
-                            }
-                        }
-                    } else {
-                        std::vector<std::pair<int, int>> pairs;
-                        int p = 1;
-                        while (p < n)
-                            p <<= 1;
-                        generate_oem_sort_pairs(pairs, 0, p);
-                        for (const auto& pair : pairs) {
-                            if (pair.second < n) {
-                                compare_swap(pair.first, pair.second);
-                            }
-                        }
-                    }
-
-                    // Push the sorted values back onto the stack, so the
-                    // smallest is on top
-                    for (int i = n - 1; i >= 0; --i) {
-                        push(values[i]);
-                    }
-                } catch (...) {
-                    throw std::runtime_error("Invalid sortN operator: " +
-                                             token);
-                }
-            }
-
-            else if (token == "X")
-                push(builder.CreateSIToFP(x, float_ty));
-            else if (token == "Y")
-                push(builder.CreateSIToFP(y, float_ty));
-            else if (token == "width")
-                push(builder.CreateSIToFP(width_arg, float_ty));
-            else if (token == "height")
-                push(builder.CreateSIToFP(height_arg, float_ty));
-            else if (token == "N")
-                push(builder.CreateLoad(
-                    float_ty, builder.CreateGEP(float_ty, props_arg,
-                                                builder.getInt32(0))));
-            else if (token == "pi")
-                push(llvm::ConstantFP::get(float_ty, std::numbers::pi));
-
-            else if (token == "sqrt") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::sqrt, pop()));
-            } else if (token == "pow" || token == "**") {
-                auto b = pop();
-                auto a = pop();
-                push(createBinaryIntrinsicCall(llvm::Intrinsic::pow, a, b));
-            } else if (token == "exp") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::exp, pop()));
-            } else if (token == "log") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::log, pop()));
-            } else if (token == "abs") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::fabs, pop()));
-            } else if (token == "floor") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::floor, pop()));
-            } else if (token == "ceil") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::ceil, pop()));
-            } else if (token == "trunc") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::trunc, pop()));
-            } else if (token == "round") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::round, pop()));
-            } else if (token == "min") {
-                auto b = pop();
-                auto a = pop();
-                push(createBinaryIntrinsicCall(llvm::Intrinsic::minnum, a, b));
-            } else if (token == "max") {
-                auto b = pop();
-                auto a = pop();
-                push(createBinaryIntrinsicCall(llvm::Intrinsic::maxnum, a, b));
-            } else if (token == "clip" || token == "clamp") {
+            case TokenType::CLIP:
+            case TokenType::CLAMP: {
+                require(3, token.text);
                 auto max_val = pop();
                 auto min_val = pop();
                 auto val = pop();
@@ -1112,42 +1226,10 @@ class Compiler {
                 auto clamped = createBinaryIntrinsicCall(
                     llvm::Intrinsic::minnum, temp, max_val);
                 push(clamped);
+                break;
             }
-
-            else if (token == "sin") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::sin, pop()));
-            } else if (token == "cos") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::cos, pop()));
-            } else if (token == "tan") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::tan, pop()));
-            } else if (token == "asin") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::asin, pop()));
-            } else if (token == "acos") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::acos, pop()));
-            } else if (token == "atan") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::atan, pop()));
-            } else if (token == "atan2") {
-                auto b = pop();
-                auto a = pop();
-                push(createBinaryIntrinsicCall(llvm::Intrinsic::atan2, a, b));
-            } else if (token == "exp2") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::exp2, pop()));
-            } else if (token == "log10") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::log10, pop()));
-            } else if (token == "log2") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::log2, pop()));
-            } else if (token == "sinh") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::sinh, pop()));
-            } else if (token == "cosh") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::cosh, pop()));
-            } else if (token == "tanh") {
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::tanh, pop()));
-            } else if (token == "copysign") {
-                auto b = pop();
-                auto a = pop();
-                push(
-                    createBinaryIntrinsicCall(llvm::Intrinsic::copysign, a, b));
-            } else if (token == "fma") {
+            case TokenType::FMA: {
+                require(3, token.text);
                 auto c = pop();
                 auto b = pop();
                 auto a = pop();
@@ -1156,142 +1238,91 @@ class Compiler {
                                             llvm::Intrinsic::fmuladd,
                                             {builder.getFloatTy()}),
                                         {a, b, c}));
+                break;
             }
 
-            else if (token.back() == '!') {
-                std::string var_name = token.substr(0, token.length() - 1);
-                llvm::Value* val_to_store = pop();
-                llvm::Value* var_ptr;
-                if (named_vars.find(var_name) == named_vars.end()) {
-                    var_ptr = createAllocaInEntry(float_ty, nullptr, var_name);
-                    named_vars[var_name] = var_ptr;
+            // Stack manipulation
+            case TokenType::DUP: {
+                const auto& payload =
+                    std::get<TokenPayload_StackOp>(token.payload);
+                require(1 + payload.n, token.text);
+                push(stack[stack.size() - 1 - payload.n]);
+                break;
+            }
+            case TokenType::DROP: {
+                const auto& payload =
+                    std::get<TokenPayload_StackOp>(token.payload);
+                require(payload.n, token.text);
+                if (payload.n > 0) {
+                    stack.resize(stack.size() - payload.n);
+                }
+                break;
+            }
+            case TokenType::SWAP: {
+                const auto& payload =
+                    std::get<TokenPayload_StackOp>(token.payload);
+                require(1 + payload.n, token.text);
+                size_t top_index = stack.size() - 1;
+                size_t n_index = stack.size() - 1 - payload.n;
+                std::swap(stack[top_index], stack[n_index]);
+                break;
+            }
+            case TokenType::SORTN: {
+                const auto& payload =
+                    std::get<TokenPayload_StackOp>(token.payload);
+                int n = payload.n;
+                if (n < 2)
+                    break;
+                require(n, token.text);
+
+                std::vector<llvm::Value*> values;
+                values.reserve(n);
+                for (int i = 0; i < n; ++i) {
+                    values.push_back(pop());
+                }
+                std::reverse(values.begin(), values.end());
+
+                auto compare_swap = [&](int i, int j) {
+                    llvm::Value* val_i = values[i];
+                    llvm::Value* val_j = values[j];
+                    llvm::Value* cond = builder.CreateFCmpOGT(val_i, val_j);
+                    values[i] = builder.CreateSelect(cond, val_j, val_i); // min
+                    values[j] = builder.CreateSelect(cond, val_i, val_j); // max
+                };
+
+                const auto network = get_optimal_sorting_network(n);
+                if (!network.empty()) {
+                    for (const auto& pair : network) {
+                        if (pair.second < n) { // Bounds check
+                            compare_swap(pair.first, pair.second);
+                        }
+                    }
                 } else {
-                    var_ptr = named_vars[var_name];
+                    std::vector<std::pair<int, int>> pairs;
+                    int p = 1;
+                    while (p < n)
+                        p <<= 1;
+                    generate_oem_sort_pairs(pairs, 0, p);
+                    for (const auto& pair : pairs) {
+                        if (pair.second < n) {
+                            compare_swap(pair.first, pair.second);
+                        }
+                    }
                 }
-                builder.CreateStore(val_to_store, var_ptr);
-            } else if (token.back() == '@') {
-                std::string var_name = token.substr(0, token.length() - 1);
-                if (named_vars.find(var_name) == named_vars.end()) {
-                    throw std::runtime_error("Unknown variable: " + var_name);
+
+                for (int i = 0; i < n; ++i) {
+                    push(values[i]);
                 }
-                llvm::Value* var_ptr = named_vars[var_name];
-                push(builder.CreateLoad(float_ty, var_ptr));
+                break;
             }
-
-            else {
-                std::smatch match;
-                if (std::regex_match(token, match, re_prop)) {
-                    int clip_idx = -1;
-                    if (match[1].matched)
-                        clip_idx = std::stoi(match[1].str());
-                    else if (match[2].matched) {
-                        char c = match[2].str()[0];
-                        if (c >= 'x' && c <= 'z')
-                            clip_idx = c - 'x';
-                        else
-                            clip_idx = c - 'a' + 3;
-                    }
-                    std::string prop_name = match[3].str();
-                    auto key = std::make_pair(clip_idx, prop_name);
-                    if (prop_map.count(key) == 0) {
-                        std::unreachable();
-                    }
-                    int prop_idx = prop_map.at(key);
-                    llvm::Value* prop_val = builder.CreateLoad(
-                        float_ty,
-                        builder.CreateGEP(float_ty, props_arg,
-                                          builder.getInt32(prop_idx)));
-                    push(prop_val);
-                } else {
-                    int clip_idx = -1;
-                    bool is_rel =
-                        std::regex_match(token, match, re_rel) ||
-                        std::regex_match(token, match, re_rel_bracket);
-                    bool is_abs =
-                        !is_rel && std::regex_match(token, match, re_abs);
-                    bool is_cur = !is_rel && !is_abs &&
-                                  std::regex_match(token, match, re_cur);
-
-                    if (is_rel || is_abs || is_cur) {
-                        if (match[1].matched)
-                            clip_idx = std::stoi(match[1].str());
-                        else if (match[2].matched) {
-                            char c = match[2].str()[0];
-                            if (c >= 'x' && c <= 'z') {
-                                clip_idx = c - 'x';
-                            } else { // a-w
-                                clip_idx = c - 'a' + 3;
-                            }
-                        }
-
-                        if (clip_idx < 0 || clip_idx >= num_inputs)
-                            throw std::runtime_error(
-                                "Invalid clip index in token: " + token);
-
-                        llvm::Value *coord_x, *coord_y;
-                        if (is_rel) {
-                            coord_x = builder.CreateAdd(
-                                x, builder.getInt32(std::stoi(match[3].str())));
-                            coord_y = builder.CreateAdd(
-                                y, builder.getInt32(std::stoi(match[4].str())));
-                            bool use_mirror = mirror_boundary;
-                            if (match[5].matched)
-                                use_mirror = (match[5].str() == "m");
-                            push(generate_pixel_load(clip_idx, coord_x, coord_y,
-                                                     use_mirror));
-                        } else if (is_abs) {
-                            coord_y = builder.CreateFPToSI(pop(), i32_ty);
-                            coord_x = builder.CreateFPToSI(pop(), i32_ty);
-                            push(generate_pixel_load(clip_idx, coord_x, coord_y,
-                                                     mirror_boundary));
-                        } else { // is_cur
-                            push(generate_pixel_load(clip_idx, x, y,
-                                                     mirror_boundary));
-                        }
-                    } else { // Number
-                        try {
-                            size_t pos;
-                            int64_t val =
-                                std::stoll(token, &pos, 0); // 0 detects base
-                            if (pos == token.length()) {
-                                push(llvm::ConstantFP::get(float_ty,
-                                                           (double)val));
-                                continue;
-                            }
-                        } catch (...) {
-                        }
-                        try {
-                            size_t pos;
-                            double val = std::stod(token, &pos);
-                            if (pos == token.length()) {
-                                push(llvm::ConstantFP::get(float_ty, val));
-                                continue;
-                            }
-                        } catch (...) {
-                        }
-                        {
-                            bool all_digits = !token.empty();
-                            for (unsigned char ch : token) {
-                                if (!(ch >= '0' && ch <= '9')) {
-                                    all_digits = false;
-                                    break;
-                                }
-                            }
-                            if (all_digits) {
-                                double val = 0.0;
-                                for (unsigned char ch : token) {
-                                    val = val * 10.0 + (ch - '0');
-                                }
-                                push(llvm::ConstantFP::get(float_ty, val));
-                                continue;
-                            }
-                        }
-                        throw std::runtime_error(
-                            "Invalid token: " + token +
-                            " | context: " + context_for_current());
-                    }
-                }
             }
+        }
+
+        if (stack.size() != 1) {
+            throw std::runtime_error(
+                std::format("Expression stack not balanced: final stack depth "
+                            "= {}, expected 1.",
+                            stack.size()));
         }
 
         llvm::Value* result_val = pop();
@@ -1507,7 +1538,7 @@ struct ExprData {
     int num_inputs;
 
     PlaneOp plane_op[3] = {};
-    std::string expr[3];
+    std::vector<Token> tokens[3];
     CompiledFunction compiled[3];
     bool mirror_boundary;
     std::string dump_ir_path;
@@ -1686,36 +1717,21 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
             expr_strs[i] = expr_strs[nexpr - 1];
         }
 
-        std::regex prop_re(
-            R"((?:src(\d+)|([x-za-w]))\.([a-zA-Z_][a-zA-Z0-9_]*))");
-
+        // Tokenize and extract properties
         for (int i = 0; i < d->vi.format->numPlanes; ++i) {
-            if (expr_strs[i].empty())
+            if (expr_strs[i].empty()) {
+                d->plane_op[i] = PO_COPY;
                 continue;
+            }
+            d->plane_op[i] = PO_PROCESS;
+            d->tokens[i] = tokenize(expr_strs[i], d->num_inputs);
 
-            std::stringstream ss(expr_strs[i]);
-            std::string token;
-            while (ss >> token) {
-                std::smatch match;
-                if (std::regex_match(token, match, prop_re)) {
-                    int clip_idx = -1;
-                    if (match[1].matched) {
-                        clip_idx = std::stoi(match[1].str());
-                    } else { // match[2]
-                        char c = match[2].str()[0];
-                        if (c >= 'x' && c <= 'z')
-                            clip_idx = c - 'x';
-                        else
-                            clip_idx = c - 'a' + 3;
-                    }
-                    std::string prop_name = match[3].str();
-
-                    if (clip_idx < 0 || clip_idx >= d->num_inputs) {
-                        throw std::runtime_error(
-                            "Invalid clip index in property access: " + token);
-                    }
-
-                    auto key = std::make_pair(clip_idx, prop_name);
+            for (const auto& token : d->tokens[i]) {
+                if (token.type == TokenType::PROP_ACCESS) {
+                    const auto& payload =
+                        std::get<TokenPayload_PropAccess>(token.payload);
+                    auto key =
+                        std::make_pair(payload.clip_idx, payload.prop_name);
                     if (d->prop_map.find(key) == d->prop_map.end()) {
                         d->prop_map[key] =
                             1 +
@@ -1734,15 +1750,11 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
         }
 
         for (int i = 0; i < d->vi.format->numPlanes; ++i) {
-            if (expr_strs[i].empty()) {
-                d->plane_op[i] = PO_COPY;
+            if (d->plane_op[i] != PO_PROCESS)
                 continue;
-            }
-            d->plane_op[i] = PO_PROCESS;
-            d->expr[i] = expr_strs[i];
 
             std::string key = generate_cache_key(
-                d->expr[i], &d->vi, vi, d->mirror_boundary, d->prop_map);
+                expr_strs[i], &d->vi, vi, d->mirror_boundary, d->prop_map);
 
             std::lock_guard<std::mutex> lock(cache_mutex);
             if (jit_cache.count(key)) {
@@ -1751,15 +1763,16 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
                 vsapi->logMessage(
                     mtDebug,
                     std::format("JIT compiling expression for plane {}: {}", i,
-                                d->expr[i])
+                                expr_strs[i])
                         .c_str());
                 // Generate unique function name per compiled expression
                 size_t key_hash = std::hash<std::string>{}(key);
                 std::string func_name =
                     std::format("process_plane_{}_{}", i, key_hash);
 
-                Compiler compiler(d->expr[i], &d->vi, vi, d->mirror_boundary,
-                                  d->dump_ir_path, d->prop_map, func_name);
+                Compiler compiler(std::move(d->tokens[i]), &d->vi, vi,
+                                  d->mirror_boundary, d->dump_ir_path,
+                                  d->prop_map, func_name);
                 d->compiled[i] = compiler.compile();
                 jit_cache[key] = d->compiled[i];
             }
