@@ -246,6 +246,7 @@ std::vector<Token> tokenize(const std::string& expr, int num_inputs) {
         {"pi", TokenType::CONSTANT_PI},
     };
 
+    int idx = 0;
     while (ss >> str_token) {
         Token t;
         t.text = str_token;
@@ -255,33 +256,31 @@ std::vector<Token> tokenize(const std::string& expr, int num_inputs) {
             t.type = it->second;
         } else if (str_token.rfind("dup", 0) == 0) {
             t.type = TokenType::DUP;
-            int n =
-                (str_token.length() > 3) ? std::stoi(str_token.substr(3)) : 0;
+            int n = (str_token.size() > 3) ? std::stoi(str_token.substr(3)) : 0;
             if (n < 0)
-                throw std::runtime_error("Invalid dupN operator: " + str_token);
+                throw std::runtime_error(std::format(
+                    "Invalid dupN operator: {} (idx {})", str_token, idx));
             t.payload = TokenPayload_StackOp{n};
         } else if (str_token.rfind("drop", 0) == 0) {
             t.type = TokenType::DROP;
-            int n =
-                (str_token.length() > 4) ? std::stoi(str_token.substr(4)) : 1;
+            int n = (str_token.size() > 4) ? std::stoi(str_token.substr(4)) : 1;
             if (n < 0)
-                throw std::runtime_error("Invalid dropN operator: " +
-                                         str_token);
+                throw std::runtime_error(std::format(
+                    "Invalid dropN operator: {} (idx {})", str_token, idx));
             t.payload = TokenPayload_StackOp{n};
         } else if (str_token.rfind("swap", 0) == 0) {
             t.type = TokenType::SWAP;
-            int n =
-                (str_token.length() > 4) ? std::stoi(str_token.substr(4)) : 1;
+            int n = (str_token.size() > 4) ? std::stoi(str_token.substr(4)) : 1;
             if (n < 0)
-                throw std::runtime_error("Invalid swapN operator: " +
-                                         str_token);
+                throw std::runtime_error(std::format(
+                    "Invalid swapN operator: {} (idx {})", str_token, idx));
             t.payload = TokenPayload_StackOp{n};
-        } else if (str_token.rfind("sort", 0) == 0 && str_token.length() > 4) {
+        } else if (str_token.rfind("sort", 0) == 0 && str_token.size() > 4) {
             t.type = TokenType::SORTN;
             int n = std::stoi(str_token.substr(4));
             if (n < 0)
-                throw std::runtime_error("Invalid sortN operator: " +
-                                         str_token);
+                throw std::runtime_error(std::format(
+                    "Invalid sortN operator: {} (idx {})", str_token, idx));
             t.payload = TokenPayload_StackOp{n};
         } else if (!str_token.empty() && str_token.front() == '#') {
             t.type = TokenType::LABEL_DEF;
@@ -289,7 +288,7 @@ std::vector<Token> tokenize(const std::string& expr, int num_inputs) {
         } else if (!str_token.empty() && str_token.back() == '#') {
             t.type = TokenType::JUMP;
             t.payload = TokenPayload_Var{
-                .name = str_token.substr(0, str_token.length() - 1)};
+                .name = str_token.substr(0, str_token.size() - 1)};
         } else if (std::regex_match(str_token, match, re_rel) ||
                    std::regex_match(str_token, match, re_rel_bracket)) {
             t.type = TokenType::CLIP_REL;
@@ -318,27 +317,29 @@ std::vector<Token> tokenize(const std::string& expr, int num_inputs) {
         } else if (!str_token.empty() && str_token.back() == '!') {
             t.type = TokenType::VAR_STORE;
             t.payload = TokenPayload_Var{
-                .name = str_token.substr(0, str_token.length() - 1)};
+                .name = str_token.substr(0, str_token.size() - 1)};
         } else if (!str_token.empty() && str_token.back() == '@') {
             t.type = TokenType::VAR_LOAD;
             t.payload = TokenPayload_Var{
-                .name = str_token.substr(0, str_token.length() - 1)};
+                .name = str_token.substr(0, str_token.size() - 1)};
         } else {
             t.type = TokenType::NUMBER;
             try {
                 size_t pos = 0;
                 double val =
                     static_cast<double>(std::stoll(str_token, &pos, 0));
-                if (pos != str_token.length()) { // Not a full integer match
+                if (pos != str_token.size()) { // Not a full integer match
                     pos = 0;
                     val = std::stod(str_token, &pos);
-                    if (pos != str_token.length()) {
-                        throw std::runtime_error("Invalid number format");
+                    if (pos != str_token.size()) {
+                        throw std::runtime_error(
+                            std::format("Invalid number format (idx {})", idx));
                     }
                 }
                 t.payload = TokenPayload_Number{val};
             } catch (const std::exception&) {
-                throw std::runtime_error("Invalid token: " + str_token);
+                throw std::runtime_error(
+                    std::format("Invalid token: {} (idx {})", str_token, idx));
             }
         }
 
@@ -347,19 +348,22 @@ std::vector<Token> tokenize(const std::string& expr, int num_inputs) {
             if (std::get<TokenPayload_ClipAccess>(t.payload).clip_idx < 0 ||
                 std::get<TokenPayload_ClipAccess>(t.payload).clip_idx >=
                     num_inputs) {
-                throw std::runtime_error("Invalid clip index in token: " +
-                                         str_token);
+                throw std::runtime_error(
+                    std::format("Invalid clip index in token: {} (idx {})",
+                                str_token, idx));
             }
         } else if (t.type == TokenType::PROP_ACCESS) {
             if (std::get<TokenPayload_PropAccess>(t.payload).clip_idx < 0 ||
                 std::get<TokenPayload_PropAccess>(t.payload).clip_idx >=
                     num_inputs) {
-                throw std::runtime_error("Invalid clip index in token: " +
-                                         str_token);
+                throw std::runtime_error(
+                    std::format("Invalid clip index in token: {} (idx {})",
+                                str_token, idx));
             }
         }
 
         tokens.push_back(t);
+        idx++;
     }
     return tokens;
 }
@@ -947,8 +951,9 @@ class Compiler {
                 const auto& payload = std::get<TokenPayload_Var>(
                     tokens[current_token_idx].payload);
                 if (label_to_block_idx.count(payload.name)) {
-                    throw std::runtime_error("Duplicate label: " +
-                                             payload.name);
+                    throw std::runtime_error(
+                        std::format("Duplicate label: {} (idx {})",
+                                    payload.name, current_token_idx));
                 }
                 label_to_block_idx[payload.name] = block_idx;
             }
@@ -993,8 +998,9 @@ class Compiler {
                     std::get<TokenPayload_Var>(last_token.payload);
                 if (label_to_block_idx.find(payload.name) ==
                     label_to_block_idx.end()) {
-                    throw std::runtime_error("Undefined label for jump: " +
-                                             payload.name);
+                    throw std::runtime_error(
+                        std::format("Undefined label for jump: {} (idx {})",
+                                    payload.name, block.end_token_idx - 1));
                 }
                 int target_block_idx = label_to_block_idx.at(payload.name);
                 block.successors.push_back(target_block_idx);
@@ -1062,8 +1068,9 @@ class Compiler {
                         std::get<TokenPayload_Var>(token.payload);
                     if (defined_in_block.find(payload.name) ==
                         defined_in_block.end()) {
-                        throw std::runtime_error("Variable is uninitialized: " +
-                                                 payload.name);
+                        throw std::runtime_error(std::format(
+                            "Variable is uninitialized: {} (idx {})",
+                            payload.name, j));
                     }
                 } else if (token.type == TokenType::VAR_STORE) {
                     defined_in_block.insert(
@@ -1085,8 +1092,14 @@ class Compiler {
             processed_count++;
             if (processed_count >
                 cfg_blocks.size() * cfg_blocks.size()) { // Heuristic
-                throw std::runtime_error(
-                    "Failed to prove stack safety; check loops.");
+                throw std::runtime_error(std::format(
+                    "Failed to prove stack safety; check loops. "
+                    "processed_count = {}, "
+                    "cfg_blocks = {}, heuristic_limit = {}, worklist_size = "
+                    "{}, next_block_candidate = {}",
+                    processed_count, cfg_blocks.size(),
+                    cfg_blocks.size() * cfg_blocks.size(), worklist.size(),
+                    worklist.empty() ? -1 : worklist.back()));
             }
 
             int block_idx = worklist.back();
@@ -1096,9 +1109,12 @@ class Compiler {
             int depth_in = stack_depth_in[block_idx];
 
             if (depth_in < block.min_stack_needed) {
-                throw std::runtime_error(
-                    std::format("Stack underflow at token '{}'",
-                                tokens[block.start_token_idx].text));
+                throw std::runtime_error(std::format(
+                    "Stack underflow before executing block {}: depth_in = {}, "
+                    "min_needed = {}. "
+                    "start token '{}' (idx {}).",
+                    block_idx, depth_in, block.min_stack_needed,
+                    tokens[block.start_token_idx].text, block.start_token_idx));
             }
 
             int depth_out = depth_in + block.stack_effect;
@@ -1108,8 +1124,18 @@ class Compiler {
                     stack_depth_in[succ_idx] = depth_out;
                     worklist.push_back(succ_idx);
                 } else if (stack_depth_in[succ_idx] != depth_out) {
-                    throw std::runtime_error(
-                        "Stack depth mismatch on converging paths.");
+                    throw std::runtime_error(std::format(
+                        "Stack depth mismatch on converging paths: block {} -> "
+                        "successor {}. "
+                        "incoming depth = {}, recorded successor depth = {}. "
+                        "current start token '{}' (idx {}), successor start "
+                        "token '{}' (idx {}).",
+                        block_idx, succ_idx, depth_out,
+                        stack_depth_in[succ_idx],
+                        tokens[block.start_token_idx].text,
+                        block.start_token_idx,
+                        tokens[cfg_blocks[succ_idx].start_token_idx].text,
+                        cfg_blocks[succ_idx].start_token_idx));
                 }
             }
         }
@@ -1121,10 +1147,13 @@ class Compiler {
                     stack_depth_in[i] + cfg_blocks[i].stack_effect;
                 if (final_depth != 1) {
                     throw std::runtime_error(
-                        std::format("Expression stack not balanced on one "
-                                    "path: final stack "
-                                    "depth = {}, expected 1.",
-                                    final_depth));
+                        std::format("Expression stack not balanced on "
+                                    "reachable terminal block {}: "
+                                    "final depth = {}, expected = 1. start "
+                                    "token '{}' (idx {}).",
+                                    i, final_depth,
+                                    tokens[cfg_blocks[i].start_token_idx].text,
+                                    cfg_blocks[i].start_token_idx));
                 }
             }
         }
