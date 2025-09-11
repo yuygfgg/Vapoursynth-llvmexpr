@@ -967,26 +967,6 @@ class Compiler {
                 const auto& token = tokens[j];
                 int effect = get_stack_effect(token);
 
-                if (token.type == TokenType::VAR_LOAD) {
-                    const auto& payload =
-                        std::get<TokenPayload_Var>(token.payload);
-                    bool found = false;
-                    for (int k = 0; k < j; ++k) {
-                        if (tokens[k].type == TokenType::VAR_STORE) {
-                            const auto& store_payload =
-                                std::get<TokenPayload_Var>(tokens[k].payload);
-                            if (store_payload.name == payload.name) {
-                                found = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (!found) {
-                        throw std::runtime_error("Unknown variable: " +
-                                                 payload.name);
-                    }
-                }
-
                 if (current_stack + effect < 0) {
                     block.min_stack_needed = std::min(block.min_stack_needed,
                                                       current_stack + effect);
@@ -1021,6 +1001,62 @@ class Compiler {
                         token_idx_to_block_idx.at(block.end_token_idx);
                     block.successors.push_back(fallthrough_block_idx);
                     cfg_blocks[fallthrough_block_idx].predecessors.push_back(i);
+                }
+            }
+        }
+
+        // Data-flow analysis for initialized variables
+        std::vector<std::set<std::string>> gen_sets(cfg_blocks.size());
+        for (size_t i = 0; i < cfg_blocks.size(); ++i) {
+            for (int j = cfg_blocks[i].start_token_idx;
+                 j < cfg_blocks[i].end_token_idx; ++j) {
+                if (tokens[j].type == TokenType::VAR_STORE) {
+                    gen_sets[i].insert(
+                        std::get<TokenPayload_Var>(tokens[j].payload).name);
+                }
+            }
+        }
+
+        std::vector<std::set<std::string>> in_sets(cfg_blocks.size());
+        std::vector<std::set<std::string>> out_sets(cfg_blocks.size());
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            for (size_t i = 0; i < cfg_blocks.size(); ++i) {
+                // IN[i] = Union of OUT[p] for all predecessors p
+                for (int p_idx : cfg_blocks[i].predecessors) {
+                    in_sets[i].insert(out_sets[p_idx].begin(),
+                                      out_sets[p_idx].end());
+                }
+
+                // OUT[i] = GEN[i] U IN[i]
+                std::set<std::string> new_out = gen_sets[i];
+                new_out.insert(in_sets[i].begin(), in_sets[i].end());
+
+                if (new_out.size() > out_sets[i].size()) {
+                    out_sets[i] = new_out;
+                    changed = true;
+                }
+            }
+        }
+
+        // Validate variables
+        for (size_t i = 0; i < cfg_blocks.size(); ++i) {
+            std::set<std::string> defined_in_block = in_sets[i];
+            for (int j = cfg_blocks[i].start_token_idx;
+                 j < cfg_blocks[i].end_token_idx; ++j) {
+                const auto& token = tokens[j];
+                if (token.type == TokenType::VAR_LOAD) {
+                    const auto& payload =
+                        std::get<TokenPayload_Var>(token.payload);
+                    if (defined_in_block.find(payload.name) ==
+                        defined_in_block.end()) {
+                        throw std::runtime_error("Variable is uninitialized: " +
+                                                 payload.name);
+                    }
+                } else if (token.type == TokenType::VAR_STORE) {
+                    defined_in_block.insert(
+                        std::get<TokenPayload_Var>(token.payload).name);
                 }
             }
         }
@@ -1096,20 +1132,21 @@ class Compiler {
         // Pre-scan all variables and allocate them in the entry block
         std::unordered_map<std::string, llvm::Value*> named_vars;
         std::set<std::string> all_vars;
-        
+
         for (const auto& token : tokens) {
-            if (token.type == TokenType::VAR_STORE || token.type == TokenType::VAR_LOAD) {
+            if (token.type == TokenType::VAR_STORE ||
+                token.type == TokenType::VAR_LOAD) {
                 const auto& payload = std::get<TokenPayload_Var>(token.payload);
                 all_vars.insert(payload.name);
             }
         }
-        
+
         // Allocate all variables in the entry block and initialize to 0
         for (const std::string& var_name : all_vars) {
             named_vars[var_name] = createAllocaInEntry(float_ty, var_name);
         }
 
-        // Create all Basic Blocks 
+        // Create all Basic Blocks
         std::map<int, llvm::BasicBlock*> llvm_blocks;
         for (size_t i = 0; i < cfg_blocks.size(); ++i) {
             std::string name = "b" + std::to_string(i);
@@ -1125,10 +1162,10 @@ class Compiler {
         llvm::BasicBlock* exit_bb =
             llvm::BasicBlock::Create(*context, "exit", parent_func);
 
-        // Branch from current block to the first CFG block 
+        // Branch from current block to the first CFG block
         builder.CreateBr(llvm_blocks[0]);
 
-        // Initial PHI generation for merge blocks 
+        // Initial PHI generation for merge blocks
         std::map<int, std::vector<llvm::Value*>> block_initial_stacks;
         for (size_t i = 0; i < cfg_blocks.size(); ++i) {
             if (cfg_blocks[i].predecessors.size() > 1) {
@@ -1143,7 +1180,7 @@ class Compiler {
             }
         }
 
-        // Process blocks 
+        // Process blocks
         std::map<int, std::vector<llvm::Value*>> block_final_stacks;
 
         for (size_t i = 0; i < cfg_blocks.size(); ++i) {
@@ -1570,7 +1607,7 @@ class Compiler {
                 }
             }
 
-            // Create Terminator 
+            // Create Terminator
             if (block_info.successors.empty()) {
                 builder.CreateBr(exit_bb);
             } else if (block_info.successors.size() == 1) {
@@ -1592,7 +1629,7 @@ class Compiler {
             block_final_stacks[i] = rpn_stack;
         }
 
-        // Populate PHI nodes 
+        // Populate PHI nodes
         for (size_t i = 0; i < cfg_blocks.size(); ++i) {
             if (cfg_blocks[i].predecessors.size() > 1) {
                 auto& phis = block_initial_stacks.at(i);
@@ -1611,7 +1648,7 @@ class Compiler {
             }
         }
 
-        // Final Result PHI 
+        // Final Result PHI
         builder.SetInsertPoint(exit_bb);
         std::vector<std::pair<llvm::Value*, llvm::BasicBlock*>> final_values;
         for (size_t i = 0; i < cfg_blocks.size(); ++i) {
