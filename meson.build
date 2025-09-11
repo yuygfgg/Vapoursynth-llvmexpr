@@ -18,7 +18,8 @@ else
   install_dir = get_option('libdir') / 'vapoursynth'
 endif
 
-llvm_dep = dependency('llvm', version: '>=20.0.0', method: 'config-tool', modules: ['core', 'orcjit', 'native', 'all-targets'])
+static_llvm = get_option('static-llvm')
+llvm_dep = dependency('llvm', version: '>=20.0.0', method: 'config-tool', modules: ['core', 'orcjit', 'native', 'all-targets'], static: static_llvm)
 
 sources = [
   'llvmexpr/llvmexpr.cpp'
