@@ -1093,7 +1093,23 @@ class Compiler {
             return;
         }
 
-        // Setup: Create all Basic Blocks 
+        // Pre-scan all variables and allocate them in the entry block
+        std::unordered_map<std::string, llvm::Value*> named_vars;
+        std::set<std::string> all_vars;
+        
+        for (const auto& token : tokens) {
+            if (token.type == TokenType::VAR_STORE || token.type == TokenType::VAR_LOAD) {
+                const auto& payload = std::get<TokenPayload_Var>(token.payload);
+                all_vars.insert(payload.name);
+            }
+        }
+        
+        // Allocate all variables in the entry block and initialize to 0
+        for (const std::string& var_name : all_vars) {
+            named_vars[var_name] = createAllocaInEntry(float_ty, var_name);
+        }
+
+        // Create all Basic Blocks 
         std::map<int, llvm::BasicBlock*> llvm_blocks;
         for (size_t i = 0; i < cfg_blocks.size(); ++i) {
             std::string name = "b" + std::to_string(i);
@@ -1129,7 +1145,6 @@ class Compiler {
 
         // Process blocks 
         std::map<int, std::vector<llvm::Value*>> block_final_stacks;
-        std::unordered_map<std::string, llvm::Value*> named_vars; // AllocaInst*
 
         for (size_t i = 0; i < cfg_blocks.size(); ++i) {
             const auto& block_info = cfg_blocks[i];
@@ -1195,13 +1210,7 @@ class Compiler {
                         std::get<TokenPayload_Var>(token.payload);
                     llvm::Value* val_to_store = rpn_stack.back();
                     rpn_stack.pop_back();
-                    llvm::Value* var_ptr;
-                    if (named_vars.find(payload.name) == named_vars.end()) {
-                        var_ptr = createAllocaInEntry(float_ty, payload.name);
-                        named_vars[payload.name] = var_ptr;
-                    } else {
-                        var_ptr = named_vars[payload.name];
-                    }
+                    llvm::Value* var_ptr = named_vars[payload.name];
                     builder.CreateStore(val_to_store, var_ptr);
                     break;
                 }

@@ -174,7 +174,10 @@ These operators truncate floating-point values to integers before the operation.
 
 - `var!`: Pops the top value from the stack and stores it in a variable named `var`.
 - `var@`: Pushes the value of the variable `var` onto the stack.
-- **Example:** `x 2 / my_var! my_var@ my_var@ *` (Calculates `(x/2)^2`).
+
+**Variable Initialization:** All variables are automatically allocated and initialized to `0.0` at the beginning of expression evaluation, regardless of where they are first used in the code. However, the plugin will try its best to report an error if a variable is used before its first store (not guaranteed in complex control flows).
+
+**Example:** `x 2 / my_var! my_var@ my_var@ *` (Calculates `(x/2)^2`).
 
 #### **4.3. Data Access**
 
@@ -230,13 +233,16 @@ The following expression calculates `x` to the power of 4, equivalent to `x 4 po
 
 **Execution Trace:**
 
-1.  **Initialization:**
+1.  **Pre-initialization (automatic):**
+    -   All variables (`base`, `result`, `counter`) are automatically allocated and initialized to `0.0`.
+
+2.  **Initialization:**
     -   `x base!`: Stores the pixel value of clip `x` into the variable `base`.
     -   `1 result!`: Initializes `result` to 1.
     -   `4 counter!`: Initializes a loop `counter` to 4.
     -   Stack is now empty.
 
-2.  **Loop Start (`#loop`):**
+3.  **Loop Start (`#loop`):**
     -   `result@ base@ * result!`: `result` becomes `result * base`.
     -   `counter@ 1 - counter!`: Decrements the `counter`.
     -   `counter@`: Pushes the current value of `counter` onto the stack.
@@ -244,6 +250,23 @@ The following expression calculates `x` to the power of 4, equivalent to `x 4 po
         -   If `counter` was > 0, execution jumps back to `#loop`.
         -   If `counter` was 0, the jump is not taken.
 
-3.  **Termination:**
+4.  **Termination:**
     -   After the loop finishes (when `counter` reaches 0), the expression continues.
     -   `result@`: The final calculated value is pushed onto the stack, becoming the output for the pixel.
+
+#### **5.4. Example: Forward Variable Reference**
+
+This example demonstrates using variables before their assignment, enabled by pre-allocation:
+
+**Expression:** `#start temp@ 1 + x temp! temp@` (Uses `temp` before assigning it)
+
+**Execution:**
+1.  **Pre-initialization:** `temp` is allocated and set to `0.0`.
+2.  **Label `#start`:** Marks the start position.
+3.  **`temp@`:** Pushes `0.0` (the initial value of `temp`).
+4.  **`1 +`:** Adds 1 to `0.0`, resulting in `1.0`.
+5.  **`x`:** Pushes the pixel value from clip `x`.
+6.  **`temp!`:** Stores the pixel value into `temp`.
+7.  **`temp@`:** Pushes the current value of `temp` (the pixel value).
+
+This pattern is useful for complex control flow where variables need to be referenced before assignment.
