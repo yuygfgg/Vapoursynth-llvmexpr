@@ -128,11 +128,13 @@ enum class TokenType {
     JUMP,      // my_label#
 };
 
-// Payloads for different token types
 struct TokenPayload_Number {
     double value;
 };
 struct TokenPayload_Var {
+    std::string name;
+};
+struct TokenPayload_Label {
     std::string name;
 };
 struct TokenPayload_StackOp {
@@ -154,8 +156,8 @@ struct Token {
     TokenType type;
     std::string text;
     std::variant<std::monostate, TokenPayload_Number, TokenPayload_Var,
-                 TokenPayload_StackOp, TokenPayload_ClipAccess,
-                 TokenPayload_PropAccess>
+                 TokenPayload_Label, TokenPayload_StackOp,
+                 TokenPayload_ClipAccess, TokenPayload_PropAccess>
         payload;
 };
 
@@ -284,10 +286,10 @@ std::vector<Token> tokenize(const std::string& expr, int num_inputs) {
             t.payload = TokenPayload_StackOp{n};
         } else if (!str_token.empty() && str_token.front() == '#') {
             t.type = TokenType::LABEL_DEF;
-            t.payload = TokenPayload_Var{.name = str_token.substr(1)};
+            t.payload = TokenPayload_Label{.name = str_token.substr(1)};
         } else if (!str_token.empty() && str_token.back() == '#') {
             t.type = TokenType::JUMP;
-            t.payload = TokenPayload_Var{
+            t.payload = TokenPayload_Label{
                 .name = str_token.substr(0, str_token.size() - 1)};
         } else if (std::regex_match(str_token, match, re_rel) ||
                    std::regex_match(str_token, match, re_rel_bracket)) {
@@ -948,7 +950,7 @@ class Compiler {
             token_idx_to_block_idx[block_start_idx] = block_idx;
 
             if (tokens[current_token_idx].type == TokenType::LABEL_DEF) {
-                const auto& payload = std::get<TokenPayload_Var>(
+                const auto& payload = std::get<TokenPayload_Label>(
                     tokens[current_token_idx].payload);
                 if (label_to_block_idx.count(payload.name)) {
                     throw std::runtime_error(
@@ -995,7 +997,7 @@ class Compiler {
             const auto& last_token = tokens[block.end_token_idx - 1];
             if (last_token.type == TokenType::JUMP) {
                 const auto& payload =
-                    std::get<TokenPayload_Var>(last_token.payload);
+                    std::get<TokenPayload_Label>(last_token.payload);
                 if (label_to_block_idx.find(payload.name) ==
                     label_to_block_idx.end()) {
                     throw std::runtime_error(
