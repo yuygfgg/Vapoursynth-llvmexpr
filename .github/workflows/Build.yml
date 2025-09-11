@@ -248,7 +248,7 @@ jobs:
           Libs: -L${libdir}
           Cflags: -I${includedir}
           EOF
-          echo "PKG_CONFIG_PATH=$HOME/pkgconfig" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$HOME/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
       - name: Meson setup
         run: meson setup build/ --wrap-mode=forcefallback -Dstatic-llvm=true
