@@ -228,8 +228,6 @@ The following expression calculates `x` to the power of 4, equivalent to `x 4 po
 
 **Expression:** `x base! 1 result! 4 counter! #loop result@ base@ * result! counter@ 1 - counter! counter@ loop# result@`
 
-The expression will calculate `x^4` for each pixel.
-
 **Execution Trace:**
 
 1.  **Initialization:**

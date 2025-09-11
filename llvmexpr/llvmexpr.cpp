@@ -14,7 +14,6 @@
 #include <string>
 #include <system_error>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -503,10 +502,16 @@ class Compiler {
     struct CFGBlock {
         int start_token_idx;
         int end_token_idx; // exclusive
+        std::vector<int> successors;
+        std::vector<int> predecessors;
+
+        int stack_effect = 0;
+        int min_stack_needed =
+            0; // min stack depth *during* the block, relative to start
     };
     std::vector<CFGBlock> cfg_blocks;
     std::map<std::string, int> label_to_block_idx;
-
+    std::vector<int> stack_depth_in;
 
   public:
     Compiler(std::vector<Token>&& tokens_in, const VSVideoInfo* out_vi,
@@ -911,31 +916,22 @@ class Compiler {
             throw std::runtime_error("Expression cannot be empty.");
         }
 
-        struct Block {
-            int start_token_idx;
-            int end_token_idx; // exclusive
-            std::vector<int> successors;
-            std::vector<int> predecessors;
+        // Clear previous state
+        cfg_blocks.clear();
+        label_to_block_idx.clear();
+        stack_depth_in.clear();
 
-            int stack_effect = 0;
-            int min_stack_needed =
-                0; // min stack depth *during* the block, relative to start
-        };
-
-        // Find all labels and basic block boundaries
-        std::vector<Block> blocks;
         std::map<int, int> token_idx_to_block_idx;
 
         int current_token_idx = 0;
         while (static_cast<size_t>(current_token_idx) < tokens.size()) {
-            int block_idx = blocks.size();
-            Block block;
+            int block_idx = cfg_blocks.size();
+            CFGBlock block;
             block.start_token_idx = current_token_idx;
 
             int block_start_idx = current_token_idx;
             token_idx_to_block_idx[block_start_idx] = block_idx;
 
-            // Check for label at the start of the block
             if (tokens[current_token_idx].type == TokenType::LABEL_DEF) {
                 const auto& payload = std::get<TokenPayload_Var>(
                     tokens[current_token_idx].payload);
@@ -946,7 +942,6 @@ class Compiler {
                 label_to_block_idx[payload.name] = block_idx;
             }
 
-            // Find the end of the block
             int scan_idx = current_token_idx;
             while (static_cast<size_t>(scan_idx) < tokens.size()) {
                 const auto& token = tokens[scan_idx];
@@ -954,7 +949,6 @@ class Compiler {
                     scan_idx++;
                     break;
                 }
-                // A label (that isn't the first token) also starts a new block
                 if (scan_idx > block_start_idx &&
                     token.type == TokenType::LABEL_DEF) {
                     break;
@@ -962,19 +956,17 @@ class Compiler {
                 scan_idx++;
             }
             block.end_token_idx = scan_idx;
-            blocks.push_back(block);
+            cfg_blocks.push_back(block);
             current_token_idx = scan_idx;
         }
 
-        // Build CFG edges and calculate intra-block stack effects
-        for (size_t i = 0; i < blocks.size(); ++i) {
-            Block& block = blocks[i];
+        for (size_t i = 0; i < cfg_blocks.size(); ++i) {
+            CFGBlock& block = cfg_blocks[i];
             int current_stack = 0;
             for (int j = block.start_token_idx; j < block.end_token_idx; ++j) {
                 const auto& token = tokens[j];
                 int effect = get_stack_effect(token);
 
-                // TODO: How to handle this with branches?
                 if (token.type == TokenType::VAR_LOAD) {
                     const auto& payload =
                         std::get<TokenPayload_Var>(token.payload);
@@ -1015,31 +1007,28 @@ class Compiler {
                 }
                 int target_block_idx = label_to_block_idx.at(payload.name);
                 block.successors.push_back(target_block_idx);
-                blocks[target_block_idx].predecessors.push_back(i);
+                cfg_blocks[target_block_idx].predecessors.push_back(i);
 
-                // Fall-through
                 if (static_cast<size_t>(block.end_token_idx) < tokens.size()) {
                     int fallthrough_block_idx =
                         token_idx_to_block_idx.at(block.end_token_idx);
                     block.successors.push_back(fallthrough_block_idx);
-                    blocks[fallthrough_block_idx].predecessors.push_back(i);
+                    cfg_blocks[fallthrough_block_idx].predecessors.push_back(i);
                 }
             } else {
-                // Fall-through
                 if (static_cast<size_t>(block.end_token_idx) < tokens.size()) {
                     int fallthrough_block_idx =
                         token_idx_to_block_idx.at(block.end_token_idx);
                     block.successors.push_back(fallthrough_block_idx);
-                    blocks[fallthrough_block_idx].predecessors.push_back(i);
+                    cfg_blocks[fallthrough_block_idx].predecessors.push_back(i);
                 }
             }
         }
 
-        // Analyze stack depth across the CFG
-        std::vector<int> stack_depth_in(blocks.size(), -1);
+        stack_depth_in.assign(cfg_blocks.size(), -1);
         std::vector<int> worklist;
 
-        if (!blocks.empty()) {
+        if (!cfg_blocks.empty()) {
             stack_depth_in[0] = 0;
             worklist.push_back(0);
         }
@@ -1048,9 +1037,7 @@ class Compiler {
         while (!worklist.empty()) {
             processed_count++;
             if (processed_count >
-                blocks.size() * blocks.size()) { // Heuristic loop limit
-                // This likely indicates a stack-modifying loop that doesn't
-                // stabilize, which is invalid.
+                cfg_blocks.size() * cfg_blocks.size()) { // Heuristic
                 throw std::runtime_error(
                     "Failed to prove stack safety; check loops.");
             }
@@ -1058,7 +1045,7 @@ class Compiler {
             int block_idx = worklist.back();
             worklist.pop_back();
 
-            const auto& block = blocks[block_idx];
+            const auto& block = cfg_blocks[block_idx];
             int depth_in = stack_depth_in[block_idx];
 
             if (depth_in < block.min_stack_needed) {
@@ -1080,11 +1067,11 @@ class Compiler {
             }
         }
 
-        // Check final stack depth for all reachable terminal blocks
-        for (size_t i = 0; i < blocks.size(); ++i) {
+        for (size_t i = 0; i < cfg_blocks.size(); ++i) {
             if (stack_depth_in[i] != -1 &&
-                blocks[i].successors.empty()) { // Reachable terminal block
-                int final_depth = stack_depth_in[i] + blocks[i].stack_effect;
+                cfg_blocks[i].successors.empty()) { // Reachable terminal block
+                int final_depth =
+                    stack_depth_in[i] + cfg_blocks[i].stack_effect;
                 if (final_depth != 1) {
                     throw std::runtime_error(
                         std::format("Expression stack not balanced on one "
@@ -1094,616 +1081,547 @@ class Compiler {
                 }
             }
         }
-
-        // All loops are infinite loops.
-        // TODO: Should we error?
     }
 
     void generate_ir_from_tokens(llvm::Value* x, llvm::Value* y) {
         llvm::Type* float_ty = builder.getFloatTy();
         llvm::Type* i32_ty = builder.getInt32Ty();
-
-
-        constexpr int stack_size = 4096;
-        llvm::AllocaInst* stack_alloc = createAllocaInEntry(
-            llvm::ArrayType::get(float_ty, stack_size), "rpn_stack");
-        llvm::AllocaInst* sp_alloc = createAllocaInEntry(i32_ty, "rpn_sp");
-        builder.CreateStore(builder.getInt32(0), sp_alloc);
-
-        auto push = [&](llvm::Value* val) {
-            llvm::Value* sp = builder.CreateLoad(i32_ty, sp_alloc, "sp.load");
-            llvm::Value* stack_ptr =
-                builder.CreateGEP(llvm::ArrayType::get(float_ty, stack_size),
-                                  stack_alloc, {builder.getInt32(0), sp});
-            builder.CreateStore(val, stack_ptr);
-            llvm::Value* next_sp =
-                builder.CreateAdd(sp, builder.getInt32(1), "sp.inc");
-            builder.CreateStore(next_sp, sp_alloc);
-        };
-
-        auto pop = [&]() -> llvm::Value* {
-            llvm::Value* sp = builder.CreateLoad(i32_ty, sp_alloc, "sp.load");
-            llvm::Value* prev_sp =
-                builder.CreateSub(sp, builder.getInt32(1), "sp.dec");
-            builder.CreateStore(prev_sp, sp_alloc);
-            llvm::Value* stack_ptr =
-                builder.CreateGEP(llvm::ArrayType::get(float_ty, stack_size),
-                                  stack_alloc, {builder.getInt32(0), prev_sp});
-            return builder.CreateLoad(float_ty, stack_ptr);
-        };
-
-        auto peek = [&](llvm::Value* offset) -> llvm::Value* {
-            llvm::Value* sp = builder.CreateLoad(i32_ty, sp_alloc, "sp.load");
-            // offset is from top of stack, so sp - 1 - offset
-            llvm::Value* final_offset =
-                builder.CreateSub(sp, builder.getInt32(1));
-            final_offset = builder.CreateSub(final_offset, offset);
-            llvm::Value* stack_ptr = builder.CreateGEP(
-                llvm::ArrayType::get(float_ty, stack_size), stack_alloc,
-                {builder.getInt32(0), final_offset});
-            return builder.CreateLoad(float_ty, stack_ptr);
-        };
-
-        // --- CFG and Block Creation ---
-        std::map<std::string, llvm::BasicBlock*> llvm_labels;
         llvm::Function* parent_func = builder.GetInsertBlock()->getParent();
 
-        for (const auto& token : tokens) {
-            if (token.type == TokenType::LABEL_DEF) {
-                const auto& payload = std::get<TokenPayload_Var>(token.payload);
-                if (llvm_labels.find(payload.name) == llvm_labels.end()) {
-                    llvm_labels[payload.name] = llvm::BasicBlock::Create(
-                        *context, payload.name, parent_func);
-                }
-            }
+        if (tokens.empty()) {
+            generate_pixel_store(llvm::ConstantFP::get(float_ty, 0.0), x, y);
+            return;
         }
 
+        // Setup: Create all Basic Blocks 
+        std::map<int, llvm::BasicBlock*> llvm_blocks;
+        for (size_t i = 0; i < cfg_blocks.size(); ++i) {
+            std::string name = "b" + std::to_string(i);
+            for (const auto& [label_name, block_idx] : label_to_block_idx) {
+                if (block_idx == static_cast<int>(i)) {
+                    name = label_name;
+                    break;
+                }
+            }
+            llvm_blocks[i] =
+                llvm::BasicBlock::Create(*context, name, parent_func);
+        }
         llvm::BasicBlock* exit_bb =
             llvm::BasicBlock::Create(*context, "exit", parent_func);
-        std::vector<llvm::Value*> incoming_final_values;
-        std::vector<llvm::BasicBlock*> incoming_final_blocks;
 
-        std::unordered_set<std::string> defined_vars; // For validation
+        // Branch from current block to the first CFG block 
+        builder.CreateBr(llvm_blocks[0]);
+
+        // Initial PHI generation for merge blocks 
+        std::map<int, std::vector<llvm::Value*>> block_initial_stacks;
+        for (size_t i = 0; i < cfg_blocks.size(); ++i) {
+            if (cfg_blocks[i].predecessors.size() > 1) {
+                builder.SetInsertPoint(llvm_blocks[i]);
+                std::vector<llvm::Value*> initial_stack;
+                int depth = stack_depth_in[i];
+                for (int j = 0; j < depth; ++j) {
+                    initial_stack.push_back(builder.CreatePHI(
+                        float_ty, cfg_blocks[i].predecessors.size()));
+                }
+                block_initial_stacks[i] = initial_stack;
+            }
+        }
+
+        // Process blocks 
+        std::map<int, std::vector<llvm::Value*>> block_final_stacks;
         std::unordered_map<std::string, llvm::Value*> named_vars; // AllocaInst*
 
-        for (size_t i = 0; i < tokens.size(); ++i) {
-            const auto& token = tokens[i];
-            bool is_last_token = (i == tokens.size() - 1);
+        for (size_t i = 0; i < cfg_blocks.size(); ++i) {
+            const auto& block_info = cfg_blocks[i];
+            builder.SetInsertPoint(llvm_blocks[i]);
 
-            // If the current block is already terminated, this token is
-            // unreachable. The validator should prevent any valid program from
-            // having unreachable code that matters, but we avoid generating it
-            // anyway.
-            if (builder.GetInsertBlock()->getTerminator())
-                continue;
-
-            switch (token.type) {
-            case TokenType::LABEL_DEF: {
-                const auto& payload = std::get<TokenPayload_Var>(token.payload);
-                llvm::BasicBlock* label_bb = llvm_labels.at(payload.name);
-                builder.CreateBr(label_bb);
-                builder.SetInsertPoint(label_bb);
-                break;
-            }
-            case TokenType::JUMP: {
-                const auto& payload = std::get<TokenPayload_Var>(token.payload);
-                llvm::BasicBlock* target_bb = llvm_labels.at(payload.name);
-                llvm::BasicBlock* fallthrough_bb = llvm::BasicBlock::Create(
-                    *context, "fallthrough", parent_func);
-
-                llvm::Value* cond_val = pop();
-                llvm::Value* cond = builder.CreateFCmpOGT(
-                    cond_val, llvm::ConstantFP::get(float_ty, 0.0));
-                builder.CreateCondBr(cond, target_bb, fallthrough_bb);
-
-                if (is_last_token) {
-                    builder.SetInsertPoint(fallthrough_bb);
-                    llvm::Value* val = pop();
-                    incoming_final_values.push_back(val);
-                    incoming_final_blocks.push_back(fallthrough_bb);
-                    builder.CreateBr(exit_bb);
+            std::vector<llvm::Value*> rpn_stack;
+            if (block_info.predecessors.empty()) {
+                // Entry block, empty stack
+            } else if (block_info.predecessors.size() == 1) {
+                int pred_idx = block_info.predecessors[0];
+                // This can fail on first pass of a loop, so we use
+                // get-or-create
+                if (block_final_stacks.count(pred_idx)) {
+                    rpn_stack = block_final_stacks.at(pred_idx);
                 }
-
-                builder.SetInsertPoint(fallthrough_bb);
-                break;
+            } else {
+                rpn_stack = block_initial_stacks.at(i);
             }
 
-            // Literals & Constants
-            case TokenType::NUMBER: {
-                const auto& payload =
-                    std::get<TokenPayload_Number>(token.payload);
-                push(llvm::ConstantFP::get(float_ty, payload.value));
-                break;
-            }
-            case TokenType::CONSTANT_X:
-                push(builder.CreateSIToFP(x, float_ty));
-                break;
-            case TokenType::CONSTANT_Y:
-                push(builder.CreateSIToFP(y, float_ty));
-                break;
-            case TokenType::CONSTANT_WIDTH:
-                push(builder.CreateSIToFP(width_arg, float_ty));
-                break;
-            case TokenType::CONSTANT_HEIGHT:
-                push(builder.CreateSIToFP(height_arg, float_ty));
-                break;
-            case TokenType::CONSTANT_N:
-                push(builder.CreateLoad(
-                    float_ty, builder.CreateGEP(float_ty, props_arg,
-                                                builder.getInt32(0))));
-                break;
-            case TokenType::CONSTANT_PI:
-                push(llvm::ConstantFP::get(float_ty, std::numbers::pi));
-                break;
+            for (int j = block_info.start_token_idx;
+                 j < block_info.end_token_idx; ++j) {
+                const auto& token = tokens[j];
 
-            // Variable Ops
-            case TokenType::VAR_STORE: {
-                const auto& payload = std::get<TokenPayload_Var>(token.payload);
-                llvm::Value* val_to_store = pop();
-                llvm::Value* var_ptr;
-                if (named_vars.find(payload.name) == named_vars.end()) {
-                    var_ptr = createAllocaInEntry(float_ty, payload.name);
-                    named_vars[payload.name] = var_ptr;
-                } else {
-                    var_ptr = named_vars[payload.name];
+                // Most token handling is just pushing and popping from
+                // rpn_stack This is a simplified version of the large switch
+                // statement
+                switch (token.type) {
+                // Literals & Constants
+                case TokenType::NUMBER: {
+                    const auto& payload =
+                        std::get<TokenPayload_Number>(token.payload);
+                    rpn_stack.push_back(
+                        llvm::ConstantFP::get(float_ty, payload.value));
+                    break;
                 }
-                builder.CreateStore(val_to_store, var_ptr);
-                defined_vars.insert(payload.name);
-                break;
-            }
-            case TokenType::VAR_LOAD: {
-                const auto& payload = std::get<TokenPayload_Var>(token.payload);
-                llvm::Value* var_ptr = named_vars[payload.name];
-                push(builder.CreateLoad(float_ty, var_ptr));
-                break;
-            }
-
-            // Data Access
-            case TokenType::CLIP_REL: {
-                const auto& payload =
-                    std::get<TokenPayload_ClipAccess>(token.payload);
-                llvm::Value* coord_x =
-                    builder.CreateAdd(x, builder.getInt32(payload.rel_x));
-                llvm::Value* coord_y =
-                    builder.CreateAdd(y, builder.getInt32(payload.rel_y));
-                bool use_mirror =
-                    payload.has_mode ? payload.use_mirror : mirror_boundary;
-                push(generate_pixel_load(payload.clip_idx, coord_x, coord_y,
-                                         use_mirror));
-                break;
-            }
-            case TokenType::CLIP_ABS: {
-                const auto& payload =
-                    std::get<TokenPayload_ClipAccess>(token.payload);
-                llvm::Value* coord_y = builder.CreateFPToSI(pop(), i32_ty);
-                llvm::Value* coord_x = builder.CreateFPToSI(pop(), i32_ty);
-                push(generate_pixel_load(payload.clip_idx, coord_x, coord_y,
-                                         mirror_boundary));
-                break;
-            }
-            case TokenType::CLIP_CUR: {
-                const auto& payload =
-                    std::get<TokenPayload_ClipAccess>(token.payload);
-                push(generate_pixel_load(payload.clip_idx, x, y,
-                                         mirror_boundary));
-                break;
-            }
-            case TokenType::PROP_ACCESS: {
-                const auto& payload =
-                    std::get<TokenPayload_PropAccess>(token.payload);
-                auto key = std::make_pair(payload.clip_idx, payload.prop_name);
-                int prop_idx = prop_map.at(key);
-                llvm::Value* prop_val = builder.CreateLoad(
-                    float_ty, builder.CreateGEP(float_ty, props_arg,
-                                                builder.getInt32(prop_idx)));
-                push(prop_val);
-                break;
-            }
-
-            // Binary Operators
-            case TokenType::ADD: {
-                auto b = pop();
-                auto a = pop();
-                push(builder.CreateFAdd(a, b));
-                break;
-            }
-            case TokenType::SUB: {
-                auto b = pop();
-                auto a = pop();
-                push(builder.CreateFSub(a, b));
-                break;
-            }
-            case TokenType::MUL: {
-                auto b = pop();
-                auto a = pop();
-                push(builder.CreateFMul(a, b));
-                break;
-            }
-            case TokenType::DIV: {
-                auto b = pop();
-                auto a = pop();
-                push(builder.CreateFDiv(a, b));
-                break;
-            }
-            case TokenType::MOD: {
-                auto b = pop();
-                auto a = pop();
-                push(builder.CreateFRem(a, b));
-                break;
-            }
-            case TokenType::GT: {
-                auto b = pop();
-                auto a = pop();
-                push(
-                    builder.CreateSelect(builder.CreateFCmpOGT(a, b),
-                                         llvm::ConstantFP::get(float_ty, 1.0),
-                                         llvm::ConstantFP::get(float_ty, 0.0)));
-                break;
-            }
-            case TokenType::LT: {
-                auto b = pop();
-                auto a = pop();
-                push(
-                    builder.CreateSelect(builder.CreateFCmpOLT(a, b),
-                                         llvm::ConstantFP::get(float_ty, 1.0),
-                                         llvm::ConstantFP::get(float_ty, 0.0)));
-                break;
-            }
-            case TokenType::GE: {
-                auto b = pop();
-                auto a = pop();
-                push(
-                    builder.CreateSelect(builder.CreateFCmpOGE(a, b),
-                                         llvm::ConstantFP::get(float_ty, 1.0),
-                                         llvm::ConstantFP::get(float_ty, 0.0)));
-                break;
-            }
-            case TokenType::LE: {
-                auto b = pop();
-                auto a = pop();
-                push(
-                    builder.CreateSelect(builder.CreateFCmpOLE(a, b),
-                                         llvm::ConstantFP::get(float_ty, 1.0),
-                                         llvm::ConstantFP::get(float_ty, 0.0)));
-                break;
-            }
-            case TokenType::EQ: {
-                auto b = pop();
-                auto a = pop();
-                push(
-                    builder.CreateSelect(builder.CreateFCmpOEQ(a, b),
-                                         llvm::ConstantFP::get(float_ty, 1.0),
-                                         llvm::ConstantFP::get(float_ty, 0.0)));
-                break;
-            }
-            case TokenType::AND: {
-                auto b = pop();
-                auto a = pop();
-                push(builder.CreateSelect(
-                    builder.CreateAnd(
-                        builder.CreateFCmpONE(
-                            a, llvm::ConstantFP::get(float_ty, 0.0)),
-                        builder.CreateFCmpONE(
-                            b, llvm::ConstantFP::get(float_ty, 0.0))),
-                    llvm::ConstantFP::get(float_ty, 1.0),
-                    llvm::ConstantFP::get(float_ty, 0.0)));
-                break;
-            }
-            case TokenType::OR: {
-                auto b = pop();
-                auto a = pop();
-                push(builder.CreateSelect(
-                    builder.CreateOr(
-                        builder.CreateFCmpONE(
-                            a, llvm::ConstantFP::get(float_ty, 0.0)),
-                        builder.CreateFCmpONE(
-                            b, llvm::ConstantFP::get(float_ty, 0.0))),
-                    llvm::ConstantFP::get(float_ty, 1.0),
-                    llvm::ConstantFP::get(float_ty, 0.0)));
-                break;
-            }
-            case TokenType::XOR: {
-                auto b = pop();
-                auto a = pop();
-                push(builder.CreateSelect(
-                    builder.CreateXor(
-                        builder.CreateFCmpONE(
-                            a, llvm::ConstantFP::get(float_ty, 0.0)),
-                        builder.CreateFCmpONE(
-                            b, llvm::ConstantFP::get(float_ty, 0.0))),
-                    llvm::ConstantFP::get(float_ty, 1.0),
-                    llvm::ConstantFP::get(float_ty, 0.0)));
-                break;
-            }
-            case TokenType::BITAND: {
-                auto b = pop();
-                auto a = pop();
-                push(builder.CreateSIToFP(
-                    builder.CreateAnd(builder.CreateFPToSI(a, i32_ty),
-                                      builder.CreateFPToSI(b, i32_ty)),
-                    float_ty));
-                break;
-            }
-            case TokenType::BITOR: {
-                auto b = pop();
-                auto a = pop();
-                push(builder.CreateSIToFP(
-                    builder.CreateOr(builder.CreateFPToSI(a, i32_ty),
-                                     builder.CreateFPToSI(b, i32_ty)),
-                    float_ty));
-                break;
-            }
-            case TokenType::BITXOR: {
-                auto b = pop();
-                auto a = pop();
-                push(builder.CreateSIToFP(
-                    builder.CreateXor(builder.CreateFPToSI(a, i32_ty),
-                                      builder.CreateFPToSI(b, i32_ty)),
-                    float_ty));
-                break;
-            }
-            case TokenType::POW: {
-                auto b = pop();
-                auto a = pop();
-                push(createBinaryIntrinsicCall(llvm::Intrinsic::pow, a, b));
-                break;
-            }
-            case TokenType::ATAN2: {
-                auto b = pop();
-                auto a = pop();
-                push(createBinaryIntrinsicCall(llvm::Intrinsic::atan2, a, b));
-                break;
-            }
-            case TokenType::COPYSIGN: {
-                auto b = pop();
-                auto a = pop();
-                push(
-                    createBinaryIntrinsicCall(llvm::Intrinsic::copysign, a, b));
-                break;
-            }
-            case TokenType::MIN: {
-                auto b = pop();
-                auto a = pop();
-                push(createBinaryIntrinsicCall(llvm::Intrinsic::minnum, a, b));
-                break;
-            }
-            case TokenType::MAX: {
-                auto b = pop();
-                auto a = pop();
-                push(createBinaryIntrinsicCall(llvm::Intrinsic::maxnum, a, b));
-                break;
-            }
-
-            // Unary Operators
-            case TokenType::NOT: {
-                auto a = pop();
-                push(builder.CreateSelect(
-                    builder.CreateFCmpOEQ(a,
-                                          llvm::ConstantFP::get(float_ty, 0.0)),
-                    llvm::ConstantFP::get(float_ty, 1.0),
-                    llvm::ConstantFP::get(float_ty, 0.0)));
-                break;
-            }
-            case TokenType::BITNOT: {
-                auto a = pop();
-                push(builder.CreateSIToFP(
-                    builder.CreateNot(builder.CreateFPToSI(a, i32_ty)),
-                    float_ty));
-                break;
-            }
-            case TokenType::SQRT:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::sqrt, pop()));
-                break;
-            case TokenType::EXP:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::exp, pop()));
-                break;
-            case TokenType::LOG:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::log, pop()));
-                break;
-            case TokenType::ABS:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::fabs, pop()));
-                break;
-            case TokenType::FLOOR:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::floor, pop()));
-                break;
-            case TokenType::CEIL:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::ceil, pop()));
-                break;
-            case TokenType::TRUNC:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::trunc, pop()));
-                break;
-            case TokenType::ROUND:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::round, pop()));
-                break;
-            case TokenType::SIN:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::sin, pop()));
-                break;
-            case TokenType::COS:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::cos, pop()));
-                break;
-            case TokenType::TAN:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::tan, pop()));
-                break;
-            case TokenType::ASIN:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::asin, pop()));
-                break;
-            case TokenType::ACOS:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::acos, pop()));
-                break;
-            case TokenType::ATAN:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::atan, pop()));
-                break;
-            case TokenType::EXP2:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::exp2, pop()));
-                break;
-            case TokenType::LOG10:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::log10, pop()));
-                break;
-            case TokenType::LOG2:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::log2, pop()));
-                break;
-            case TokenType::SINH:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::sinh, pop()));
-                break;
-            case TokenType::COSH:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::cosh, pop()));
-                break;
-            case TokenType::TANH:
-                push(createUnaryIntrinsicCall(llvm::Intrinsic::tanh, pop()));
-                break;
-
-            // Ternary and other multi-arg
-            case TokenType::TERNARY: {
-                auto c = pop();
-                auto b = pop();
-                auto a = pop();
-                push(builder.CreateSelect(
-                    builder.CreateFCmpONE(a,
-                                          llvm::ConstantFP::get(float_ty, 0.0)),
-                    b, c));
-                break;
-            }
-            case TokenType::CLIP:
-            case TokenType::CLAMP: {
-                auto max_val = pop();
-                auto min_val = pop();
-                auto val = pop();
-                auto temp = createBinaryIntrinsicCall(llvm::Intrinsic::maxnum,
-                                                      val, min_val);
-                auto clamped = createBinaryIntrinsicCall(
-                    llvm::Intrinsic::minnum, temp, max_val);
-                push(clamped);
-                break;
-            }
-            case TokenType::FMA: {
-                auto c = pop();
-                auto b = pop();
-                auto a = pop();
-                push(builder.CreateCall(llvm::Intrinsic::getOrInsertDeclaration(
-                                            module.get(),
-                                            llvm::Intrinsic::fmuladd,
-                                            {builder.getFloatTy()}),
-                                        {a, b, c}));
-                break;
-            }
-
-            // Stack manipulation
-            case TokenType::DUP: {
-                const auto& payload =
-                    std::get<TokenPayload_StackOp>(token.payload);
-                push(peek(builder.getInt32(payload.n)));
-                break;
-            }
-            case TokenType::DROP: {
-                const auto& payload =
-                    std::get<TokenPayload_StackOp>(token.payload);
-                if (payload.n > 0) {
-                    llvm::Value* sp = builder.CreateLoad(i32_ty, sp_alloc);
-                    llvm::Value* next_sp =
-                        builder.CreateSub(sp, builder.getInt32(payload.n));
-                    builder.CreateStore(next_sp, sp_alloc);
-                }
-                break;
-            }
-            case TokenType::SWAP: {
-                const auto& payload =
-                    std::get<TokenPayload_StackOp>(token.payload);
-                int n = payload.n;
-                llvm::Value* sp = builder.CreateLoad(i32_ty, sp_alloc);
-                llvm::Value* sp_minus_1 =
-                    builder.CreateSub(sp, builder.getInt32(1));
-
-                llvm::Value* addr_top = builder.CreateGEP(
-                    llvm::ArrayType::get(float_ty, stack_size), stack_alloc,
-                    {builder.getInt32(0), sp_minus_1});
-                llvm::Value* val_top = builder.CreateLoad(float_ty, addr_top);
-
-                llvm::Value* n_offset =
-                    builder.CreateSub(sp_minus_1, builder.getInt32(n));
-                llvm::Value* addr_n = builder.CreateGEP(
-                    llvm::ArrayType::get(float_ty, stack_size), stack_alloc,
-                    {builder.getInt32(0), n_offset});
-                llvm::Value* val_n = builder.CreateLoad(float_ty, addr_n);
-
-                builder.CreateStore(val_top, addr_n);
-                builder.CreateStore(val_n, addr_top);
-                break;
-            }
-            case TokenType::SORTN: {
-                const auto& payload =
-                    std::get<TokenPayload_StackOp>(token.payload);
-                int n = payload.n;
-                if (n < 2)
+                case TokenType::CONSTANT_X:
+                    rpn_stack.push_back(builder.CreateSIToFP(x, float_ty));
+                    break;
+                case TokenType::CONSTANT_Y:
+                    rpn_stack.push_back(builder.CreateSIToFP(y, float_ty));
+                    break;
+                case TokenType::CONSTANT_WIDTH:
+                    rpn_stack.push_back(
+                        builder.CreateSIToFP(width_arg, float_ty));
+                    break;
+                case TokenType::CONSTANT_HEIGHT:
+                    rpn_stack.push_back(
+                        builder.CreateSIToFP(height_arg, float_ty));
+                    break;
+                case TokenType::CONSTANT_N:
+                    rpn_stack.push_back(builder.CreateLoad(
+                        float_ty, builder.CreateGEP(float_ty, props_arg,
+                                                    builder.getInt32(0))));
+                    break;
+                case TokenType::CONSTANT_PI:
+                    rpn_stack.push_back(
+                        llvm::ConstantFP::get(float_ty, std::numbers::pi));
                     break;
 
-                std::vector<llvm::Value*> values;
-                values.reserve(n);
-                for (int i = 0; i < n; ++i) {
-                    values.push_back(pop());
+                // Variable Ops
+                case TokenType::VAR_STORE: {
+                    const auto& payload =
+                        std::get<TokenPayload_Var>(token.payload);
+                    llvm::Value* val_to_store = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    llvm::Value* var_ptr;
+                    if (named_vars.find(payload.name) == named_vars.end()) {
+                        var_ptr = createAllocaInEntry(float_ty, payload.name);
+                        named_vars[payload.name] = var_ptr;
+                    } else {
+                        var_ptr = named_vars[payload.name];
+                    }
+                    builder.CreateStore(val_to_store, var_ptr);
+                    break;
                 }
-                std::reverse(values.begin(), values.end());
+                case TokenType::VAR_LOAD: {
+                    const auto& payload =
+                        std::get<TokenPayload_Var>(token.payload);
+                    llvm::Value* var_ptr = named_vars[payload.name];
+                    rpn_stack.push_back(builder.CreateLoad(float_ty, var_ptr));
+                    break;
+                }
 
-                auto compare_swap = [&](int i, int j) {
-                    llvm::Value* val_i = values[i];
-                    llvm::Value* val_j = values[j];
-                    llvm::Value* cond = builder.CreateFCmpOGT(val_i, val_j);
-                    values[i] = builder.CreateSelect(cond, val_j, val_i); // min
-                    values[j] = builder.CreateSelect(cond, val_i, val_j); // max
-                };
+                // Data Access
+                case TokenType::CLIP_REL: {
+                    const auto& payload =
+                        std::get<TokenPayload_ClipAccess>(token.payload);
+                    llvm::Value* coord_x =
+                        builder.CreateAdd(x, builder.getInt32(payload.rel_x));
+                    llvm::Value* coord_y =
+                        builder.CreateAdd(y, builder.getInt32(payload.rel_y));
+                    bool use_mirror =
+                        payload.has_mode ? payload.use_mirror : mirror_boundary;
+                    rpn_stack.push_back(generate_pixel_load(
+                        payload.clip_idx, coord_x, coord_y, use_mirror));
+                    break;
+                }
+                case TokenType::CLIP_ABS: {
+                    const auto& payload =
+                        std::get<TokenPayload_ClipAccess>(token.payload);
+                    llvm::Value* coord_y_f = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    llvm::Value* coord_x_f = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    llvm::Value* coord_y =
+                        builder.CreateFPToSI(coord_y_f, i32_ty);
+                    llvm::Value* coord_x =
+                        builder.CreateFPToSI(coord_x_f, i32_ty);
+                    rpn_stack.push_back(generate_pixel_load(
+                        payload.clip_idx, coord_x, coord_y, mirror_boundary));
+                    break;
+                }
+                case TokenType::CLIP_CUR: {
+                    const auto& payload =
+                        std::get<TokenPayload_ClipAccess>(token.payload);
+                    rpn_stack.push_back(generate_pixel_load(
+                        payload.clip_idx, x, y, mirror_boundary));
+                    break;
+                }
+                case TokenType::PROP_ACCESS: {
+                    const auto& payload =
+                        std::get<TokenPayload_PropAccess>(token.payload);
+                    auto key =
+                        std::make_pair(payload.clip_idx, payload.prop_name);
+                    int prop_idx = prop_map.at(key);
+                    llvm::Value* prop_val = builder.CreateLoad(
+                        float_ty,
+                        builder.CreateGEP(float_ty, props_arg,
+                                          builder.getInt32(prop_idx)));
+                    rpn_stack.push_back(prop_val);
+                    break;
+                }
 
-                const auto network = get_optimal_sorting_network(n);
-                if (!network.empty()) {
-                    for (const auto& pair : network) {
-                        if (pair.second < n) { // Bounds check
-                            compare_swap(pair.first, pair.second);
+// Binary Operators (macro to reduce boilerplate)
+#define POP_BINARY_OP(name, op)                                                \
+    case name: {                                                               \
+        auto b = rpn_stack.back();                                             \
+        rpn_stack.pop_back();                                                  \
+        auto a = rpn_stack.back();                                             \
+        rpn_stack.pop_back();                                                  \
+        rpn_stack.push_back(op(a, b));                                         \
+        break;                                                                 \
+    }
+
+#define POP_BINARY_INTRINSIC_OP(name, intrinsic_id)                            \
+    case name: {                                                               \
+        auto b = rpn_stack.back();                                             \
+        rpn_stack.pop_back();                                                  \
+        auto a = rpn_stack.back();                                             \
+        rpn_stack.pop_back();                                                  \
+        rpn_stack.push_back(createBinaryIntrinsicCall(intrinsic_id, a, b));    \
+        break;                                                                 \
+    }
+
+                    POP_BINARY_OP(TokenType::ADD, builder.CreateFAdd)
+                    POP_BINARY_OP(TokenType::SUB, builder.CreateFSub)
+                    POP_BINARY_OP(TokenType::MUL, builder.CreateFMul)
+                    POP_BINARY_OP(TokenType::DIV, builder.CreateFDiv)
+                    POP_BINARY_OP(TokenType::MOD, builder.CreateFRem)
+                    POP_BINARY_INTRINSIC_OP(TokenType::POW,
+                                            llvm::Intrinsic::pow)
+                    POP_BINARY_INTRINSIC_OP(TokenType::ATAN2,
+                                            llvm::Intrinsic::atan2)
+                    POP_BINARY_INTRINSIC_OP(TokenType::COPYSIGN,
+                                            llvm::Intrinsic::copysign)
+                    POP_BINARY_INTRINSIC_OP(TokenType::MIN,
+                                            llvm::Intrinsic::minnum)
+                    POP_BINARY_INTRINSIC_OP(TokenType::MAX,
+                                            llvm::Intrinsic::maxnum)
+
+#undef POP_BINARY_OP
+#undef POP_BINARY_INTRINSIC_OP
+
+#define POP_BINARY_CMP_OP(name, pred)                                          \
+    case name: {                                                               \
+        auto b = rpn_stack.back();                                             \
+        rpn_stack.pop_back();                                                  \
+        auto a = rpn_stack.back();                                             \
+        rpn_stack.pop_back();                                                  \
+        rpn_stack.push_back(                                                   \
+            builder.CreateSelect(builder.CreateFCmp##pred(a, b),               \
+                                 llvm::ConstantFP::get(float_ty, 1.0),         \
+                                 llvm::ConstantFP::get(float_ty, 0.0)));       \
+        break;                                                                 \
+    }
+                    POP_BINARY_CMP_OP(TokenType::GT, OGT)
+                    POP_BINARY_CMP_OP(TokenType::LT, OLT)
+                    POP_BINARY_CMP_OP(TokenType::GE, OGE)
+                    POP_BINARY_CMP_OP(TokenType::LE, OLE)
+                    POP_BINARY_CMP_OP(TokenType::EQ, OEQ)
+
+#undef POP_BINARY_CMP_OP
+
+#define POP_LOGICAL_OP(name, op)                                               \
+    case name: {                                                               \
+        auto b_val = rpn_stack.back();                                         \
+        rpn_stack.pop_back();                                                  \
+        auto a_val = rpn_stack.back();                                         \
+        rpn_stack.pop_back();                                                  \
+        auto a_bool = builder.CreateFCmpONE(                                   \
+            a_val, llvm::ConstantFP::get(float_ty, 0.0));                      \
+        auto b_bool = builder.CreateFCmpONE(                                   \
+            b_val, llvm::ConstantFP::get(float_ty, 0.0));                      \
+        rpn_stack.push_back(                                                   \
+            builder.CreateSelect(builder.Create##op(a_bool, b_bool),           \
+                                 llvm::ConstantFP::get(float_ty, 1.0),         \
+                                 llvm::ConstantFP::get(float_ty, 0.0)));       \
+        break;                                                                 \
+    }
+                    POP_LOGICAL_OP(TokenType::AND, And)
+                    POP_LOGICAL_OP(TokenType::OR, Or)
+                    POP_LOGICAL_OP(TokenType::XOR, Xor)
+
+#undef POP_LOGICAL_OP
+
+#define POP_BITWISE_OP(name, op)                                               \
+    case name: {                                                               \
+        auto b = rpn_stack.back();                                             \
+        rpn_stack.pop_back();                                                  \
+        auto a = rpn_stack.back();                                             \
+        rpn_stack.pop_back();                                                  \
+        rpn_stack.push_back(builder.CreateSIToFP(                              \
+            builder.Create##op(builder.CreateFPToSI(a, i32_ty),                \
+                               builder.CreateFPToSI(b, i32_ty)),               \
+            float_ty));                                                        \
+        break;                                                                 \
+    }
+                    POP_BITWISE_OP(TokenType::BITAND, And)
+                    POP_BITWISE_OP(TokenType::BITOR, Or)
+                    POP_BITWISE_OP(TokenType::BITXOR, Xor)
+
+#undef POP_BITWISE_OP
+
+// Unary Operators
+#define POP_UNARY_OP(name, op)                                                 \
+    case name: {                                                               \
+        auto a = rpn_stack.back();                                             \
+        rpn_stack.pop_back();                                                  \
+        rpn_stack.push_back(op(a));                                            \
+        break;                                                                 \
+    }
+
+#define POP_UNARY_INTRINSIC_OP(name, intrinsic_id)                             \
+    case name: {                                                               \
+        auto a = rpn_stack.back();                                             \
+        rpn_stack.pop_back();                                                  \
+        rpn_stack.push_back(createUnaryIntrinsicCall(intrinsic_id, a));        \
+        break;                                                                 \
+    }
+                    POP_UNARY_INTRINSIC_OP(TokenType::SQRT,
+                                           llvm::Intrinsic::sqrt)
+                    POP_UNARY_INTRINSIC_OP(TokenType::EXP, llvm::Intrinsic::exp)
+                    POP_UNARY_INTRINSIC_OP(TokenType::LOG, llvm::Intrinsic::log)
+                    POP_UNARY_INTRINSIC_OP(TokenType::ABS,
+                                           llvm::Intrinsic::fabs)
+                    POP_UNARY_INTRINSIC_OP(TokenType::FLOOR,
+                                           llvm::Intrinsic::floor)
+                    POP_UNARY_INTRINSIC_OP(TokenType::CEIL,
+                                           llvm::Intrinsic::ceil)
+                    POP_UNARY_INTRINSIC_OP(TokenType::TRUNC,
+                                           llvm::Intrinsic::trunc)
+                    POP_UNARY_INTRINSIC_OP(TokenType::ROUND,
+                                           llvm::Intrinsic::round)
+                    POP_UNARY_INTRINSIC_OP(TokenType::SIN, llvm::Intrinsic::sin)
+                    POP_UNARY_INTRINSIC_OP(TokenType::COS, llvm::Intrinsic::cos)
+                    POP_UNARY_INTRINSIC_OP(TokenType::TAN, llvm::Intrinsic::tan)
+                    POP_UNARY_INTRINSIC_OP(TokenType::ASIN,
+                                           llvm::Intrinsic::asin)
+                    POP_UNARY_INTRINSIC_OP(TokenType::ACOS,
+                                           llvm::Intrinsic::acos)
+                    POP_UNARY_INTRINSIC_OP(TokenType::ATAN,
+                                           llvm::Intrinsic::atan)
+                    POP_UNARY_INTRINSIC_OP(TokenType::EXP2,
+                                           llvm::Intrinsic::exp2)
+                    POP_UNARY_INTRINSIC_OP(TokenType::LOG10,
+                                           llvm::Intrinsic::log10)
+                    POP_UNARY_INTRINSIC_OP(TokenType::LOG2,
+                                           llvm::Intrinsic::log2)
+                    POP_UNARY_INTRINSIC_OP(TokenType::SINH,
+                                           llvm::Intrinsic::sinh)
+                    POP_UNARY_INTRINSIC_OP(TokenType::COSH,
+                                           llvm::Intrinsic::cosh)
+                    POP_UNARY_INTRINSIC_OP(TokenType::TANH,
+                                           llvm::Intrinsic::tanh)
+#undef POP_UNARY_OP
+#undef POP_UNARY_INTRINSIC_OP
+
+                case TokenType::NOT: {
+                    auto a = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    rpn_stack.push_back(builder.CreateSelect(
+                        builder.CreateFCmpOEQ(
+                            a, llvm::ConstantFP::get(float_ty, 0.0)),
+                        llvm::ConstantFP::get(float_ty, 1.0),
+                        llvm::ConstantFP::get(float_ty, 0.0)));
+                    break;
+                }
+                case TokenType::BITNOT: {
+                    auto a = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    rpn_stack.push_back(builder.CreateSIToFP(
+                        builder.CreateNot(builder.CreateFPToSI(a, i32_ty)),
+                        float_ty));
+                    break;
+                }
+
+                // Ternary and other multi-arg
+                case TokenType::TERNARY: {
+                    auto c = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    auto b = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    auto a = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    rpn_stack.push_back(builder.CreateSelect(
+                        builder.CreateFCmpONE(
+                            a, llvm::ConstantFP::get(float_ty, 0.0)),
+                        b, c));
+                    break;
+                }
+                case TokenType::CLIP:
+                case TokenType::CLAMP: {
+                    auto max_val = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    auto min_val = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    auto val = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    auto temp = createBinaryIntrinsicCall(
+                        llvm::Intrinsic::maxnum, val, min_val);
+                    auto clamped = createBinaryIntrinsicCall(
+                        llvm::Intrinsic::minnum, temp, max_val);
+                    rpn_stack.push_back(clamped);
+                    break;
+                }
+                case TokenType::FMA: {
+                    auto c = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    auto b = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    auto a = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    rpn_stack.push_back(builder.CreateCall(
+                        llvm::Intrinsic::getOrInsertDeclaration(
+                            module.get(), llvm::Intrinsic::fmuladd,
+                            {builder.getFloatTy()}),
+                        {a, b, c}));
+                    break;
+                }
+
+                // Stack manipulation
+                case TokenType::DUP: {
+                    const auto& payload =
+                        std::get<TokenPayload_StackOp>(token.payload);
+                    rpn_stack.push_back(
+                        rpn_stack[rpn_stack.size() - 1 - payload.n]);
+                    break;
+                }
+                case TokenType::DROP: {
+                    const auto& payload =
+                        std::get<TokenPayload_StackOp>(token.payload);
+                    if (payload.n > 0) {
+                        rpn_stack.resize(rpn_stack.size() - payload.n);
+                    }
+                    break;
+                }
+                case TokenType::SWAP: {
+                    const auto& payload =
+                        std::get<TokenPayload_StackOp>(token.payload);
+                    std::swap(rpn_stack.back(),
+                              rpn_stack[rpn_stack.size() - 1 - payload.n]);
+                    break;
+                }
+                case TokenType::SORTN: {
+                    const auto& payload =
+                        std::get<TokenPayload_StackOp>(token.payload);
+                    int n = payload.n;
+                    if (n < 2)
+                        break;
+
+                    std::vector<llvm::Value*> values;
+                    values.reserve(n);
+                    for (int k = 0; k < n; ++k) {
+                        values.push_back(rpn_stack.back());
+                        rpn_stack.pop_back();
+                    }
+                    std::reverse(values.begin(), values.end());
+
+                    auto compare_swap = [&](int i_idx, int j_idx) {
+                        llvm::Value* val_i = values[i_idx];
+                        llvm::Value* val_j = values[j_idx];
+                        llvm::Value* cond = builder.CreateFCmpOGT(val_i, val_j);
+                        values[i_idx] =
+                            builder.CreateSelect(cond, val_j, val_i); // min
+                        values[j_idx] =
+                            builder.CreateSelect(cond, val_i, val_j); // max
+                    };
+
+                    const auto network = get_optimal_sorting_network(n);
+                    if (!network.empty()) {
+                        for (const auto& pair : network) {
+                            if (pair.second < n) { // Bounds check
+                                compare_swap(pair.first, pair.second);
+                            }
+                        }
+                    } else {
+                        std::vector<std::pair<int, int>> pairs;
+                        int p = 1;
+                        while (p < n)
+                            p <<= 1;
+                        generate_oem_sort_pairs(pairs, 0, p);
+                        for (const auto& pair : pairs) {
+                            if (pair.second < n) {
+                                compare_swap(pair.first, pair.second);
+                            }
                         }
                     }
-                } else {
-                    std::vector<std::pair<int, int>> pairs;
-                    int p = 1;
-                    while (p < n)
-                        p <<= 1;
-                    generate_oem_sort_pairs(pairs, 0, p);
-                    for (const auto& pair : pairs) {
-                        if (pair.second < n) {
-                            compare_swap(pair.first, pair.second);
-                        }
+
+                    for (int k = 0; k < n; ++k) {
+                        rpn_stack.push_back(values[k]);
                     }
+                    break;
                 }
 
-                for (int i = 0; i < n; ++i) {
-                    push(values[i]);
+                // Control Flow (no-op during this pass)
+                case TokenType::LABEL_DEF:
+                case TokenType::JUMP:
+                    break;
                 }
-                break;
             }
+
+            // Create Terminator 
+            if (block_info.successors.empty()) {
+                builder.CreateBr(exit_bb);
+            } else if (block_info.successors.size() == 1) {
+                builder.CreateBr(llvm_blocks[block_info.successors[0]]);
+            } else { // size is 2, from a JUMP
+                llvm::Value* cond_val = rpn_stack.back();
+                llvm::Value* cond = builder.CreateFCmpOGT(
+                    cond_val, llvm::ConstantFP::get(float_ty, 0.0));
+                builder.CreateCondBr(cond,
+                                     llvm_blocks[block_info.successors[0]],
+                                     llvm_blocks[block_info.successors[1]]);
+
+                // Pop the condition value from stack after creating the
+                // terminator
+                rpn_stack.pop_back();
+            }
+
+            // Save the final stack state (without condition for JUMP blocks)
+            block_final_stacks[i] = rpn_stack;
+        }
+
+        // Populate PHI nodes 
+        for (size_t i = 0; i < cfg_blocks.size(); ++i) {
+            if (cfg_blocks[i].predecessors.size() > 1) {
+                auto& phis = block_initial_stacks.at(i);
+                for (int pred_idx : cfg_blocks[i].predecessors) {
+                    auto& incoming_stack = block_final_stacks.at(pred_idx);
+                    auto* incoming_block = llvm_blocks.at(pred_idx);
+                    for (size_t j = 0; j < phis.size(); ++j) {
+                        // All predecessor blocks now provide stacks of the
+                        // correct depth
+                        if (j < incoming_stack.size()) {
+                            static_cast<llvm::PHINode*>(phis[j])->addIncoming(
+                                incoming_stack[j], incoming_block);
+                        }
+                    }
+                }
             }
         }
 
-        // Finalization
-        llvm::BasicBlock* last_bb = builder.GetInsertBlock();
-        if (last_bb->getTerminator() == nullptr) {
-            llvm::Value* val = pop();
-            incoming_final_values.push_back(val);
-            incoming_final_blocks.push_back(last_bb);
-            builder.CreateBr(exit_bb);
-        }
-
+        // Final Result PHI 
         builder.SetInsertPoint(exit_bb);
+        std::vector<std::pair<llvm::Value*, llvm::BasicBlock*>> final_values;
+        for (size_t i = 0; i < cfg_blocks.size(); ++i) {
+            if (cfg_blocks[i].successors.empty()) { // Terminal block
+                final_values.push_back(
+                    {block_final_stacks.at(i).back(), llvm_blocks.at(i)});
+            }
+        }
+
         llvm::Value* result_val;
-        if (incoming_final_values.empty()) {
-            // This can happen in an empty expression or one that guarantees an
-            // infinite loop. The validator should prevent empty expressions.
-            // For infinite loops, this block is unreachable. We can just put
-            // undef.
+        if (final_values.empty()) {
             result_val = llvm::UndefValue::get(float_ty);
-        } else if (incoming_final_values.size() == 1) {
-            result_val = incoming_final_values[0];
+        } else if (final_values.size() == 1) {
+            result_val = final_values[0].first;
         } else {
-            llvm::PHINode* phi = builder.CreatePHI(
-                float_ty, incoming_final_values.size(), "result_phi");
-            for (size_t j = 0; j < incoming_final_values.size(); ++j) {
-                phi->addIncoming(incoming_final_values[j],
-                                 incoming_final_blocks[j]);
+            llvm::PHINode* phi =
+                builder.CreatePHI(float_ty, final_values.size(), "result_phi");
+            for (const auto& pair : final_values) {
+                phi->addIncoming(pair.first, pair.second);
             }
             result_val = phi;
         }
