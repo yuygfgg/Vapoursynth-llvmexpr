@@ -202,3 +202,50 @@ Access pixels from any clip at absolute or relative coordinates.
   - **Example:** `x.PlaneStatsAverage` pushes the value of the `PlaneStatsAverage` property from the first clip's frame properties.
   - If the property is not a scalar numerical property, its value will be its first byte.
   - If the property does not exist, its value will be `NaN` (Not a Number).
+
+---
+
+### **5. Control Flow (Turing-Complete Operations)**
+
+The RPN engine is Turing-complete, allowing for arbitrary loops and conditional branching using labels and jumps. This enables complex iterative algorithms directly within an expression.
+
+**Warning:** With great power comes great responsibility. An infinite loop in your expression will cause the filter to hang indefinitely.
+
+#### **5.1. Labels**
+
+-   `#label_name`: Defines a jump destination. The `#` must be the first character of the token. `label_name` can be any string of characters without whitespace. The label definition itself is a no-op during execution; it only marks a position for jumps to target.
+
+#### **5.2. Conditional Jumps**
+
+-   `label_name#`: Performs a conditional jump. The `#` must be the last character of the token.
+    -   It pops the top value from the stack.
+    -   If the value is greater than `0` (true), execution jumps to the corresponding `#label_name` and continues from the instruction immediately following the label.
+    -   If the value is `0` or less (false), execution ignores the jump and continues with the next instruction in the expression.
+
+#### **5.3. Example: Power Calculation via Loop**
+
+The following expression calculates `x` to the power of 4, equivalent to `x 4 pow`, but demonstrates a loop using variables.
+
+**Expression:** `x base! 1 result! 4 counter! #loop result@ base@ * result! counter@ 1 - counter! counter@ loop# result@`
+
+The expression will calculate `x^4` for each pixel.
+
+**Execution Trace:**
+
+1.  **Initialization:**
+    -   `x base!`: Stores the pixel value of clip `x` into the variable `base`.
+    -   `1 result!`: Initializes `result` to 1.
+    -   `4 counter!`: Initializes a loop `counter` to 4.
+    -   Stack is now empty.
+
+2.  **Loop Start (`#loop`):**
+    -   `result@ base@ * result!`: `result` becomes `result * base`.
+    -   `counter@ 1 - counter!`: Decrements the `counter`.
+    -   `counter@`: Pushes the current value of `counter` onto the stack.
+    -   `loop#`: Pops `counter`.
+        -   If `counter` was > 0, execution jumps back to `#loop`.
+        -   If `counter` was 0, the jump is not taken.
+
+3.  **Termination:**
+    -   After the loop finishes (when `counter` reaches 0), the expression continues.
+    -   `result@`: The final calculated value is pushed onto the stack, becoming the output for the pixel.
