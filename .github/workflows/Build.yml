@@ -222,7 +222,13 @@ jobs:
       - name: Install meson and ninja
         run: |
           pip install meson ninja
-      - name: Install Clang and LLVM
+
+      - name: Setup LLVM
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: '20'
+      
+      - name: Install Clang
         run: |
           brew install llvm
 
