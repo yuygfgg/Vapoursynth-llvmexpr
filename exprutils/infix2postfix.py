@@ -184,16 +184,6 @@ def infix2postfix(infix_code: str) -> str:
     postfix_tokens: list[str] = []
     label_counter = [0]
 
-    # This pattern is used to find and parse braced blocks, like in function or if/else bodies.
-    _BRACED_BLOCK_CONTENT_PATTERN = r"\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}"
-    _IF_PATTERN = re.compile(r"^\s*if\s*\((.*?)\)\s*" + _BRACED_BLOCK_CONTENT_PATTERN)
-    _ELSE_PATTERN = re.compile(r"^\s*else\s*" + _BRACED_BLOCK_CONTENT_PATTERN)
-    _LABEL_PATTERN = re.compile(r"^\s*([a-zA-Z_]\w*):")
-    _IF_GOTO_PATTERN = re.compile(r"^\s*if\s*\((.*)\)\s*goto\s+([a-zA-Z_]\w*)")
-    _GOTO_PATTERN = re.compile(r"^\s*goto\s+([a-zA-Z_]\w*)")
-    _LABEL_PATTERN = re.compile(r"^\s*([a-zA-Z_]\w*):")
-    _IF_GOTO_PATTERN = re.compile(r"^\s*if\s*\((.*)\)\s*goto\s+([a-zA-Z_]\w*)")
-
     def _process_code_block(code_block: str, line_offset: int) -> list[str]:
         tokens: list[str] = []
         remaining_code = code_block.lstrip()
@@ -435,28 +425,14 @@ _FUNCTION_PATTERN = re.compile(
 _BUILD_IN_FUNC_PATTERNS = [
     re.compile(r) for r in [rf"^{prefix}\d+$" for prefix in ["nth_", "sort"]]
 ]
-_STD_COMPAT_CONST_N_PATTERN = re.compile(r"\$N(?![a-zA-Z0-9_])")
-_STD_COMPAT_CONST_X_PATTERN = re.compile(r"\$X(?![a-zA-Z0-9_])")
-_STD_COMPAT_CONST_Y_PATTERN = re.compile(r"\$Y(?![a-zA-Z0-9_])")
-_STD_COMPAT_CONST_WIDTH_PATTERN = re.compile(r"\$width(?![a-zA-Z0-9_])")
-_STD_COMPAT_CONST_HEIGHT_PATTERN = re.compile(r"\$height(?![a-zA-Z0-9_])")
-_STD_COMPAT_SRC_HIGH_NUM_PATTERN = re.compile(r"\$src(\d+)\b")
-_STD_COMPAT_BITAND_PATTERN = re.compile(r"(?<!&)&(?!&)")
-_STD_COMPAT_BITOR_PATTERN = re.compile(r"(?<!\|)\|(?!\|)")
-_STD_COMPAT_BITXOR_PATTERN = re.compile(r"\^")
-_STD_COMPAT_MODULUS_PATTERN = re.compile(r"%")
-_STD_COMPAT_CONST_PATTERNS = {
-    "N": _STD_COMPAT_CONST_N_PATTERN,
-    "X": _STD_COMPAT_CONST_X_PATTERN,
-    "Y": _STD_COMPAT_CONST_Y_PATTERN,
-    "width": _STD_COMPAT_CONST_WIDTH_PATTERN,
-    "height": _STD_COMPAT_CONST_HEIGHT_PATTERN,
-}
-_STD_COMPAT_BITWISE_PATTERNS = {
-    "&": _STD_COMPAT_BITAND_PATTERN,
-    "|": _STD_COMPAT_BITOR_PATTERN,
-    "^": _STD_COMPAT_BITXOR_PATTERN,
-}
+_BRACED_BLOCK_CONTENT_PATTERN = r"\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}"
+_IF_PATTERN = re.compile(r"^\s*if\s*\((.*?)\)\s*" + _BRACED_BLOCK_CONTENT_PATTERN)
+_ELSE_PATTERN = re.compile(r"^\s*else\s*" + _BRACED_BLOCK_CONTENT_PATTERN)
+_LABEL_PATTERN = re.compile(r"^\s*([a-zA-Z_]\w*):")
+_IF_GOTO_PATTERN = re.compile(r"^\s*if\s*\((.*)\)\s*goto\s+([a-zA-Z_]\w*)")
+_GOTO_PATTERN = re.compile(r"^\s*goto\s+([a-zA-Z_]\w*)")
+_LABEL_PATTERN = re.compile(r"^\s*([a-zA-Z_]\w*):")
+_IF_GOTO_PATTERN = re.compile(r"^\s*if\s*\((.*)\)\s*goto\s+([a-zA-Z_]\w*)")
 
 
 class SyntaxError(Exception):
@@ -710,71 +686,6 @@ def check_variable_usage(
             )
 
 
-def check_std_compatibility(
-    expr: str,
-    func_name: Optional[str] = None,
-    line_num: Optional[int] = None,
-    current_function: Optional[str] = None,
-) -> None:
-    """
-    Check if expression uses Akarin Only features.
-    Raises SyntaxError if any incompatible features found.
-    """
-    for const, pattern in _STD_COMPAT_CONST_PATTERNS.items():
-        if pattern.search(expr):
-            raise SyntaxError(
-                f"Constant '${const}' is Akarin Only and not supported in std.Expr mode.",
-                line_num,
-                current_function,
-            )
-
-    src_matches = _STD_COMPAT_SRC_HIGH_NUM_PATTERN.findall(expr)
-    for src_num in src_matches:
-        if int(src_num) > 25:
-            raise SyntaxError(
-                f"Source clip 'src{src_num}' is Akarin Only (srcN where N > 25 is not supported in std.Expr mode).",
-                line_num,
-                current_function,
-            )
-
-    for op, pattern in _STD_COMPAT_BITWISE_PATTERNS.items():
-        if pattern.search(expr):
-            raise SyntaxError(
-                f"Bitwise operator '{op}' is Akarin Only and not supported in std.Expr mode.",
-                line_num,
-                current_function,
-            )
-
-    if _STD_COMPAT_MODULUS_PATTERN.search(expr):
-        raise SyntaxError(
-            "Modulus operator '%' is Akarin Only and not supported in std.Expr mode.",
-            line_num,
-            current_function,
-        )
-
-    akarin_only_functions = {"round", "floor", "dyn", "trunc"}
-    if func_name in akarin_only_functions:
-        raise SyntaxError(
-            f"Function '{func_name}' is Akarin Only and not supported in std.Expr mode.",
-            line_num,
-            current_function,
-        )
-
-    if _PROP_ACCESS_PATTERN.match(expr):
-        raise SyntaxError(
-            "Frame property access is Akarin Only and not supported in std.Expr mode.",
-            line_num,
-            current_function,
-        )
-
-    if _M_STATIC_PATTERN.match(expr):
-        raise SyntaxError(
-            "Static relative pixel access is Akarin Only and not supported in std.Expr mode.",
-            line_num,
-            current_function,
-        )
-
-
 def convert_expr(
     expr: str,
     variables: set[str],
@@ -784,16 +695,12 @@ def convert_expr(
     current_function: Optional[str] = None,
     local_vars: Optional[set[str]] = None,
     literals_in_scope: Optional[set[str]] = None,
-    force_std: bool = False,
 ) -> str:
     """
     Convert a single infix expression to a postfix expression.
     Supports binary and unary operators, function calls, and custom function definitions.
     """
     expr = expr.strip()
-
-    if force_std:
-        check_std_compatibility(expr, None, line_num, current_function)
 
     if is_token_numeric(expr):
         return expr
@@ -818,9 +725,6 @@ def convert_expr(
             raise SyntaxError(
                 f"Undefined function '{func_name}'", line_num, current_function
             )
-
-        if force_std:
-            check_std_compatibility(expr, func_name, line_num, current_function)
 
         m_nth = _NTH_PATTERN.match(func_name)
         if m_nth:
@@ -849,7 +753,6 @@ def convert_expr(
                     current_function,
                     local_vars,
                     literals_in_scope,
-                    force_std,
                 )
                 for arg in args
             ]
@@ -878,7 +781,6 @@ def convert_expr(
                 current_function,
                 local_vars,
                 literals_in_scope,
-                force_std,
             )
             for arg in args
         ]
@@ -1091,7 +993,6 @@ def convert_expr(
                             func_name,
                             new_local_vars,
                             literals_for_body,
-                            force_std,
                         )
                     )
                 # Process assignment statements.
@@ -1116,7 +1017,7 @@ def convert_expr(
                     if var_name not in new_local_vars:
                         new_local_vars.add(var_name)
 
-                    postfix_line = f"{convert_expr(expr_line, variables, functions, effective_line_num, global_mode_for_functions, func_name, new_local_vars, literals_for_body, force_std)} {var_name}!"
+                    postfix_line = f"{convert_expr(expr_line, variables, functions, effective_line_num, global_mode_for_functions, func_name, new_local_vars, literals_for_body)} {var_name}!"
                     if (
                         compute_stack_effect(
                             postfix_line, effective_line_num, func_name
@@ -1140,7 +1041,6 @@ def convert_expr(
                         func_name,
                         new_local_vars,
                         literals_for_body,
-                        force_std,
                     )
                     if (
                         compute_stack_effect(
@@ -1188,7 +1088,6 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
-            force_std,
         )
 
     m_static = _M_STATIC_PATTERN.match(expr)
@@ -1222,7 +1121,6 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
-            force_std,
         )
         true_conv = convert_expr(
             true_expr,
@@ -1233,7 +1131,6 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
-            force_std,
         )
         false_conv = convert_expr(
             false_expr,
@@ -1244,7 +1141,6 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
-            force_std,
         )
         return f"{cond_conv} {true_conv} {false_conv} ?"
 
@@ -1279,7 +1175,6 @@ def convert_expr(
                 current_function,
                 local_vars,
                 literals_in_scope,
-                force_std,
             )
             right_postfix = convert_expr(
                 right,
@@ -1290,7 +1185,6 @@ def convert_expr(
                 current_function,
                 local_vars,
                 literals_in_scope,
-                force_std,
             )
             if _LETTER_PATTERN.fullmatch(
                 left.strip()
@@ -1319,7 +1213,6 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
-            force_std,
         )
         return f"{operand} not"
 
@@ -1333,17 +1226,10 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
-            force_std,
         )
         return f"{operand} -1 *"
 
     if expr.startswith("~"):
-        if force_std:
-            raise SyntaxError(
-                "Bitwise NOT operator '~' is Akarin Only and not supported in std.Expr mode.",
-                line_num,
-                current_function,
-            )
         operand = convert_expr(
             expr[1:],
             variables,
@@ -1353,7 +1239,6 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
-            force_std,
         )
         return f"{operand} bitnot"
 
