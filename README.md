@@ -6,7 +6,11 @@ A [VapourSynth](https://www.vapoursynth.com/) filter that evaluates per-pixel ma
 
 ## Documentation
 
-For a complete guide to the expression syntax and all available operators, please see the [**Documentation**](docs/specification.md).
+For a complete guide to the expression syntax and all available operators, please see the [**Documentation**](docs/postfix.md).
+
+### Exprutils
+
+The `exprutils` python package contains utilities for working with expressions. It contains `postfix2infix` and `infix2postfix` to convert between infix and postfix expressions. [**Documentation**](docs/infix.md)
 
 ## Dependencies
 
