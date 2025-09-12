@@ -49,9 +49,6 @@ def infix2postfix(
     Raises:
         SyntaxError: If infix code failed to convert to postfix expr.
 
-    Refer to [this document](docs/infix.md) for documentations about infix DSL syntax.
-
-    Refer to [../vfx/draw_2d.py](../vfx/draw_2d.md), [../vfx/draw_3d.py](../vfx/draw_3d.md), [../vfx/misc.py](../vfx/misc.md) and [./expr_utils.py](expr_utils.md) for examples.
     """
 
     # Remove comments
