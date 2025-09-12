@@ -202,14 +202,14 @@ def infix2postfix(infix_code: str) -> str:
     postfix_tokens: list[str] = []
     label_counter = [0]
 
+    # Global label and goto references to allow cross-block jumps
+    all_labels: set[str] = set()
+    all_goto_refs: list[tuple[str, int]] = []
+
     def _process_code_block(code_block: str, line_offset: int) -> list[str]:
         tokens: list[str] = []
         remaining_code = code_block.lstrip()
         current_line = line_offset
-
-        # Track labels and gotos within this block to prevent cross-block jumps
-        local_labels: set[str] = set()
-        goto_refs: list[tuple[str, int]] = []
 
         while remaining_code:
             start_len = len(remaining_code)
@@ -221,7 +221,7 @@ def infix2postfix(infix_code: str) -> str:
 
             if label_match:
                 label_name = label_match.group(1)
-                local_labels.add(label_name)
+                all_labels.add(label_name)
                 tokens.append(f"#{label_name}")
                 remaining_code = remaining_code[label_match.end() :]
             elif if_goto_match:
@@ -237,12 +237,12 @@ def infix2postfix(infix_code: str) -> str:
                     global_mode_for_functions,
                 )
                 tokens.append(f"{cond_postfix} {label_name}#")
-                goto_refs.append((label_name, line_num))
+                all_goto_refs.append((label_name, line_num))
                 remaining_code = remaining_code[if_goto_match.end() :]
             elif goto_match:
                 label_name = goto_match.group(1)
                 tokens.append(f"1 {label_name}#")
-                goto_refs.append((label_name, current_line))
+                all_goto_refs.append((label_name, current_line))
                 remaining_code = remaining_code[goto_match.end() :]
             elif if_match:
                 label_counter[0] += 1
@@ -403,17 +403,17 @@ def infix2postfix(infix_code: str) -> str:
                 current_line += 1
                 remaining_code = remaining_code.lstrip()
 
-        # Validate that all goto targets in this block refer to labels within the same block
-        for target_label, ln in goto_refs:
-            if target_label not in local_labels:
-                raise SyntaxError(
-                    f"goto target '{target_label}' must refer to a label within the same block (cross if/else braces is not allowed).",
-                    ln,
-                )
-
         return tokens
 
     postfix_tokens = _process_code_block(cleaned_code, 1)
+
+    # Validate that all goto targets refer to a defined label anywhere in global scope
+    for target_label, ln in all_goto_refs:
+        if target_label not in all_labels:
+            raise SyntaxError(
+                f"goto target '{target_label}' is undefined.",
+                ln,
+            )
 
     # Check that all declared global variables are defined.
     for gv, decl_line in declared_globals.items():
@@ -444,7 +444,7 @@ _PROP_ACCESS_PATTERN = re.compile(r"^\$?(\w+)\.([a-zA-Z_]\w*)$")
 _PROP_ACCESS_GENERIC_PATTERN = re.compile(r"(\$?[a-zA-Z_]\w*)\.([a-zA-Z_]\w*)")
 _NTH_PATTERN = re.compile(r"^nth_(\d+)$")
 _M_LINE_PATTERN = re.compile(r"^([a-zA-Z_]\w*)\s*=\s*(.+)$")
-_M_STATIC_PATTERN = re.compile(r"^\$?(\w+)\[\s*(-?\d+)\s*,\s*(-?\d+)\s*\](\:\w+)?$")
+_M_STATIC_PATTERN = re.compile(r"^\$?(\w+)\[\s*(-?\d+)\s*,\s*(-?\d+)\s*\](\:\\w+)?$")
 _FIND_DUPLICATE_FUNCTIONS_PATTERN = re.compile(r"\bfunction\s+(\w+)\s*\(.*?\)")
 _GLOBAL_MATCH_PATTERN = re.compile(r"<([a-zA-Z_]\w*)>")
 _ASSIGN_PATTERN = re.compile(r"(?<![<>!])=(?![=])")

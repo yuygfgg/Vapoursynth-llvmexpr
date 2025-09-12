@@ -273,8 +273,8 @@ if (condition) {
 
 Constraints and rules:
 
-- Labels and gotos must remain within the same block. Jumping across `if/else` braces is not allowed.
-- The target label must exist in the same block; otherwise a syntax error is raised.
+- Jumps may cross `if/else` braces (C-like). Targets are resolved against any label defined in the global scope of the script.
+- The target label must exist somewhere in the script; otherwise a syntax error is raised.
 - Labels only mark positions; they do not execute anything by themselves.
 
 ### 9.3. Function Scope Restrictions
