@@ -32,16 +32,12 @@ class GlobalMode(StrEnum):
     SPECIFIC = "specific"
 
 
-def infix2postfix(
-    infix_code: str,
-) -> str:
+def infix2postfix(infix_code: str) -> str:
     R"""
     Convert infix expressions to postfix expressions.
 
     Args:
         infix_code: Input infix code.
-        force_std: Whether to force the converted expr to be std.Expr compatible.
-        optimize_level: Optimization level of generated expr.
 
     Returns:
         Converted postfix expr.
@@ -188,16 +184,6 @@ def infix2postfix(
     postfix_tokens: list[str] = []
     label_counter = [0]
 
-    # This pattern is used to find and parse braced blocks, like in function or if/else bodies.
-    _BRACED_BLOCK_CONTENT_PATTERN = r"\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}"
-    _IF_PATTERN = re.compile(r"^\s*if\s*\((.*?)\)\s*" + _BRACED_BLOCK_CONTENT_PATTERN)
-    _ELSE_PATTERN = re.compile(r"^\s*else\s*" + _BRACED_BLOCK_CONTENT_PATTERN)
-    _LABEL_PATTERN = re.compile(r"^\s*([a-zA-Z_]\w*):")
-    _IF_GOTO_PATTERN = re.compile(r"^\s*if\s*\((.*)\)\s*goto\s+([a-zA-Z_]\w*)")
-    _GOTO_PATTERN = re.compile(r"^\s*goto\s+([a-zA-Z_]\w*)")
-    _LABEL_PATTERN = re.compile(r"^\s*([a-zA-Z_]\w*):")
-    _IF_GOTO_PATTERN = re.compile(r"^\s*if\s*\((.*)\)\s*goto\s+([a-zA-Z_]\w*)")
-
     def _process_code_block(code_block: str, line_offset: int) -> list[str]:
         tokens: list[str] = []
         remaining_code = code_block.lstrip()
@@ -205,7 +191,7 @@ def infix2postfix(
 
         while remaining_code:
             start_len = len(remaining_code)
-            
+
             label_match = _LABEL_PATTERN.match(remaining_code)
             if_goto_match = _IF_GOTO_PATTERN.match(remaining_code)
             goto_match = _GOTO_PATTERN.match(remaining_code)
@@ -214,68 +200,86 @@ def infix2postfix(
             if label_match:
                 label_name = label_match.group(1)
                 tokens.append(f"#{label_name}")
-                remaining_code = remaining_code[label_match.end():]
+                remaining_code = remaining_code[label_match.end() :]
             elif if_goto_match:
                 condition, label_name = if_goto_match.groups()
-                line_num = current_line + remaining_code[:if_goto_match.start(1)].count('\n')
+                line_num = current_line + remaining_code[
+                    : if_goto_match.start(1)
+                ].count("\n")
                 cond_postfix = convert_expr(
-                    condition, current_globals, functions, line_num, global_mode_for_functions
+                    condition,
+                    current_globals,
+                    functions,
+                    line_num,
+                    global_mode_for_functions,
                 )
                 tokens.append(f"{cond_postfix} {label_name}#")
-                remaining_code = remaining_code[if_goto_match.end():]
+                remaining_code = remaining_code[if_goto_match.end() :]
             elif goto_match:
                 label_name = goto_match.group(1)
                 tokens.append(f"1 {label_name}#")
-                remaining_code = remaining_code[goto_match.end():]
+                remaining_code = remaining_code[goto_match.end() :]
             elif if_match:
                 label_counter[0] += 1
                 current_label_id = label_counter[0]
 
                 condition, if_body = if_match.groups()
-                
-                line_num = current_line + remaining_code[:if_match.start(1)].count('\n')
 
-                cond_postfix = convert_expr(
-                    condition, current_globals, functions, line_num, global_mode_for_functions
+                line_num = current_line + remaining_code[: if_match.start(1)].count(
+                    "\n"
                 )
 
-                remaining_code = remaining_code[if_match.end():]
-                
+                cond_postfix = convert_expr(
+                    condition,
+                    current_globals,
+                    functions,
+                    line_num,
+                    global_mode_for_functions,
+                )
+
+                remaining_code = remaining_code[if_match.end() :]
+
                 else_label = f"__internal_else_{current_label_id}"
                 endif_label = f"__internal_endif_{current_label_id}"
 
                 else_match = _ELSE_PATTERN.match(remaining_code)
                 if else_match:
                     else_body = else_match.group(1)
-                    remaining_code = remaining_code[else_match.end():]
-                    
+                    remaining_code = remaining_code[else_match.end() :]
+
                     # if-else block
                     tokens.append(f"{cond_postfix} not {else_label}#")
-                    tokens.extend(_process_code_block(if_body, line_num + condition.count('\n')))
+                    tokens.extend(
+                        _process_code_block(if_body, line_num + condition.count("\n"))
+                    )
                     tokens.append(f"1 {endif_label}#")
                     tokens.append(f"#{else_label}")
-                    tokens.extend(_process_code_block(else_body, line_num + if_body.count('\n')))
+                    tokens.extend(
+                        _process_code_block(else_body, line_num + if_body.count("\n"))
+                    )
                     tokens.append(f"#{endif_label}")
                 else:
                     # if-only block
                     tokens.append(f"{cond_postfix} not {endif_label}#")
-                    tokens.extend(_process_code_block(if_body, line_num + condition.count('\n')))
+                    tokens.extend(
+                        _process_code_block(if_body, line_num + condition.count("\n"))
+                    )
                     tokens.append(f"#{endif_label}")
 
             else:
                 # Simple statement (assignment or expression)
                 try:
-                    stmt, remaining_code = remaining_code.split('\n', 1)
+                    stmt, remaining_code = remaining_code.split("\n", 1)
                 except ValueError:
                     stmt, remaining_code = remaining_code, ""
-                
+
                 stmt = stmt.strip()
                 if not stmt:
                     current_line += 1
                     continue
 
                 line_num = current_line
-                
+
                 if _ASSIGN_PATTERN.search(stmt):
                     var_name, expr = stmt.split("=", 1)
                     var_name = var_name.strip()
@@ -285,9 +289,11 @@ def infix2postfix(
                             line_num,
                         )
                     if is_constant_infix(var_name):
-                        raise SyntaxError(f"Cannot assign to constant '{var_name}'.", line_num)
+                        raise SyntaxError(
+                            f"Cannot assign to constant '{var_name}'.", line_num
+                        )
                     expr = expr.strip()
-                    
+
                     m_call = _M_CALL_PATTERN.match(expr)
                     if m_call:
                         func_name = m_call.group(1)
@@ -308,20 +314,24 @@ def infix2postfix(
                                             line_num,
                                             func_name,
                                         )
-                    
+
                     if var_name not in current_globals and re.search(
                         r"(?<!\$)\b" + re.escape(var_name) + r"\b", expr
                     ):
                         raise SyntaxError(
                             f"Variable '{var_name}' used before definition", line_num
                         )
-                    
+
                     if var_name not in global_assignments:
                         global_assignments[var_name] = line_num
                     current_globals.add(var_name)
-                    
+
                     postfix_expr = convert_expr(
-                        expr, current_globals, functions, line_num, global_mode_for_functions
+                        expr,
+                        current_globals,
+                        functions,
+                        line_num,
+                        global_mode_for_functions,
                     )
                     full_postfix_expr = f"{postfix_expr} {var_name}!"
                     if compute_stack_effect(full_postfix_expr, line_num) != 0:
@@ -347,7 +357,11 @@ def infix2postfix(
                                         )
 
                     postfix_expr = convert_expr(
-                        stmt, current_globals, functions, line_num, global_mode_for_functions
+                        stmt,
+                        current_globals,
+                        functions,
+                        line_num,
+                        global_mode_for_functions,
                     )
                     if compute_stack_effect(postfix_expr, line_num) != 0:
                         raise SyntaxError(
@@ -355,20 +369,18 @@ def infix2postfix(
                             line_num,
                         )
                     tokens.append(postfix_expr)
-            
+
             consumed_chars = start_len - len(remaining_code)
-            consumed_lines = code_block[:consumed_chars].count('\n')
+            consumed_lines = code_block[:consumed_chars].count("\n")
             current_line += consumed_lines
-            remaining_code = remaining_code.lstrip(' \t')
-            if remaining_code.startswith('\n'):
+            remaining_code = remaining_code.lstrip(" \t")
+            if remaining_code.startswith("\n"):
                 current_line += 1
                 remaining_code = remaining_code.lstrip()
-
 
         return tokens
 
     postfix_tokens = _process_code_block(cleaned_code, 1)
-
 
     # Check that all declared global variables are defined.
     for gv, decl_line in declared_globals.items():
@@ -413,28 +425,14 @@ _FUNCTION_PATTERN = re.compile(
 _BUILD_IN_FUNC_PATTERNS = [
     re.compile(r) for r in [rf"^{prefix}\d+$" for prefix in ["nth_", "sort"]]
 ]
-_STD_COMPAT_CONST_N_PATTERN = re.compile(r"\$N(?![a-zA-Z0-9_])")
-_STD_COMPAT_CONST_X_PATTERN = re.compile(r"\$X(?![a-zA-Z0-9_])")
-_STD_COMPAT_CONST_Y_PATTERN = re.compile(r"\$Y(?![a-zA-Z0-9_])")
-_STD_COMPAT_CONST_WIDTH_PATTERN = re.compile(r"\$width(?![a-zA-Z0-9_])")
-_STD_COMPAT_CONST_HEIGHT_PATTERN = re.compile(r"\$height(?![a-zA-Z0-9_])")
-_STD_COMPAT_SRC_HIGH_NUM_PATTERN = re.compile(r"\$src(\d+)\b")
-_STD_COMPAT_BITAND_PATTERN = re.compile(r"(?<!&)&(?!&)")
-_STD_COMPAT_BITOR_PATTERN = re.compile(r"(?<!\|)\|(?!\|)")
-_STD_COMPAT_BITXOR_PATTERN = re.compile(r"\^")
-_STD_COMPAT_MODULUS_PATTERN = re.compile(r"%")
-_STD_COMPAT_CONST_PATTERNS = {
-    "N": _STD_COMPAT_CONST_N_PATTERN,
-    "X": _STD_COMPAT_CONST_X_PATTERN,
-    "Y": _STD_COMPAT_CONST_Y_PATTERN,
-    "width": _STD_COMPAT_CONST_WIDTH_PATTERN,
-    "height": _STD_COMPAT_CONST_HEIGHT_PATTERN,
-}
-_STD_COMPAT_BITWISE_PATTERNS = {
-    "&": _STD_COMPAT_BITAND_PATTERN,
-    "|": _STD_COMPAT_BITOR_PATTERN,
-    "^": _STD_COMPAT_BITXOR_PATTERN,
-}
+_BRACED_BLOCK_CONTENT_PATTERN = r"\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}"
+_IF_PATTERN = re.compile(r"^\s*if\s*\((.*?)\)\s*" + _BRACED_BLOCK_CONTENT_PATTERN)
+_ELSE_PATTERN = re.compile(r"^\s*else\s*" + _BRACED_BLOCK_CONTENT_PATTERN)
+_LABEL_PATTERN = re.compile(r"^\s*([a-zA-Z_]\w*):")
+_IF_GOTO_PATTERN = re.compile(r"^\s*if\s*\((.*)\)\s*goto\s+([a-zA-Z_]\w*)")
+_GOTO_PATTERN = re.compile(r"^\s*goto\s+([a-zA-Z_]\w*)")
+_LABEL_PATTERN = re.compile(r"^\s*([a-zA-Z_]\w*):")
+_IF_GOTO_PATTERN = re.compile(r"^\s*if\s*\((.*)\)\s*goto\s+([a-zA-Z_]\w*)")
 
 
 class SyntaxError(Exception):
@@ -688,71 +686,6 @@ def check_variable_usage(
             )
 
 
-def check_std_compatibility(
-    expr: str,
-    func_name: Optional[str] = None,
-    line_num: Optional[int] = None,
-    current_function: Optional[str] = None,
-) -> None:
-    """
-    Check if expression uses Akarin Only features.
-    Raises SyntaxError if any incompatible features found.
-    """
-    for const, pattern in _STD_COMPAT_CONST_PATTERNS.items():
-        if pattern.search(expr):
-            raise SyntaxError(
-                f"Constant '${const}' is Akarin Only and not supported in std.Expr mode.",
-                line_num,
-                current_function,
-            )
-
-    src_matches = _STD_COMPAT_SRC_HIGH_NUM_PATTERN.findall(expr)
-    for src_num in src_matches:
-        if int(src_num) > 25:
-            raise SyntaxError(
-                f"Source clip 'src{src_num}' is Akarin Only (srcN where N > 25 is not supported in std.Expr mode).",
-                line_num,
-                current_function,
-            )
-
-    for op, pattern in _STD_COMPAT_BITWISE_PATTERNS.items():
-        if pattern.search(expr):
-            raise SyntaxError(
-                f"Bitwise operator '{op}' is Akarin Only and not supported in std.Expr mode.",
-                line_num,
-                current_function,
-            )
-
-    if _STD_COMPAT_MODULUS_PATTERN.search(expr):
-        raise SyntaxError(
-            "Modulus operator '%' is Akarin Only and not supported in std.Expr mode.",
-            line_num,
-            current_function,
-        )
-
-    akarin_only_functions = {"round", "floor", "dyn", "trunc"}
-    if func_name in akarin_only_functions:
-        raise SyntaxError(
-            f"Function '{func_name}' is Akarin Only and not supported in std.Expr mode.",
-            line_num,
-            current_function,
-        )
-
-    if _PROP_ACCESS_PATTERN.match(expr):
-        raise SyntaxError(
-            "Frame property access is Akarin Only and not supported in std.Expr mode.",
-            line_num,
-            current_function,
-        )
-
-    if _M_STATIC_PATTERN.match(expr):
-        raise SyntaxError(
-            "Static relative pixel access is Akarin Only and not supported in std.Expr mode.",
-            line_num,
-            current_function,
-        )
-
-
 def convert_expr(
     expr: str,
     variables: set[str],
@@ -762,16 +695,12 @@ def convert_expr(
     current_function: Optional[str] = None,
     local_vars: Optional[set[str]] = None,
     literals_in_scope: Optional[set[str]] = None,
-    force_std: bool = False,
 ) -> str:
     """
     Convert a single infix expression to a postfix expression.
     Supports binary and unary operators, function calls, and custom function definitions.
     """
     expr = expr.strip()
-
-    if force_std:
-        check_std_compatibility(expr, None, line_num, current_function)
 
     if is_token_numeric(expr):
         return expr
@@ -796,9 +725,6 @@ def convert_expr(
             raise SyntaxError(
                 f"Undefined function '{func_name}'", line_num, current_function
             )
-
-        if force_std:
-            check_std_compatibility(expr, func_name, line_num, current_function)
 
         m_nth = _NTH_PATTERN.match(func_name)
         if m_nth:
@@ -827,7 +753,6 @@ def convert_expr(
                     current_function,
                     local_vars,
                     literals_in_scope,
-                    force_std,
                 )
                 for arg in args
             ]
@@ -856,7 +781,6 @@ def convert_expr(
                 current_function,
                 local_vars,
                 literals_in_scope,
-                force_std,
             )
             for arg in args
         ]
@@ -1069,7 +993,6 @@ def convert_expr(
                             func_name,
                             new_local_vars,
                             literals_for_body,
-                            force_std,
                         )
                     )
                 # Process assignment statements.
@@ -1094,7 +1017,7 @@ def convert_expr(
                     if var_name not in new_local_vars:
                         new_local_vars.add(var_name)
 
-                    postfix_line = f"{convert_expr(expr_line, variables, functions, effective_line_num, global_mode_for_functions, func_name, new_local_vars, literals_for_body, force_std)} {var_name}!"
+                    postfix_line = f"{convert_expr(expr_line, variables, functions, effective_line_num, global_mode_for_functions, func_name, new_local_vars, literals_for_body)} {var_name}!"
                     if (
                         compute_stack_effect(
                             postfix_line, effective_line_num, func_name
@@ -1118,7 +1041,6 @@ def convert_expr(
                         func_name,
                         new_local_vars,
                         literals_for_body,
-                        force_std,
                     )
                     if (
                         compute_stack_effect(
@@ -1166,7 +1088,6 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
-            force_std,
         )
 
     m_static = _M_STATIC_PATTERN.match(expr)
@@ -1200,7 +1121,6 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
-            force_std,
         )
         true_conv = convert_expr(
             true_expr,
@@ -1211,7 +1131,6 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
-            force_std,
         )
         false_conv = convert_expr(
             false_expr,
@@ -1222,7 +1141,6 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
-            force_std,
         )
         return f"{cond_conv} {true_conv} {false_conv} ?"
 
@@ -1257,7 +1175,6 @@ def convert_expr(
                 current_function,
                 local_vars,
                 literals_in_scope,
-                force_std,
             )
             right_postfix = convert_expr(
                 right,
@@ -1268,7 +1185,6 @@ def convert_expr(
                 current_function,
                 local_vars,
                 literals_in_scope,
-                force_std,
             )
             if _LETTER_PATTERN.fullmatch(
                 left.strip()
@@ -1297,7 +1213,6 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
-            force_std,
         )
         return f"{operand} not"
 
@@ -1311,17 +1226,10 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
-            force_std,
         )
         return f"{operand} -1 *"
 
     if expr.startswith("~"):
-        if force_std:
-            raise SyntaxError(
-                "Bitwise NOT operator '~' is Akarin Only and not supported in std.Expr mode.",
-                line_num,
-                current_function,
-            )
         operand = convert_expr(
             expr[1:],
             variables,
@@ -1331,7 +1239,6 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
-            force_std,
         )
         return f"{operand} bitnot"
 
