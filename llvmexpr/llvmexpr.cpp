@@ -162,10 +162,8 @@ struct Token {
 };
 
 namespace {
-const std::regex re_rel{
-    R"(^(?:src(\d+)|([x-za-w]))\((-?\d+),(-?\d+)\)(?::([cm]))?$)"};
 const std::regex re_rel_bracket{
-    R"(^(?:src(\d+)|([x-za-w]))\[(-?\d+),(-?\d+)\](?::([cm]))?$)"};
+    R"(^(?:src(\d+)|([x-za-w]))\[\s*(-?\d+)\s*,\s*(-?\d+)\s*\](?::([cm]))?$)"};
 const std::regex re_abs{R"(^(?:src(\d+)|([x-za-w]))\[\]$)"};
 const std::regex re_cur{R"(^(?:src(\d+)|([x-za-w]))$)"};
 const std::regex re_prop{
@@ -291,8 +289,7 @@ std::vector<Token> tokenize(const std::string& expr, int num_inputs) {
             t.type = TokenType::JUMP;
             t.payload = TokenPayload_Label{
                 .name = str_token.substr(0, str_token.size() - 1)};
-        } else if (std::regex_match(str_token, match, re_rel) ||
-                   std::regex_match(str_token, match, re_rel_bracket)) {
+        } else if (std::regex_match(str_token, match, re_rel_bracket)) {
             t.type = TokenType::CLIP_REL;
             TokenPayload_ClipAccess data;
             data.clip_idx = parse_clip_idx_from_match(match);
