@@ -172,6 +172,24 @@ def infix2postfix(infix_code: str) -> str:
         global_vars = global_vars_for_functions.get(func_name, set())
         body_lines_strip = [line.strip() for line in body.split("\n") if line.strip()]
         has_return = any(line.startswith("return") for line in body_lines_strip)
+
+        # Forbid control flow at function scope: if/else/goto/labels
+        for offset, line_text in enumerate(body.split("\n")):
+            stripped = line_text.strip()
+            if not stripped:
+                continue
+            if (
+                re.match(r"^\s*if\s*\(", stripped)
+                or re.match(r"^\s*else\b", stripped)
+                or re.match(r"^\s*goto\s+[A-Za-z_]\w*", stripped)
+                or re.match(r"^\s*[A-Za-z_]\w*\s*:", stripped)
+            ):
+                raise SyntaxError(
+                    "Control flow statements 'if/else/goto' and labels are not allowed inside functions.",
+                    line_num + offset,
+                    func_name,
+                )
+
         functions[func_name] = (params, body, line_num, global_vars, has_return)
         return "\n" * match.group(0).count("\n")
 
@@ -189,6 +207,10 @@ def infix2postfix(infix_code: str) -> str:
         remaining_code = code_block.lstrip()
         current_line = line_offset
 
+        # Track labels and gotos within this block to prevent cross-block jumps
+        local_labels: set[str] = set()
+        goto_refs: list[tuple[str, int]] = []
+
         while remaining_code:
             start_len = len(remaining_code)
 
@@ -199,6 +221,7 @@ def infix2postfix(infix_code: str) -> str:
 
             if label_match:
                 label_name = label_match.group(1)
+                local_labels.add(label_name)
                 tokens.append(f"#{label_name}")
                 remaining_code = remaining_code[label_match.end() :]
             elif if_goto_match:
@@ -214,10 +237,12 @@ def infix2postfix(infix_code: str) -> str:
                     global_mode_for_functions,
                 )
                 tokens.append(f"{cond_postfix} {label_name}#")
+                goto_refs.append((label_name, line_num))
                 remaining_code = remaining_code[if_goto_match.end() :]
             elif goto_match:
                 label_name = goto_match.group(1)
                 tokens.append(f"1 {label_name}#")
+                goto_refs.append((label_name, current_line))
                 remaining_code = remaining_code[goto_match.end() :]
             elif if_match:
                 label_counter[0] += 1
@@ -377,6 +402,14 @@ def infix2postfix(infix_code: str) -> str:
             if remaining_code.startswith("\n"):
                 current_line += 1
                 remaining_code = remaining_code.lstrip()
+
+        # Validate that all goto targets in this block refer to labels within the same block
+        for target_label, ln in goto_refs:
+            if target_label not in local_labels:
+                raise SyntaxError(
+                    f"goto target '{target_label}' must refer to a label within the same block (cross if/else braces is not allowed).",
+                    ln,
+                )
 
         return tokens
 
