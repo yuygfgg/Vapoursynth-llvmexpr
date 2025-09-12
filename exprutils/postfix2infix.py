@@ -1,322 +1,343 @@
-import regex as re
-from math import ceil, log2
-from ._sorting_networks import OPTIMAL_SORTING_NETWORKS
-
-OPERATORS = {
-    "+": (2, "({0} + {1})"),
-    "-": (2, "({0} - {1})"),
-    "*": (2, "({0} * {1})"),
-    "/": (2, "({0} / {1})"),
-    "%": (2, "fmodf({0}, {1})"),
-    "pow": (2, "powf({0}, {1})"),
-    "**": (2, "powf({0}, {1})"),
-    "sqrt": (1, "sqrtf({0})"),
-    ">": (2, "({0} > {1})"),
-    "<": (2, "({0} < {1})"),
-    "=": (2, "({0} == {1})"),
-    ">=": (2, "({0} >= {1})"),
-    "<=": (2, "({0} <= {1})"),
-    "and": (2, "(({0} > 0.0f) && ({1} > 0.0f))"),
-    "or": (2, "(({0} > 0.0f) || ({1} > 0.0f))"),
-    "xor": (2, "((!!({0} > 0.0f)) ^ (!!({1} > 0.0f)))"),
-    "not": (1, "(!({0} > 0.0f))"),
-    "exp": (1, "expf({0})"),
-    "exp2": (1, "exp2f({0})"),
-    "log": (1, "logf({0})"),
-    "log2": (1, "log2f({0})"),
-    "log10": (1, "log10f({0})"),
-    "abs": (1, "fabsf({0})"),
-    "sin": (1, "sinf({0})"),
-    "cos": (1, "cosf({0})"),
-    "tan": (1, "tanf({0})"),
-    "asin": (1, "asinf({0})"),
-    "acos": (1, "acosf({0})"),
-    "atan": (1, "atanf({0})"),
-    "sinh": (1, "sinhf({0})"),
-    "cosh": (1, "coshf({0})"),
-    "tanh": (1, "tanhf({0})"),
-    "floor": (1, "floorf({0})"),
-    "ceil": (1, "ceilf({0})"),
-    "round": (1, "roundf({0})"),
-    "trunc": (1, "truncf({0})"),
-    "atan2": (2, "atan2f({0}, {1})"),
-    "copysign": (2, "copysignf({0}, {1})"),
-    "min": (2, "fminf({0}, {1})"),
-    "max": (2, "fmaxf({0}, {1})"),
-    "fma": (3, "fmaf({0}, {1}, {2})"),
-    "?": (3, "(({0} != 0.0f) ? {1} : {2})"),
-    "clip": (3, "fminf(fmaxf({0}, {1}), {2})"),
-    "clamp": (3, "fminf(fmaxf({0}, {1}), {2})"),
-    "bitand": (2, "((int){0} & (int){1})"),
-    "bitor": (2, "((int){0} | (int){1})"),
-    "bitxor": (2, "((int){0} ^ (int){1})"),
-    "bitnot": (1, "(~(int){0})"),
-}
-
-RE_REL_BRACKET = re.compile(r"^(?:src(\d+)|([x-za-w]))\[(-?\d+),(-?\d+)\](?::([cm]))?$")
-RE_ABS = re.compile(r"^(?:src(\d+)|([x-za-w]))\[\]$")
-RE_CUR = re.compile(r"^(?:src(\d+)|([x-za-w]))$")
-RE_PROP = re.compile(r"^(?:src(\d+)|([x-za-w]))\.([a-zA-Z_][a-zA-Z0-9_]*)$")
+from .utils import (
+    tokenize_expr,
+    _NUMBER_PATTERNS,
+    _FRAME_PROP_PATTERN,
+    _STATIC_PIXEL_PATTERN,
+    _VAR_STORE_PATTERN,
+    _VAR_LOAD_PATTERN,
+    _DROP_PATTERN,
+    _SORT_PATTERN,
+    _DUP_PATTERN,
+    _SWAP_PATTERN,
+    _LABEL_DEF_PATTERN,
+    _COND_JUMP_PATTERN,
+    is_clip_postfix,
+    is_constant_postfix,
+    ensure_akarin_clip_name,
+)
 
 
-def get_clip_name(match):
-    if match.group(1):
-        return f"src{match.group(1)}"
-    if match.group(2):
-        return match.group(2)
-    raise ValueError("Invalid clip match")
-
-
-def tokenize(expr: str):
-    return expr.split()
-
-
-class RPNError(Exception):
-    pass
-
-
-def _oem_merge_pairs(pairs, lo, n, r):
-    m = r * 2
-    if m < n:
-        _oem_merge_pairs(pairs, lo, n, m)
-        _oem_merge_pairs(pairs, lo + r, n, m)
-        for i in range(lo + r, lo + n - r, m):
-            pairs.append((i, i + r))
-    else:
-        pairs.append((lo, lo + r))
-
-
-def _generate_oem_sort_pairs(pairs, lo, n):
-    if n > 1:
-        m = n // 2
-        _generate_oem_sort_pairs(pairs, lo, m)
-        _generate_oem_sort_pairs(pairs, lo + m, n - m)
-        _oem_merge_pairs(pairs, lo, n, 1)
-
-
-def get_sorting_network(n):
-    if n in OPTIMAL_SORTING_NETWORKS:
-        return OPTIMAL_SORTING_NETWORKS[n]
-    pairs = []
-    p = 1 << ceil(log2(n))
-    _generate_oem_sort_pairs(pairs, 0, p)
-    # Filter out pairs with indices >= n
-    return [pair for pair in pairs if pair[1] < n]
-
-
-def postfix2infix(expr: str):
+# inspired by mvf.postfix2infix
+def postfix2infix(expr: str, check_mode: bool = False) -> str:
     """
-    Converts an RPN expression string to a C-style infix string.
-    Inspired by mvsfunc.postfix2infix
+    Convert postfix expr to infix code
+    If check_mode is True, it only checks for expression validity without building the result.
 
     Args:
-        expr: The RPN expression string.
+        expr: Input postfix expr.
+        check_mode: If True, only perform validation.
 
     Returns:
-        A string containing the equivalent C-style code.
+        Converted infix code. Or an empty string if check_mode is True and expr is valid.
 
     Raises:
-        RPNError: If the expression is invalid.
+        ValueError: If an error was found in the input expr.
     """
-    tokens = tokenize(expr)
+    # Preprocessing
+    expr = expr.strip()
+    tokens = tokenize_expr(expr)
+
     stack = []
-    has_control_flow = False
-    sort_var_counter = 0
+    output_lines = []
+    defined_vars = set()
 
-    all_vars = {
-        token[:-1]
-        for token in tokens
-        if (token.endswith("!") or token.endswith("@")) and token[:-1]
-    }
+    i = 0
+    while i < len(tokens):
 
-    statements = [f"float {var} = 0.0f;" for var in sorted(list(all_vars))]
-    if statements:
-        statements.append("")
-
-    for i, token in enumerate(tokens):
-        if token in OPERATORS:
-            arity, fmt = OPERATORS[token]
-            if len(stack) < arity:
-                raise RPNError(
-                    f"Stack underflow for operator '{token}' at token {i}. Need {arity}, have {len(stack)}."
+        def pop(n=1):
+            try:
+                if n == 1:
+                    return stack.pop()
+                r = stack[-n:]
+                del stack[-n:]
+                return r
+            except IndexError:
+                raise ValueError(
+                    f"postfix2infix: Stack Underflow at token at {i}th token {token}."
                 )
 
-            operands = stack[-arity:]
-            stack = stack[:-arity]
+        def push(item):
+            if not check_mode:
+                stack.append(item)
+            else:
+                stack.append(None)
 
-            new_expr = fmt.format(*operands)
-            stack.append(new_expr)
+        token = tokens[i]
+
+        # Constants
+        if is_constant_postfix(token):
+            push(f"${ensure_akarin_clip_name(token)}")
+            i += 1
             continue
 
-        try:
-            int_val = int(token, 0)
-            stack.append(f"{int_val}.0f")
-            continue
-        except ValueError:
-            try:
-                float(token)
-                stack.append(f"{token}f")
-                continue
-            except ValueError:
-                pass
-
-        if token in ["X", "Y", "N", "width", "height", "pi"]:
-            stack.append(token)
+        # Numbers
+        if any(pattern.match(token) for pattern in _NUMBER_PATTERNS):
+            push(token)
+            i += 1
             continue
 
-        if token.startswith("dup"):
-            n = 0 if token == "dup" else int(token[3:])
-            if len(stack) <= n:
-                raise RPNError(f"Stack underflow for '{token}' at token {i}")
-            stack.append(stack[-1 - n])
+        # Frame property
+        if _FRAME_PROP_PATTERN.match(token):
+            clip_name = token.split(".")[0]
+            clip_name_akarin = ensure_akarin_clip_name(clip_name)
+            push(f"{clip_name_akarin}.{token.split(".")[1]}")
+            i += 1
             continue
 
-        if token.startswith("swap"):
-            n = 1 if token == "swap" else int(token[4:])
-            if n == 0:
-                continue
-            if len(stack) <= n:
-                raise RPNError(f"Stack underflow for '{token}' at token {i}")
-            stack[-1], stack[-1 - n] = stack[-1 - n], stack[-1]
-            continue
+        # Dynamic pixel access
+        if token.endswith("[]"):
+            clip_identifier = token[:-2]
+            absY = pop()
+            absX = pop()
 
-        if token.startswith("drop"):
-            n = 1 if token == "drop" else int(token[4:])
-            if len(stack) < n:
-                raise RPNError(f"Stack underflow for '{token}' at token {i}")
-            stack = stack[:-n]
-            continue
-
-        if token.startswith("sort"):
-            try:
-                n = int(token[4:])
-            except (ValueError, IndexError):
-                raise RPNError(f"Invalid sort operator: '{token}' at token {i}")
-
-            if n < 2:
-                continue
-
-            if len(stack) < n:
-                raise RPNError(f"Stack underflow for '{token}' at token {i}")
-
-            has_control_flow = True
-            operands = stack[-n:]
-            stack = stack[:-n]
-
-            temp_vars = [f"_sort_tmp_{sort_var_counter + j}" for j in range(n)]
-            sort_var_counter += n
-
-            for j in range(n):
-                statements.append(f"float {temp_vars[j]} = {operands[j]};")
-
-            network = get_sorting_network(n)
-
-            if network:
-                statements.append("float _swap_tmp;")
-                for u, v in network:
-                    statements.append(
-                        f"if ({temp_vars[u]} > {temp_vars[v]}) {{ "
-                        f"_swap_tmp = {temp_vars[u]}; "
-                        f"{temp_vars[u]} = {temp_vars[v]}; "
-                        f"{temp_vars[v]} = _swap_tmp; "
-                        f"}}"
-                    )
-
-            for var in temp_vars:
-                stack.append(var)
-
-            continue
-
-        if token.endswith("!"):
-            var_name = token[:-1]
-            if not var_name:
-                raise RPNError(f"Empty variable name at token {i}.")
-            if not stack:
-                raise RPNError(f"Stack underflow for store '!' at token {i}.")
-            value = stack.pop()
-            statements.append(f"{var_name} = {value};")
-            has_control_flow = True
-            continue
-
-        if token.endswith("@"):
-            var_name = token[:-1]
-            if not var_name:
-                raise RPNError(f"Empty variable name at token {i}.")
-            stack.append(var_name)
-            continue
-
-        if token.startswith("#"):
-            label_name = token[1:]
-            if not label_name:
-                raise RPNError(f"Empty label name at token {i}.")
-            statements.append(f"{label_name}:")
-            has_control_flow = True
-            continue
-
-        if token.endswith("#"):
-            label_name = token[:-1]
-            if not label_name:
-                raise RPNError(f"Empty label name at token {i}.")
-            if not stack:
-                raise RPNError(f"Stack underflow for jump '#' at token {i}.")
-            condition = stack.pop()
-            statements.append(f"if (({condition}) > 0.0f) goto {label_name};")
-            has_control_flow = True
-            continue
-
-        match = RE_REL_BRACKET.match(token)
-        if match:
-            clip = get_clip_name(match)
-            rel_x, rel_y = match.group(3), match.group(4)
-            mode_str = f', "{match.group(5)}"' if match.group(5) else ""
-            stack.append(f"{clip}.rel({rel_x}, {rel_y}{mode_str})")
-            continue
-
-        match = RE_ABS.match(token)
-        if match:
-            if len(stack) < 2:
-                raise RPNError(
-                    f"Stack underflow for absolute access '{token}' at token {i}."
+            if not is_clip_postfix(clip_identifier):
+                raise ValueError(
+                    f"postfix2infix: {i}th token {token} expected a clip identifier, but got {clip_identifier}."
                 )
-            clip = get_clip_name(match)
-            abs_y = stack.pop()
-            abs_x = stack.pop()
-            stack.append(f"{clip}.abs({abs_x}, {abs_y})")
+
+            # Add $ prefix for clip identifiers
+            clip_name = f"${clip_identifier}"
+            push(f"dyn({clip_name},{absX},{absY})")
+            i += 1
             continue
 
-        match = RE_PROP.match(token)
-        if match:
-            clip = get_clip_name(match)
-            prop = match.group(3)
-            stack.append(f'{clip}.prop("{prop}")')
+        # Static relative pixel access
+        m = _STATIC_PIXEL_PATTERN.match(token)
+        if m:
+            clip_identifier = m.group(1)
+            statX = int(m.group(2))
+            statY = int(m.group(3))
+            boundary_suffix = m.group(4)
+            if boundary_suffix not in [None, ":c", ":m"]:
+                raise ValueError(
+                    f"postfix2infix: unknown boundary_suffix {boundary_suffix} at {i}th token {token}"
+                )
+            if not is_clip_postfix(clip_identifier):
+                raise ValueError(
+                    f"postfix2infix: {i}th token {token} expected a clip identifier, but got {clip_identifier}."
+                )
+            # Add $ prefix for clip identifiers
+            clip_name = f"${clip_identifier}"
+            push(f"{clip_name}[{statX},{statY}]{boundary_suffix or ""}")
+            i += 1
             continue
 
-        match = RE_CUR.match(token)
-        if match:
-            stack.append(token)
+        # Variable operations
+        var_store_match = _VAR_STORE_PATTERN.match(token)
+        var_load_match = _VAR_LOAD_PATTERN.match(token)
+        if var_store_match:
+            var_name = var_store_match.group(1)
+            val = pop()
+            if not check_mode:
+                output_lines.append(f"{var_name} = {val}")
+            defined_vars.add(var_name)
+            i += 1
+            continue
+        elif var_load_match:
+            var_name = var_load_match.group(1)
+            if var_name not in defined_vars:
+                raise ValueError(
+                    f"postfix2infix: {i}th token {token} loads an undefined variable {var_name}."
+                )
+            push(var_name)
+            i += 1
             continue
 
-        raise RPNError(f"Invalid or unknown token: '{token}' at position {i}.")
+        # Drop operations
+        drop_match = _DROP_PATTERN.match(token)
+        if drop_match:
+            num = int(drop_match.group(1)) if drop_match.group(1) else 1
+            pop(num)
+            i += 1
+            continue
 
-    if has_control_flow:
-        if len(stack) == 1:
-            statements.append(f"return {stack.pop()};")
-        elif len(stack) > 1:
-            raise RPNError(
-                f"Stack has {len(stack)} items at the end, expected 1 for the return value. Leftovers: {stack}"
-            )
-        elif len(stack) == 0 and not any(
-            s.strip().startswith("return") for s in statements
+        # Sort operations
+        sort_match = _SORT_PATTERN.match(token)
+        if sort_match:
+            num = int(sort_match.group(1))
+            items = pop(num)
+            if not check_mode:
+                sorted_items_expr = f"nth_{{}}({', '.join(items)})"
+            else:
+                sorted_items_expr = f"nth_{{}}({', '* num})"
+            for idx in range(len(items)):
+                push(sorted_items_expr.format(len(items) - idx))
+            i += 1
+            continue
+
+        # Duplicate operations
+        dup_match = _DUP_PATTERN.match(token)
+        if dup_match:
+            n = int(dup_match.group(1)) if dup_match.group(1) else 0
+            if len(stack) <= n:
+                raise ValueError(
+                    f"postfix2infix: {i}th token {token} needs at least {n+1} values, while only {len(stack)} in stack."
+                )
+            else:
+                push(stack[-1 - n])
+            i += 1
+            continue
+
+        # Swap operations
+        swap_match = _SWAP_PATTERN.match(token)
+        if swap_match:
+            n = int(swap_match.group(1)) if swap_match.group(1) else 1
+            if len(stack) <= n:
+                raise ValueError(
+                    f"postfix2infix: {i}th token {token} needs at least {n+1} values, while only {len(stack)} in stack."
+                )
+            else:
+                stack[-1], stack[-1 - n] = stack[-1 - n], stack[-1]
+            i += 1
+            continue
+
+        label_def_match = _LABEL_DEF_PATTERN.match(token)
+        if label_def_match:
+            label_name = label_def_match.group(1)
+            if not check_mode:
+                output_lines.append(f"{label_name}:")
+            i += 1
+            continue
+
+        cond_jump_match = _COND_JUMP_PATTERN.match(token)
+        if cond_jump_match:
+            label_name = cond_jump_match.group(1)
+            condition = pop()
+            if not check_mode:
+                output_lines.append(f"if ({condition}) goto {label_name}")
+            i += 1
+            continue
+
+        # Unary operators
+        if token in (
+            "sin",
+            "cos",
+            "round",
+            "trunc",
+            "floor",
+            "bitnot",
+            "abs",
+            "sqrt",
+            "not",
+            "log",
+            "exp",
+            "exp2",
+            "log2",
+            "log10",
+            "tan",
+            "asin",
+            "acos",
+            "atan",
+            "sinh",
+            "cosh",
+            "tanh",
+            "ceil",
         ):
-            raise RPNError(
-                "Stack is empty at the end of processing and no return statement was generated."
-            )
-        if stack and not any(s.strip().startswith("return") for s in statements):
-            raise RPNError(f"Stack not empty at end of processing. Leftovers: {stack}")
-        return "\n".join(statements)
+            a = pop()
+            if token == "not":
+                push(f"(!({a}))")
+            elif token == "bitnot":
+                push(f"(~round({a}))")
+            else:
+                push(f"{token}({a})")
+            i += 1
+            continue
+
+        # Binary operators
+        if token in ("%", "**", "pow", "bitand", "bitor", "bitxor"):
+            b = pop()
+            a = pop()
+            if token == "%":
+                push(f"({a} % {b})")
+            elif token in ("**", "pow"):
+                push(f"({a} ** {b})")
+            elif token == "bitand":
+                push(f"(round({a}) & round({b}))")
+            elif token == "bitor":
+                push(f"(round({a}) | round({b}))")
+            elif token == "bitxor":
+                push(f"(round({a}) ^ round({b}))")
+            i += 1
+            continue
+
+        # Basic arithmetic, comparison and logical operators
+        if token in (
+            "+",
+            "-",
+            "*",
+            "/",
+            "max",
+            "min",
+            ">",
+            "<",
+            ">=",
+            "<=",
+            "=",
+            "and",
+            "or",
+            "xor",
+        ):
+            b = pop()
+            a = pop()
+            if token in ("max", "min", "atan2", "copysign"):
+                push(f"{token}({a}, {b})")
+            elif token == "and":
+                push(f"({a} && {b})")
+            elif token == "or":
+                push(f"({a} || {b})")
+            elif token == "xor":
+                # (a || b) && !(a && b)
+                # (a && !b) || (!a && b)
+                push(f"(({a} && !{b}) || (!{a} && {b}))")
+            elif token == "=":
+                push(f"({a} == {b})")
+            else:
+                push(f"({a} {token} {b})")
+            i += 1
+            continue
+
+        # Ternary operator
+        if token == "?":
+            false_val = pop()
+            true_val = pop()
+            cond = pop()
+            push(f"({cond} ? {true_val} : {false_val})")
+            i += 1
+            continue
+        if token == "clip" or token == "clamp":
+            max_val = pop()
+            min_val = pop()
+            value = pop()
+            push(f"clamp({value}, {min_val}, {max_val})")
+            i += 1
+            continue
+        if token == "fma":
+            c = pop()
+            b = pop()
+            a = pop()
+            push(f"fma({a}, {b}, {c})")
+            i += 1
+            continue
+
+        # Unknown tokens
+        if not check_mode:
+            output_lines.append(f"# [Unknown token]: {token}  (Push as-is)")
+        push(token)
+        i += 1
+
+    # Handle remaining stack items
+    if len(stack) == 1:
+        if check_mode:
+            return ""
+        output_lines.append(f"RESULT = {stack[0]}")
+        ret = "\n".join(output_lines)
     else:
-        if len(stack) != 1:
-            raise RPNError(
-                f"Stack must have exactly 1 value at the end, but has {len(stack)}. Leftovers: {stack}"
-            )
-        return f"return {stack.pop()};"
+        if check_mode:
+            msg = f"postfix2infix: Invalid expression: the stack contains {len(stack)} value(s), but should contain exactly one."
+        else:
+            for idx, item in enumerate(stack):
+                output_lines.append(f"# stack[{idx}]: {item}")
+            ret = "\n".join(output_lines)
+            msg = f"postfix2infix: Invalid expression: the stack contains not exactly one value after evaluation. \n {ret}"
+        raise ValueError(msg)
+    return ret
