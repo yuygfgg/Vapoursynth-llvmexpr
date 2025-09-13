@@ -276,6 +276,8 @@ def postfix2infix(expr: str, check_mode: bool = False) -> str:
             "and",
             "or",
             "xor",
+            "atan2",
+            "copysign",
         ):
             b = pop()
             a = pop()
