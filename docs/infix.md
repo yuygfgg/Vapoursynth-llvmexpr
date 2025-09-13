@@ -271,6 +271,15 @@ if (condition) {
 - **Unconditional jump:** `goto label_name`
 - **Conditional jump:** `if (condition) goto label_name`
 
+> **Warning: Difference in Conditional Logic**
+>
+> There is a critical difference between the two forms of `if`:
+>
+> - **`if (condition) { ... }` (block):** The block is executed if the `condition` evaluates to any **non-zero** value (positive or negative). This behavior is consistent with standard C/C++.
+> - **`if (condition) goto label` (direct jump):** The jump is only executed if the `condition` evaluates to a value that is strictly **greater than zero (`> 0`)**.
+>
+> Be mindful of this distinction when working with negative numbers in conditional jumps.
+
 Constraints and rules:
 
 - Jumps may cross `if/else` braces (C-like). Targets are resolved against any label defined in the global scope of the script.
