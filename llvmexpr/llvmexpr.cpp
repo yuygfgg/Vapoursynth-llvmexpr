@@ -435,7 +435,9 @@ class OrcJit {
         Opts.AllowFPOpFusion = llvm::FPOpFusion::Fast;
         Opts.UnsafeFPMath = true;
         Opts.NoInfsFPMath = true;
-        Opts.NoNaNsFPMath = true;
+        Opts.NoNaNsFPMath = false; // NaN is used to carry `^exit^`
+        // TODO: only disable `NoNaNsFPMath` for the specific expr that uses
+        // `^exit^`
         jtmb.setOptions(Opts);
 
         auto jit_builder = llvm::orc::LLJITBuilder();
@@ -1725,7 +1727,11 @@ class Compiler {
                 }
                 case TokenType::EXIT_NO_WRITE: {
                     rpn_stack.push_back(llvm::ConstantFP::get(
-                        float_ty, std::numeric_limits<float>::quiet_NaN()));
+                        float_ty,
+                        std::numeric_limits<float>::
+                            quiet_NaN())); // Accessing undefined props also
+                                           // produces NaN, should we use
+                                           // another value for `^exit^`?
                     break;
                 }
 
