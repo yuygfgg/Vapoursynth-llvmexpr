@@ -260,30 +260,34 @@ std::vector<Token> tokenize(const std::string& expr, int num_inputs) {
 
         if (auto it = keyword_map.find(str_token); it != keyword_map.end()) {
             t.type = it->second;
-        } else if (str_token.rfind("dup", 0) == 0) {
+        } else if (std::regex_match(str_token, match,
+                                    std::regex(R"(^dup(\d*)$)"))) {
             t.type = TokenType::DUP;
-            int n = (str_token.size() > 3) ? std::stoi(str_token.substr(3)) : 0;
+            int n = match[1].str().empty() ? 0 : std::stoi(match[1].str());
             if (n < 0)
                 throw std::runtime_error(std::format(
                     "Invalid dupN operator: {} (idx {})", str_token, idx));
             t.payload = TokenPayload_StackOp{n};
-        } else if (str_token.rfind("drop", 0) == 0) {
+        } else if (std::regex_match(str_token, match,
+                                    std::regex(R"(^drop(\d*)$)"))) {
             t.type = TokenType::DROP;
-            int n = (str_token.size() > 4) ? std::stoi(str_token.substr(4)) : 1;
+            int n = match[1].str().empty() ? 1 : std::stoi(match[1].str());
             if (n < 0)
                 throw std::runtime_error(std::format(
                     "Invalid dropN operator: {} (idx {})", str_token, idx));
             t.payload = TokenPayload_StackOp{n};
-        } else if (str_token.rfind("swap", 0) == 0) {
+        } else if (std::regex_match(str_token, match,
+                                    std::regex(R"(^swap(\d*)$)"))) {
             t.type = TokenType::SWAP;
-            int n = (str_token.size() > 4) ? std::stoi(str_token.substr(4)) : 1;
+            int n = match[1].str().empty() ? 1 : std::stoi(match[1].str());
             if (n < 0)
                 throw std::runtime_error(std::format(
                     "Invalid swapN operator: {} (idx {})", str_token, idx));
             t.payload = TokenPayload_StackOp{n};
-        } else if (str_token.rfind("sort", 0) == 0 && str_token.size() > 4) {
+        } else if (std::regex_match(str_token, match,
+                                    std::regex(R"(^sort(\d+)$)"))) {
             t.type = TokenType::SORTN;
-            int n = std::stoi(str_token.substr(4));
+            int n = std::stoi(match[1].str());
             if (n < 0)
                 throw std::runtime_error(std::format(
                     "Invalid sortN operator: {} (idx {})", str_token, idx));
