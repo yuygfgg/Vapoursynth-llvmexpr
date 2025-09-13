@@ -208,6 +208,20 @@ def postfix2infix(expr: str, check_mode: bool = False) -> str:
             i += 1
             continue
 
+        if token == "@[]":
+            absY = pop()
+            absX = pop()
+            val = pop()
+            if not check_mode:
+                output_lines.append(f"store({val}, {absX}, {absY})")
+            i += 1
+            continue
+
+        if token == "^exit^":
+            push("exit()")
+            i += 1
+            continue
+
         # Unary operators
         if token in (
             "sin",

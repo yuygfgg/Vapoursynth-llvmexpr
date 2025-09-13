@@ -935,6 +935,24 @@ def convert_expr(
             for arg in args
         ]
 
+        if func_name == "exit":
+            if len(args) != 0:
+                raise SyntaxError(
+                    f"Built-in function {func_name} requires 0 arguments, but {len(args)} were provided.",
+                    line_num,
+                    current_function,
+                )
+            return "^exit^"
+
+        if func_name == "store":
+            if len(args) != 3:
+                raise SyntaxError(
+                    f"Built-in function {func_name} requires 3 arguments, but {len(args)} were provided.",
+                    line_num,
+                    current_function,
+                )
+            return f"{args_postfix[0]} {args_postfix[1]} {args_postfix[2]} @[]"
+
         if func_name == "dyn":
             if len(args) != 3:
                 raise SyntaxError(
@@ -1516,11 +1534,13 @@ def is_builtin_function(func_name: str) -> bool:
         "ceil",
     ]
     builtin_binary = ["min", "max", "atan2", "copysign"]
-    builtin_ternary = ["clamp", "dyn", "fma"]
+    builtin_ternary = ["clamp", "dyn", "fma", "store"]
+    builtin_nullary = ["exit"]
     if any(r.match(func_name) for r in _BUILD_IN_FUNC_PATTERNS):
         return True
     return (
         func_name in builtin_unary
         or func_name in builtin_binary
         or func_name in builtin_ternary
+        or func_name in builtin_nullary
     )

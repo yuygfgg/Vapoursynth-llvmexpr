@@ -266,6 +266,7 @@ def get_stack_effect(token: str) -> int:
         or (
             token.startswith("dup") and not (token.endswith("!") or token.endswith("@"))
         )
+        or token == "^exit^"
     ):
         return 1
     if token in _UNARY_OPS or token.startswith(("swap", "sort")):
@@ -274,6 +275,8 @@ def get_stack_effect(token: str) -> int:
         return -1
     if token in _TERNARY_OPS or token in _CLAMP_OPS:
         return -2
+    if token == "@[]":
+        return -3
     if (
         token.endswith("[]")
         and len(token) > 2
@@ -313,11 +316,15 @@ def get_stack_effect(token: str) -> int:
 @lru_cache
 def get_op_arity(token: str) -> int:
     """Return number of operands for a token."""
+    if token == "^exit^":
+        return 0
     if token in _UNARY_OPS:
         return 1
     if token in _BINARY_OPS:
         return 2
     if token in _TERNARY_OPS or token in _CLAMP_OPS:
+        return 3
+    if token == "@[]":
         return 3
     if (
         token.endswith("[]")

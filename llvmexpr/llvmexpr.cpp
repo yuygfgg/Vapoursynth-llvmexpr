@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <format>
 #include <functional>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -126,6 +127,10 @@ enum class TokenType {
     // Control Flow
     LABEL_DEF, // #my_label
     JUMP,      // my_label#
+
+    // Custom output control
+    EXIT_NO_WRITE, // ^exit^
+    STORE_ABS,     // @[]
 };
 
 struct TokenPayload_Number {
@@ -244,6 +249,8 @@ std::vector<Token> tokenize(const std::string& expr, int num_inputs) {
         {"height", TokenType::CONSTANT_HEIGHT},
         {"N", TokenType::CONSTANT_N},
         {"pi", TokenType::CONSTANT_PI},
+        {"^exit^", TokenType::EXIT_NO_WRITE},
+        {"@[]", TokenType::STORE_ABS},
     };
 
     int idx = 0;
@@ -844,6 +851,10 @@ class Compiler {
         case TokenType::CLIP_ABS:
             return -1;
 
+        // PUSH 1, from thin air
+        case TokenType::EXIT_NO_WRITE:
+            return 1;
+
         // UNARY: PUSH 1, POP 1
         case TokenType::NOT:
         case TokenType::BITNOT:
@@ -899,6 +910,10 @@ class Compiler {
         case TokenType::CLAMP:
         case TokenType::FMA:
             return -2;
+
+        // POP 3
+        case TokenType::STORE_ABS:
+            return -3;
 
         // STACK
         case TokenType::DUP:
@@ -1679,6 +1694,27 @@ class Compiler {
                     break;
                 }
 
+                // Custom output control
+                case TokenType::STORE_ABS: {
+                    llvm::Value* coord_y_f = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    llvm::Value* coord_x_f = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    llvm::Value* val_to_store = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    llvm::Value* coord_y =
+                        builder.CreateFPToSI(coord_y_f, i32_ty);
+                    llvm::Value* coord_x =
+                        builder.CreateFPToSI(coord_x_f, i32_ty);
+                    generate_pixel_store(val_to_store, coord_x, coord_y);
+                    break;
+                }
+                case TokenType::EXIT_NO_WRITE: {
+                    rpn_stack.push_back(llvm::ConstantFP::get(
+                        float_ty, std::numeric_limits<float>::quiet_NaN()));
+                    break;
+                }
+
                 // Stack manipulation
                 case TokenType::DUP: {
                     const auto& payload =
@@ -1825,7 +1861,21 @@ class Compiler {
             result_val = phi;
         }
 
+        llvm::Value* is_exit_val =
+            builder.CreateFCmpUNO(result_val, result_val);
+
+        llvm::BasicBlock* store_block =
+            llvm::BasicBlock::Create(*context, "do_default_store", parent_func);
+        llvm::BasicBlock* after_store_block = llvm::BasicBlock::Create(
+            *context, "after_default_store", parent_func);
+
+        builder.CreateCondBr(is_exit_val, after_store_block, store_block);
+
+        builder.SetInsertPoint(store_block);
         generate_pixel_store(result_val, x, y);
+        builder.CreateBr(after_store_block);
+
+        builder.SetInsertPoint(after_store_block);
     }
 
     llvm::Value* generate_pixel_load(int clip_idx, llvm::Value* x,

@@ -206,6 +206,23 @@ Access pixels from any clip at absolute or relative coordinates.
   - If the property is not a scalar numerical property, its value will be its first byte.
   - If the property does not exist, its value will be `NaN` (Not a Number).
 
+#### 4.4. Direct Output Control
+
+These operators provide fine-grained control over pixel output, allowing expressions to write to arbitrary locations or to conditionally skip writing altogether.
+
+| Operator | Operands | Description |
+| :--- | :--- | :--- |
+| `@[]` | 3 | `val absX absY @[]` pops a value `val` and two coordinates `absX`, `absY`, and writes `val` to the output pixel at `[absX, absY]`. This allows an expression for one pixel to write to another. |
+| `^exit^` | 0 | Pushes a special marker value onto the stack. If, after the entire expression is evaluated, this marker is the *only* item remaining on the stack, the default write to the current pixel `[X, Y]` is suppressed. This is useful in expressions that only use `@[]` to write to other pixels. |
+
+**Undefined Behavior Warning:**
+
+The behavior of memory writes is undefined under the following conditions:
+- If a pixel receives more than one write from any source (default write or `@[]`) during the processing of a single frame.
+- If a pixel is not written to at all.
+
+For example, an expression like `val x y @[] ^exit^` is valid: it writes `val` to `[x, y]` and then suppresses the default write. An expression like `val x y @[]` is **invalid** because it leaves the stack empty; it should be `val x y @[] ^exit^` to be valid if no default write is desired. If a default write is also desired, one could do `val x y @[] some_other_val`.
+
 ---
 
 ### **5. Control Flow (Turing-Complete Operations)**
