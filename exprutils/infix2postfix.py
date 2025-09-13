@@ -906,6 +906,7 @@ def convert_expr(
                     func_line_num,
                     func_name,
                 )
+            
 
             local_map: dict[str, str] = {}
             func_global_mode = global_mode_for_functions.get(func_name, GlobalMode.NONE)
