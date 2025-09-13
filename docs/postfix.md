@@ -213,7 +213,7 @@ These operators provide fine-grained control over pixel output, allowing express
 | Operator | Operands | Description |
 | :--- | :--- | :--- |
 | `@[]` | 3 | `val absX absY @[]` pops a value `val` and two coordinates `absX`, `absY`, and writes `val` to the output pixel at `[absX, absY]`. This allows an expression for one pixel to write to another. |
-| `^exit^` | 0 | Pushes a special marker value onto the stack. If, after the entire expression is evaluated, this marker is the *only* item remaining on the stack, the default write to the current pixel `[X, Y]` is suppressed. This is useful in expressions that only use `@[]` to write to other pixels. |
+| `^exit^` | 0 | A control-flow operator that suppresses the default write to the current pixel `[X, Y]`. It pushes a placeholder value onto the stack to ensure the expression is balanced. For the suppression to take effect, this placeholder must be the only value on the stack at the end of evaluation. This is useful for expressions that only use `@[]` to write to other pixels. |
 
 **Undefined Behavior Warning:**
 
