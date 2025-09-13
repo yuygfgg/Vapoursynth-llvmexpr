@@ -32,6 +32,21 @@ class GlobalMode(StrEnum):
     SPECIFIC = "specific"
 
 
+def find_matching_brace(code: str, start_index: int) -> int:
+    """
+    Find the index of the matching closing brace.
+    """
+    brace_depth = 1
+    for i in range(start_index, len(code)):
+        if code[i] == "{":
+            brace_depth += 1
+        elif code[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                return i
+    return -1
+
+
 def infix2postfix(infix_code: str) -> str:
     R"""
     Convert infix expressions to postfix expressions.
@@ -59,8 +74,8 @@ def infix2postfix(infix_code: str) -> str:
     # global declaration syntax: <global<var1><var2>...> or <global.all> or <global.none>
     # Also record for functions if global declaration appears immediately before function definition.
     declared_globals: dict[str, int] = (
-        {}
-    )  # mapping: global variable -> declaration line number
+        {}  # mapping: global variable -> declaration line number
+    )
     global_vars_for_functions: dict[str, set[str]] = {}
     global_mode_for_functions: dict[str, GlobalMode] = {}
     lines = infix_code.split("\n")
@@ -253,7 +268,7 @@ def infix2postfix(infix_code: str) -> str:
             elif while_match:
                 label_counter[0] += 1
                 current_label_id = label_counter[0]
-                condition, while_body = while_match.groups()
+                condition = while_match.group(1)
                 line_num = current_line + remaining_code[: while_match.start(1)].count(
                     "\n"
                 )
@@ -265,7 +280,12 @@ def infix2postfix(infix_code: str) -> str:
                     global_mode_for_functions,
                 )
 
-                remaining_code = remaining_code[while_match.end() :]
+                block_start = while_match.end()
+                block_end = find_matching_brace(remaining_code, block_start)
+                if block_end == -1:
+                    raise SyntaxError("Unmatched '{' in while loop.", line_num)
+                while_body = remaining_code[block_start:block_end]
+                remaining_code = remaining_code[block_end + 1 :]
 
                 while_start_label = f"__internal_while_start_{current_label_id}"
                 while_end_label = f"__internal_while_end_{current_label_id}"
@@ -280,7 +300,7 @@ def infix2postfix(infix_code: str) -> str:
                 label_counter[0] += 1
                 current_label_id = label_counter[0]
 
-                condition, if_body = if_match.groups()
+                condition = if_match.group(1)
 
                 line_num = current_line + remaining_code[: if_match.start(1)].count(
                     "\n"
@@ -294,15 +314,26 @@ def infix2postfix(infix_code: str) -> str:
                     global_mode_for_functions,
                 )
 
-                remaining_code = remaining_code[if_match.end() :]
+                block_start = if_match.end()
+                block_end = find_matching_brace(remaining_code, block_start)
+                if block_end == -1:
+                    raise SyntaxError("Unmatched '{' in if statement.", line_num)
+                if_body = remaining_code[block_start:block_end]
+                remaining_code = remaining_code[block_end + 1 :].lstrip()
 
                 else_label = f"__internal_else_{current_label_id}"
                 endif_label = f"__internal_endif_{current_label_id}"
 
                 else_match = _ELSE_PATTERN.match(remaining_code)
                 if else_match:
-                    else_body = else_match.group(1)
-                    remaining_code = remaining_code[else_match.end() :]
+                    else_block_start = else_match.end()
+                    else_block_end = find_matching_brace(
+                        remaining_code, else_block_start
+                    )
+                    if else_block_end == -1:
+                        raise SyntaxError("Unmatched '{' in else statement.", line_num)
+                    else_body = remaining_code[else_block_start:else_block_end]
+                    remaining_code = remaining_code[else_block_end + 1 :]
 
                     # if-else block
                     tokens.append(f"{cond_postfix} not {else_label}#")
@@ -481,8 +512,23 @@ _FIND_DUPLICATE_FUNCTIONS_PATTERN = re.compile(r"\bfunction\s+(\w+)\s*\(.*?\)")
 _GLOBAL_MATCH_PATTERN = re.compile(r"<([a-zA-Z_]\w*)>")
 _ASSIGN_PATTERN = re.compile(r"(?<![<>!])=(?![=])")
 _REL_PATTERN = re.compile(r"\w+\[(.*?)\]")
-_FUNC_SUB_PATTERN = re.compile(r"\w+\([^)]*\)|\[[^\]]*\]")
-_IDENTIFIER_PATTERN = re.compile(r"([\$a-zA-Z_]\w*)(?!\s*\()")
+_KEYWORDS = [
+    "if",
+    "else",
+    "while",
+    "goto",
+    "function",
+    "return",
+    "global",
+    "and",
+    "or",
+    "not",
+    "xor",
+]
+_FUNC_SUB_PATTERN = re.compile(
+    r"\b(?!" + "|".join(_KEYWORDS) + r")\b\w+\([^)]*\)|\[[^\]]*\]"
+)
+_IDENTIFIER_PATTERN = re.compile(r"(\$[a-zA-Z_]\w*|[a-zA-Z_]\w*)(?!\s*\()")
 _LETTER_PATTERN = re.compile(r"[a-zA-Z_]\w*")
 _FUNCTION_PATTERN = re.compile(
     r"function\s+(\w+)\s*\(([^)]*)\)\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}"
@@ -490,10 +536,9 @@ _FUNCTION_PATTERN = re.compile(
 _BUILD_IN_FUNC_PATTERNS = [
     re.compile(r) for r in [rf"^{prefix}\d+$" for prefix in ["nth_", "sort"]]
 ]
-_BRACED_BLOCK_CONTENT_PATTERN = r"\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}"
-_IF_PATTERN = re.compile(r"^\s*if\s*\((.*?)\)\s*" + _BRACED_BLOCK_CONTENT_PATTERN)
-_ELSE_PATTERN = re.compile(r"^\s*else\s*" + _BRACED_BLOCK_CONTENT_PATTERN)
-_WHILE_PATTERN = re.compile(r"^\s*while\s*\((.*?)\)\s*" + _BRACED_BLOCK_CONTENT_PATTERN)
+_IF_PATTERN = re.compile(r"^\s*if\s*\((.*?)\)\s*\{")
+_ELSE_PATTERN = re.compile(r"^\s*else\s*\{")
+_WHILE_PATTERN = re.compile(r"^\s*while\s*\((.*?)\)\s*\{")
 _LABEL_PATTERN = re.compile(r"^\s*([a-zA-Z_]\w*):")
 _IF_GOTO_PATTERN = re.compile(r"^\s*if\s*\((.*)\)\s*goto\s+([a-zA-Z_]\w*)")
 _GOTO_PATTERN = re.compile(r"^\s*goto\s+([a-zA-Z_]\w*)")
@@ -569,7 +614,8 @@ def match_full_function_call(expr: str) -> Optional[tuple[str, str]]:
 
 @lru_cache
 def extract_function_info(
-    internal_var: str, current_function: Optional[str] = None
+    internal_var: str,
+    current_function: Optional[str] = None,
 ) -> tuple[Optional[str], Optional[str]]:
     """
     Given a renamed internal variable (i.e. __internal_funcname_varname),
@@ -604,7 +650,9 @@ def find_duplicate_functions(code: str):
 
 
 def compute_stack_effect(
-    postfix_expr: str, line_num: Optional[int] = None, func_name: Optional[str] = None
+    postfix_expr: str,
+    line_num: Optional[int] = None,
+    func_name: Optional[str] = None,
 ) -> int:
     """
     Compute the net stack effect of a postfix expression.
@@ -628,7 +676,9 @@ def compute_stack_effect(
 
 
 def parse_ternary(
-    expr: str, line_num: Optional[int] = None, func_name: Optional[str] = None
+    expr: str,
+    line_num: Optional[int] = None,
+    func_name: Optional[str] = None,
 ) -> Optional[tuple[str, str, str]]:
     """
     For a given expression string without delimiters, detects the presence of a ternary operator in the outer layer.
@@ -675,7 +725,9 @@ def parse_ternary(
 
 
 def validate_static_relative_pixel_indices(
-    expr: str, line_num: int, function_name: Optional[str] = None
+    expr: str,
+    line_num: int,
+    function_name: Optional[str] = None,
 ) -> None:
     """
     Validate that the static relative pixel access indices are numeric constants.
@@ -717,9 +769,37 @@ def check_variable_usage(
 
     expr = _PROP_ACCESS_GENERIC_PATTERN.sub(prop_repl, expr)
     expr = _FUNC_SUB_PATTERN.sub("", expr)
-    identifiers = _IDENTIFIER_PATTERN.finditer(expr)
-    for match in identifiers:
-        var_name = match.group(1)
+
+    dollar_identifiers = re.finditer(r"\$[a-zA-Z_]\w*", expr)
+    for match in dollar_identifiers:
+        var_name = match.group(0)
+        if (
+            (literals_in_scope and var_name in literals_in_scope)
+            or is_constant_infix(var_name)
+            or (
+                (local_vars is not None and var_name in local_vars)
+                or (local_vars is None and var_name in variables)
+            )
+        ):
+            continue
+        if not re.search(rf"{re.escape(var_name)}\s*=", expr):
+            if var_name.startswith("$"):
+                raise SyntaxError(
+                    f"Unknown constant '{var_name}'", line_num, function_name
+                )
+            raise SyntaxError(
+                f"Variable '{var_name}' used before definition",
+                line_num,
+                function_name,
+            )
+
+    word_identifiers = re.finditer(r"\b[a-zA-Z_]\w*", expr)
+    for match in word_identifiers:
+        var_name = match.group(0)
+        if is_keyword(var_name):
+            continue
+        if f"${var_name}" in expr:
+            continue
         if (
             (literals_in_scope and var_name in literals_in_scope)
             or is_constant_infix(var_name)
@@ -1401,20 +1481,7 @@ def is_keyword(func_name: str) -> bool:
     """
     Check if the function name conflicts with language keywords.
     """
-    keywords = [
-        "if",
-        "else",
-        "while",
-        "goto",
-        "function",
-        "return",
-        "global",
-        "and",
-        "or",
-        "not",
-        "xor",
-    ]
-    return func_name in keywords
+    return func_name in _KEYWORDS
 
 
 @lru_cache
