@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <format>
 #include <functional>
-#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -1178,6 +1177,10 @@ class Compiler {
         llvm::Type* i32_ty = builder.getInt32Ty();
         llvm::Function* parent_func = builder.GetInsertBlock()->getParent();
 
+        llvm::Value* exit_flag =
+            createAllocaInEntry(builder.getInt1Ty(), "exit_flag");
+        builder.CreateStore(builder.getFalse(), exit_flag);
+
         if (tokens.empty()) {
             generate_pixel_store(llvm::ConstantFP::get(float_ty, 0.0), x, y);
             return;
@@ -1710,8 +1713,9 @@ class Compiler {
                     break;
                 }
                 case TokenType::EXIT_NO_WRITE: {
-                    rpn_stack.push_back(llvm::ConstantFP::get(
-                        float_ty, std::numeric_limits<float>::quiet_NaN()));
+                    builder.CreateStore(builder.getTrue(), exit_flag);
+                    rpn_stack.push_back(
+                        llvm::ConstantFP::get(float_ty, 0.0));
                     break;
                 }
 
@@ -1862,7 +1866,7 @@ class Compiler {
         }
 
         llvm::Value* is_exit_val =
-            builder.CreateFCmpUNO(result_val, result_val);
+            builder.CreateLoad(builder.getInt1Ty(), exit_flag);
 
         llvm::BasicBlock* store_block =
             llvm::BasicBlock::Create(*context, "do_default_store", parent_func);
