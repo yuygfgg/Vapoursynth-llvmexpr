@@ -1552,9 +1552,19 @@ class Compiler {
                     break;
                 }
 
-                    // Unary Operators
+                // Unary Operators
                 case TokenType::SQRT: {
-                    applyUnaryIntrinsic(llvm::Intrinsic::sqrt);
+                    // Akarin.Expr and JITASM std.Expr both apply max(0, x)
+                    // before sqrt, so we do the same for compatibility.
+                    // See:
+                    // https://github.com/vapoursynth/vapoursynth/issues/1112
+                    auto a = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    auto zero = llvm::ConstantFP::get(float_ty, 0.0);
+                    auto max_val = createBinaryIntrinsicCall(
+                        llvm::Intrinsic::maxnum, a, zero);
+                    rpn_stack.push_back(createUnaryIntrinsicCall(
+                        llvm::Intrinsic::sqrt, max_val));
                     break;
                 }
                 case TokenType::EXP: {
@@ -1714,8 +1724,7 @@ class Compiler {
                 }
                 case TokenType::EXIT_NO_WRITE: {
                     builder.CreateStore(builder.getTrue(), exit_flag);
-                    rpn_stack.push_back(
-                        llvm::ConstantFP::get(float_ty, 0.0));
+                    rpn_stack.push_back(llvm::ConstantFP::get(float_ty, 0.0));
                     break;
                 }
 
