@@ -157,6 +157,11 @@ def infix2postfix(infix_code: str) -> str:
                 )
             seen_params[p] = i
 
+        if is_keyword(func_name):
+            raise SyntaxError(
+                f"Function name '{func_name}' conflicts with language keywords!",
+                line_num,
+            )
         if is_builtin_function(func_name):
             raise SyntaxError(
                 f"Function name '{func_name}' conflicts with built-in functions!",
@@ -218,6 +223,7 @@ def infix2postfix(infix_code: str) -> str:
             if_goto_match = _IF_GOTO_PATTERN.match(remaining_code)
             goto_match = _GOTO_PATTERN.match(remaining_code)
             if_match = _IF_PATTERN.match(remaining_code)
+            while_match = _WHILE_PATTERN.match(remaining_code)
 
             if label_match:
                 label_name = label_match.group(1)
@@ -244,6 +250,32 @@ def infix2postfix(infix_code: str) -> str:
                 tokens.append(f"1 {label_name}#")
                 all_goto_refs.append((label_name, current_line))
                 remaining_code = remaining_code[goto_match.end() :]
+            elif while_match:
+                label_counter[0] += 1
+                current_label_id = label_counter[0]
+                condition, while_body = while_match.groups()
+                line_num = current_line + remaining_code[: while_match.start(1)].count(
+                    "\n"
+                )
+                cond_postfix = convert_expr(
+                    condition,
+                    current_globals,
+                    functions,
+                    line_num,
+                    global_mode_for_functions,
+                )
+
+                remaining_code = remaining_code[while_match.end() :]
+
+                while_start_label = f"__internal_while_start_{current_label_id}"
+                while_end_label = f"__internal_while_end_{current_label_id}"
+                tokens.append(f"#{while_start_label}")
+                tokens.append(f"{cond_postfix} not {while_end_label}#")
+                tokens.extend(
+                    _process_code_block(while_body, line_num + condition.count("\n"))
+                )
+                tokens.append(f"1 {while_start_label}#")
+                tokens.append(f"#{while_end_label}")
             elif if_match:
                 label_counter[0] += 1
                 current_label_id = label_counter[0]
@@ -461,6 +493,7 @@ _BUILD_IN_FUNC_PATTERNS = [
 _BRACED_BLOCK_CONTENT_PATTERN = r"\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}"
 _IF_PATTERN = re.compile(r"^\s*if\s*\((.*?)\)\s*" + _BRACED_BLOCK_CONTENT_PATTERN)
 _ELSE_PATTERN = re.compile(r"^\s*else\s*" + _BRACED_BLOCK_CONTENT_PATTERN)
+_WHILE_PATTERN = re.compile(r"^\s*while\s*\((.*?)\)\s*" + _BRACED_BLOCK_CONTENT_PATTERN)
 _LABEL_PATTERN = re.compile(r"^\s*([a-zA-Z_]\w*):")
 _IF_GOTO_PATTERN = re.compile(r"^\s*if\s*\((.*)\)\s*goto\s+([a-zA-Z_]\w*)")
 _GOTO_PATTERN = re.compile(r"^\s*goto\s+([a-zA-Z_]\w*)")
@@ -1361,6 +1394,27 @@ def parse_args(args_str: str) -> list[str]:
             elif c == "]":
                 square_bracket_depth -= 1
     return [arg for arg in args if arg]
+
+
+@lru_cache
+def is_keyword(func_name: str) -> bool:
+    """
+    Check if the function name conflicts with language keywords.
+    """
+    keywords = [
+        "if",
+        "else",
+        "while",
+        "goto",
+        "function",
+        "return",
+        "global",
+        "and",
+        "or",
+        "not",
+        "xor",
+    ]
+    return func_name in keywords
 
 
 @lru_cache

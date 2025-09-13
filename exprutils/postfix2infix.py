@@ -204,7 +204,7 @@ def postfix2infix(expr: str, check_mode: bool = False) -> str:
             label_name = cond_jump_match.group(1)
             condition = pop()
             if not check_mode:
-                output_lines.append(f"if {condition} goto {label_name}")
+                output_lines.append(f"if ({condition}) goto {label_name}")
             i += 1
             continue
 

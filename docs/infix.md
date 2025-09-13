@@ -277,12 +277,40 @@ Constraints and rules:
 - The target label must exist somewhere in the script; otherwise a syntax error is raised.
 - Labels only mark positions; they do not execute anything by themselves.
 
-### 9.3. Function Scope Restrictions
+### 9.3. While Loops
 
-- Inside `function` bodies, control flow statements are forbidden: `if`, `else`, `goto`, and labels are not allowed and will cause a syntax error.
+A `while` loop provides a C-style syntax for repeated execution as long as a condition is true.
+
+- **Syntax:**
+
+```
+while (condition) {
+    # statements
+}
+```
+
+- The `condition` is any valid expression; a non-zero result is treated as true.
+- The loop continues to execute as long as the condition evaluates to true.
+- This is syntactic sugar for a structure using labels and conditional `goto`.
+
+**Example:**
+
+A countdown loop using `while`:
+
+```
+counter = 4
+while (counter > 0) {
+    counter = counter - 1
+}
+RESULT = counter # will be 0
+```
+
+### 9.4. Function Scope Restrictions
+
+- Inside `function` bodies, control flow statements are forbidden: `if`, `else`, `goto`, `while`, and labels are not allowed and will cause a syntax error.
 - User-defined functions must be straight-line code with at most one `return` as the last statement.
 
-### 9.4. Examples
+### 9.5. Examples
 
 Simple conditional assignment:
 
