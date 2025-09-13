@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <format>
 #include <functional>
-#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -43,6 +42,9 @@
 constexpr unsigned ALIGNMENT = 32; // Vapoursynth should guarantee this
 
 namespace {
+
+constexpr uint32_t EXIT_NAN_PAYLOAD = 0x7FC0E71F; // qNaN with payload 0xE71F
+constexpr uint32_t PROP_NAN_PAYLOAD = 0x7FC0BEEF; // qNaN with payload 0xBEEF
 
 enum class TokenType {
     // Literals & Constants
@@ -433,9 +435,10 @@ class OrcJit {
         llvm::TargetOptions Opts;
         Opts.AllowFPOpFusion = llvm::FPOpFusion::Fast;
         Opts.UnsafeFPMath = true;
-        Opts.NoInfsFPMath = false; // Inf is used to carry `^exit^`
-        Opts.NoNaNsFPMath = false; // NaN is used when props not exist
-        // TODO: only disable `NoInfsFPMat` and `NoNaNsFPMath` only when needed.
+        Opts.NoInfsFPMath = true;
+        Opts.NoNaNsFPMath = false; // Special qNaNs are used for props not
+                                   // exist error and for exit signal
+        // TODO: only disable `NoNaNsFPMath` only when needed.
         jtmb.setOptions(Opts);
 
         auto jit_builder = llvm::orc::LLJITBuilder();
@@ -1726,8 +1729,8 @@ class Compiler {
                 case TokenType::EXIT_NO_WRITE: {
                     rpn_stack.push_back(llvm::ConstantFP::get(
                         float_ty,
-                        std::numeric_limits<float>::
-                            infinity())); // Use Inf to represent `^exit^`
+                        std::bit_cast<float>(
+                            EXIT_NAN_PAYLOAD))); // Use special NaN for `^exit^`
                     break;
                 }
 
@@ -1877,9 +1880,11 @@ class Compiler {
             result_val = phi;
         }
 
-        llvm::Value* is_exit_val = builder.CreateFCmpOGE(
-            result_val, llvm::ConstantFP::get(
-                            float_ty, std::numeric_limits<float>::infinity()));
+        llvm::Value* result_int =
+            builder.CreateBitCast(result_val, builder.getInt32Ty());
+        llvm::Value* exit_nan_int = builder.getInt32(EXIT_NAN_PAYLOAD);
+        llvm::Value* is_exit_val =
+            builder.CreateICmpEQ(result_int, exit_nan_int);
 
         llvm::BasicBlock* store_block =
             llvm::BasicBlock::Create(*context, "do_default_store", parent_func);
@@ -2170,7 +2175,7 @@ const VSFrameRef* VS_CC exprGetFrame(int n, int activationReason,
             }
 
             if (err) {
-                props[prop_array_idx] = std::numeric_limits<float>::quiet_NaN();
+                props[prop_array_idx] = std::bit_cast<float>(PROP_NAN_PAYLOAD);
             }
         }
 
