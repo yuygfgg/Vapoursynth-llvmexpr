@@ -137,7 +137,7 @@ def infix2postfix(infix_code: str) -> str:
 
     expanded_code = "\n".join(modified_lines)
 
-    functions: dict[str, tuple[list[str], str, int, set[str], bool]] = {}
+    functions: dict[str, tuple[list[str], str, int, set[str], bool, set[str]]] = {}
 
     def replace_function(match: re.Match[str]) -> str:
         func_name = match.group(1)
@@ -173,24 +173,20 @@ def infix2postfix(infix_code: str) -> str:
         body_lines_strip = [line.strip() for line in body.split("\n") if line.strip()]
         has_return = any(line.startswith("return") for line in body_lines_strip)
 
-        # Forbid control flow at function scope: if/else/goto/labels
+        # Allow control flow at function scope: if/else/goto/labels
+        # We will track function-local labels for proper scoping
+        function_local_labels = set()
         for offset, line_text in enumerate(body.split("\n")):
             stripped = line_text.strip()
             if not stripped:
                 continue
-            if (
-                re.match(r"^\s*if\s*\(", stripped)
-                or re.match(r"^\s*else\b", stripped)
-                or re.match(r"^\s*goto\s+[A-Za-z_]\w*", stripped)
-                or re.match(r"^\s*[A-Za-z_]\w*\s*:", stripped)
-            ):
-                raise SyntaxError(
-                    "Control flow statements 'if/else/goto' and labels are not allowed inside functions.",
-                    line_num + offset,
-                    func_name,
-                )
+            # Track function-local labels
+            label_match = re.match(r"^\s*([a-zA-Z_]\w*)\s*:", stripped)
+            if label_match:
+                label_name = label_match.group(1)
+                function_local_labels.add(label_name)
 
-        functions[func_name] = (params, body, line_num, global_vars, has_return)
+        functions[func_name] = (params, body, line_num, global_vars, has_return, function_local_labels)
         return "\n" * match.group(0).count("\n")
 
     cleaned_code = _FUNCTION_PATTERN.sub(replace_function, expanded_code)
@@ -205,8 +201,12 @@ def infix2postfix(infix_code: str) -> str:
     # Global label and goto references to allow cross-block jumps
     all_labels: set[str] = set()
     all_goto_refs: list[tuple[str, int]] = []
+    
+    # Call stack simulation state
+    next_return_id = 1
+    MAX_RECURSION_DEPTH = 32
 
-    def _process_code_block(code_block: str, line_offset: int) -> list[str]:
+    def _process_code_block(code_block: str, line_offset: int, function_local_labels: set[str] = None) -> list[str]:
         tokens: list[str] = []
         remaining_code = code_block.lstrip()
         current_line = line_offset
@@ -229,6 +229,17 @@ def infix2postfix(infix_code: str) -> str:
                 line_num = current_line + remaining_code[
                     : if_goto_match.start(1)
                 ].count("\n")
+                # Validate goto target based on scope
+                if function_local_labels is not None:
+                    # Inside function - only allow function-local labels
+                    if label_name not in function_local_labels:
+                        raise SyntaxError(
+                            f"goto target '{label_name}' is not defined in function scope.",
+                            line_num,
+                        )
+                else:
+                    # Global scope - allow global labels
+                    all_goto_refs.append((label_name, line_num))
                 cond_postfix = convert_expr(
                     condition,
                     current_globals,
@@ -237,12 +248,21 @@ def infix2postfix(infix_code: str) -> str:
                     global_mode_for_functions,
                 )
                 tokens.append(f"{cond_postfix} {label_name}#")
-                all_goto_refs.append((label_name, line_num))
                 remaining_code = remaining_code[if_goto_match.end() :]
             elif goto_match:
                 label_name = goto_match.group(1)
+                # Validate goto target based on scope
+                if function_local_labels is not None:
+                    # Inside function - only allow function-local labels
+                    if label_name not in function_local_labels:
+                        raise SyntaxError(
+                            f"goto target '{label_name}' is not defined in function scope.",
+                            current_line,
+                        )
+                else:
+                    # Global scope - allow global labels
+                    all_goto_refs.append((label_name, current_line))
                 tokens.append(f"1 {label_name}#")
-                all_goto_refs.append((label_name, current_line))
                 remaining_code = remaining_code[goto_match.end() :]
             elif if_match:
                 label_counter[0] += 1
@@ -275,19 +295,19 @@ def infix2postfix(infix_code: str) -> str:
                     # if-else block
                     tokens.append(f"{cond_postfix} not {else_label}#")
                     tokens.extend(
-                        _process_code_block(if_body, line_num + condition.count("\n"))
+                        _process_code_block(if_body, line_num + condition.count("\n"), function_local_labels)
                     )
                     tokens.append(f"1 {endif_label}#")
                     tokens.append(f"#{else_label}")
                     tokens.extend(
-                        _process_code_block(else_body, line_num + if_body.count("\n"))
+                        _process_code_block(else_body, line_num + if_body.count("\n"), function_local_labels)
                     )
                     tokens.append(f"#{endif_label}")
                 else:
                     # if-only block
                     tokens.append(f"{cond_postfix} not {endif_label}#")
                     tokens.extend(
-                        _process_code_block(if_body, line_num + condition.count("\n"))
+                        _process_code_block(if_body, line_num + condition.count("\n"), function_local_labels)
                     )
                     tokens.append(f"#{endif_label}")
 
@@ -405,7 +425,7 @@ def infix2postfix(infix_code: str) -> str:
 
         return tokens
 
-    postfix_tokens = _process_code_block(cleaned_code, 1)
+    postfix_tokens = _process_code_block(cleaned_code, 1, None)
 
     # Validate that all goto targets refer to a defined label anywhere in global scope
     for target_label, ln in all_goto_refs:
@@ -429,7 +449,167 @@ def infix2postfix(infix_code: str) -> str:
 
     ret = final_result + " RESULT@"
 
+    # Add function definitions
+    function_definitions = []
+    for func_name, (params, body, func_line_num, global_vars, has_return, function_local_labels) in functions.items():
+        func_def = generate_function_definition(
+            func_name, params, body, func_line_num, global_vars,
+            has_return, function_local_labels, current_globals, functions,
+            global_mode_for_functions
+        )
+        function_definitions.append(func_def)
+    
+    # Add call stack simulation code
+    call_stack_code = generate_call_stack_code()
+    
+    # Combine all parts
+    all_parts = [ret] + function_definitions + [call_stack_code]
+    ret = " ".join(all_parts)
+
     return ret
+
+
+def generate_call_stack_code() -> str:
+    """
+    Generate RPN code for call stack simulation system.
+    """
+    tokens = []
+    
+    # Initialize call stack pointer
+    tokens.append("0 __internal_cs_ptr!")
+    
+    # Generate push routine
+    tokens.append("#__internal_push_routine")
+    for i in range(MAX_RECURSION_DEPTH):
+        tokens.append(f"__internal_cs_ptr@ {i} = #push_{i}#")
+    tokens.append("#push_overflow")  # Stack overflow error
+    tokens.append("#push_0")
+    tokens.append("__internal_cs_0! __internal_cs_ptr@ 1 + __internal_cs_ptr! 1 #push_end#")
+    for i in range(1, MAX_RECURSION_DEPTH):
+        tokens.append(f"#push_{i}")
+        tokens.append(f"__internal_cs_{i}! __internal_cs_ptr@ 1 + __internal_cs_ptr! 1 #push_end#")
+    tokens.append("#push_end")
+    
+    # Generate pop routine
+    tokens.append("#__internal_pop_routine")
+    for i in range(MAX_RECURSION_DEPTH):
+        tokens.append(f"__internal_cs_ptr@ {i} = #pop_{i}#")
+    tokens.append("#pop_underflow")  # Stack underflow error
+    tokens.append("#pop_0")
+    tokens.append("__internal_cs_0@ __internal_cs_ptr@ 1 - __internal_cs_ptr! 1 #pop_end#")
+    for i in range(1, MAX_RECURSION_DEPTH):
+        tokens.append(f"#pop_{i}")
+        tokens.append(f"__internal_cs_{i}@ __internal_cs_ptr@ 1 - __internal_cs_ptr! 1 #pop_end#")
+    tokens.append("#pop_end")
+    
+    # Generate return dispatcher
+    tokens.append("#__internal_return_dispatcher")
+    for i in range(1, MAX_RECURSION_DEPTH * 2):  # Allow for more return IDs
+        tokens.append(f"dup {i} = #__ret_{i}#")
+    tokens.append("#__ret_invalid")  # Invalid return ID error
+    
+    return " ".join(tokens)
+
+
+def generate_function_call(
+    func_name: str,
+    args_postfix: list[str],
+    params: list[str],
+    body: str,
+    func_line_num: int,
+    global_vars: set[str],
+    has_return: bool,
+    function_local_labels: set[str],
+    variables: set[str],
+    functions: dict[str, tuple[list[str], str, int, set[str], bool, set[str]]],
+    global_mode_for_functions: dict[str, GlobalMode],
+    line_num: int,
+    current_function: Optional[str],
+    return_id: int
+) -> str:
+    """
+    Generate call stack-based function call RPN code.
+    """
+    
+    # Generate function call code
+    call_tokens = []
+    
+    # Push arguments to main stack (in reverse order for LIFO)
+    for arg in reversed(args_postfix):
+        call_tokens.append(arg)
+    
+    # Push return ID to call stack
+    call_tokens.append(f"{return_id} __internal_push_routine#")
+    
+    # Jump to function
+    call_tokens.append(f"1 #function_{func_name}#")
+    
+    # Return point
+    call_tokens.append(f"#__ret_{return_id}")
+    
+    return " ".join(call_tokens)
+
+
+def generate_function_definition(
+    func_name: str,
+    params: list[str],
+    body: str,
+    func_line_num: int,
+    global_vars: set[str],
+    has_return: bool,
+    function_local_labels: set[str],
+    variables: set[str],
+    functions: dict[str, tuple[list[str], str, int, set[str], bool, set[str]]],
+    global_mode_for_functions: dict[str, GlobalMode]
+) -> str:
+    """
+    Generate function definition RPN code with prologue and epilogue.
+    """
+    tokens = []
+    
+    # Function label
+    tokens.append(f"#function_{func_name}")
+    
+    # Prologue: Pop parameters from main stack to local variables
+    for param in reversed(params):  # Reverse because stack is LIFO
+        tokens.append(f"__internal_{func_name}_{param}!")
+    
+    # Process function body
+    body_tokens = process_function_body(
+        body, func_line_num, func_name, global_vars, 
+        function_local_labels, variables, functions, 
+        global_mode_for_functions
+    )
+    tokens.extend(body_tokens)
+    
+    # Epilogue: Handle return
+    if has_return:
+        # Return value is already on main stack
+        tokens.append("__internal_pop_routine#")
+        tokens.append("1 #__internal_return_dispatcher#")
+    else:
+        # Void function - no return value
+        tokens.append("__internal_pop_routine#")
+        tokens.append("1 #__internal_return_dispatcher#")
+    
+    return " ".join(tokens)
+
+
+def process_function_body(
+    body: str,
+    func_line_num: int,
+    func_name: str,
+    global_vars: set[str],
+    function_local_labels: set[str],
+    variables: set[str],
+    functions: dict[str, tuple[list[str], str, int, set[str], bool, set[str]]],
+    global_mode_for_functions: dict[str, GlobalMode]
+) -> list[str]:
+    """
+    Process function body and convert to RPN with proper scoping.
+    """
+    # Use the existing _process_code_block function with function local labels
+    return _process_code_block(body, func_line_num, function_local_labels)
 
 
 _SCIENTIFIC_E_PATTERN = re.compile(r"(?<=[0-9\.])e(?=[+-]?[0-9])", re.IGNORECASE)
@@ -722,7 +902,7 @@ def check_variable_usage(
 def convert_expr(
     expr: str,
     variables: set[str],
-    functions: dict[str, tuple[list[str], str, int, set[str], bool]],
+    functions: dict[str, tuple[list[str], str, int, set[str], bool, set[str]]],
     line_num: int,
     global_mode_for_functions: dict[str, GlobalMode],
     current_function: Optional[str] = None,
@@ -880,235 +1060,27 @@ def convert_expr(
                         current_function,
                     )
                 return f"{args_postfix[0]} {func_name}"
-        # Handle custom function calls.
+        # Handle custom function calls with call stack simulation
         if func_name in functions:
-            params, body, func_line_num, global_vars, _ = functions[func_name]
+            params, body, func_line_num, global_vars, has_return, function_local_labels = functions[func_name]
             if len(args) != len(params):
                 raise SyntaxError(
                     f"Function {func_name} requires {len(params)} parameters, but {len(args)} were provided.",
                     line_num,
                     current_function,
                 )
-            # Rename parameters: __internal_<funcname>_<varname>
-            param_map = {p: f"__internal_{func_name}_{p}" for p in params}
-            body_lines = [line.strip() for line in body.split("\n")]
-            body_lines_strip = [
-                line.strip() for line in body.split("\n") if line.strip()
-            ]
-            return_indices = [
-                i
-                for i, line in enumerate(body_lines_strip)
-                if line.startswith("return")
-            ]
-            if return_indices and return_indices[0] != len(body_lines_strip) - 1:
-                raise SyntaxError(
-                    f"Return statement must be the last line in function '{func_name}'",
-                    func_line_num,
-                    func_name,
-                )
-
-            local_map: dict[str, str] = {}
-            func_global_mode = global_mode_for_functions.get(func_name, GlobalMode.NONE)
-            effective_globals = set[str]()
-            if func_global_mode == GlobalMode.ALL:
-                effective_globals = variables
-            elif func_global_mode == GlobalMode.SPECIFIC:
-                effective_globals = global_vars
-
-            for offset, body_line in enumerate(body_lines):
-                if body_line.startswith("return"):
-                    continue
-                m_line = _M_LINE_PATTERN.match(body_line)
-                if m_line:
-                    var = m_line.group(1)
-                    if var.startswith("__internal_"):
-                        raise SyntaxError(
-                            f"Variable name '{var}' cannot start with '__internal_' (reserved prefix)",
-                            func_line_num + offset,
-                            func_name,
-                        )
-                    if is_constant_infix(f"{var}"):
-                        raise SyntaxError(
-                            f"Cannot assign to constant '{var}'.",
-                            func_line_num + offset,
-                            func_name,
-                        )
-                    # Check if trying to assign to a function parameter
-                    if var in params:
-                        raise SyntaxError(
-                            f"Cannot assign to function parameter '{var}'. Parameters are read-only.",
-                            func_line_num + offset,
-                            func_name,
-                        )
-                    # Only rename & map local variables
-                    if (
-                        var not in param_map
-                        and not var.startswith(f"__internal_{func_name}_")
-                        and var not in effective_globals
-                    ):
-                        local_map[var] = f"__internal_{func_name}_{var}"
-
-            rename_map: dict[str, str] = {}
-            rename_map.update(param_map)
-            rename_map.update(local_map)
-            new_local_vars = (
-                set(param_map.keys())
-                .union(set(local_map.keys()))
-                .union(effective_globals)
+            
+            # Generate call stack-based function call
+            global next_return_id
+            return_id = next_return_id
+            next_return_id += 1
+            
+            return generate_function_call(
+                func_name, args_postfix, params, body, func_line_num, 
+                global_vars, has_return, function_local_labels, 
+                variables, functions, global_mode_for_functions, 
+                line_num, current_function, return_id
             )
-
-            literals_for_body = set()
-            param_assignments: list[str] = []
-            for i, p in enumerate(params):
-                arg_orig = args[i].strip()
-                if is_constant_infix(arg_orig):
-                    literal_value = args_postfix[i]
-                    rename_map[p] = literal_value
-                    literals_for_body.add(literal_value)
-                else:
-                    if p not in effective_globals:
-                        param_assignments.append(f"{args_postfix[i]} {rename_map[p]}!")
-
-            new_lines: list[str] = []
-            for line_text in body_lines:
-                new_line = line_text
-                # Create a temporary mapping to avoid chain substitutions
-                temp_map = {}
-                for old, new in rename_map.items():
-                    if old not in effective_globals:
-                        temp_map[old] = new
-
-                # Apply all substitutions simultaneously to avoid chain reactions
-                def replace_func(match):
-                    matched_word = match.group(0)
-                    return temp_map.get(matched_word, matched_word)
-
-                if temp_map:
-                    pattern = (
-                        r"(?<!\$)\b("
-                        + "|".join(re.escape(k) for k in temp_map.keys())
-                        + r")\b"
-                    )
-                    new_line = re.sub(pattern, replace_func, new_line)
-
-                new_lines.append(new_line)
-            function_tokens: list[str] = []
-            return_count = 0
-            for offset, body_line in enumerate(new_lines):
-                effective_line_num = func_line_num + offset
-                if body_line.startswith(
-                    "return"
-                ):  # Return does nothing, but it looks better to have one.
-                    return_count += 1
-                    ret_expr = body_line[len("return") :].strip()
-
-                    # Check if a function that does not return a value is being returned.
-                    m_call = _M_CALL_PATTERN.match(ret_expr)
-                    if m_call:
-                        called_func_name = m_call.group(1)
-                        if called_func_name in functions:
-                            if not functions[called_func_name][
-                                4
-                            ]:  # has_return is False
-                                raise SyntaxError(
-                                    f"Function '{called_func_name}' does not return a value and cannot be used in a return statement.",
-                                    effective_line_num,
-                                    func_name,
-                                )
-
-                    function_tokens.append(
-                        convert_expr(
-                            ret_expr,
-                            variables,
-                            functions,
-                            effective_line_num,
-                            global_mode_for_functions,
-                            func_name,
-                            new_local_vars,
-                            literals_for_body,
-                        )
-                    )
-                # Process assignment statements.
-                elif _ASSIGN_PATTERN.search(body_line):
-                    var_name, expr_line = body_line.split("=", 1)
-                    var_name = var_name.strip()
-                    if is_constant_infix(f"{var_name}"):
-                        raise SyntaxError(
-                            f"Cannot assign to constant '{var_name}'.",
-                            effective_line_num,
-                            func_name,
-                        )
-                    if var_name not in new_local_vars and re.search(
-                        r"(?<!\$)\b" + re.escape(var_name) + r"\b", expr_line
-                    ):
-                        _, orig_var = extract_function_info(var_name, func_name)
-                        raise SyntaxError(
-                            f"Variable '{orig_var}' used before definition",
-                            effective_line_num,
-                            func_name,
-                        )
-                    if var_name not in new_local_vars:
-                        new_local_vars.add(var_name)
-
-                    postfix_line = f"{convert_expr(expr_line, variables, functions, effective_line_num, global_mode_for_functions, func_name, new_local_vars, literals_for_body)} {var_name}!"
-                    if (
-                        compute_stack_effect(
-                            postfix_line, effective_line_num, func_name
-                        )
-                        != 0
-                    ):
-                        raise SyntaxError(
-                            "Assignment statement has unbalanced stack.",
-                            effective_line_num,
-                            func_name,
-                        )
-
-                    function_tokens.append(postfix_line)
-                else:
-                    postfix_line = convert_expr(
-                        body_line,
-                        variables,
-                        functions,
-                        effective_line_num,
-                        global_mode_for_functions,
-                        func_name,
-                        new_local_vars,
-                        literals_for_body,
-                    )
-                    if (
-                        compute_stack_effect(
-                            postfix_line, effective_line_num, func_name
-                        )
-                        != 0
-                    ):
-                        raise SyntaxError(
-                            "Expression statement has unbalanced stack. Maybe you forgot to assign it to a variable?",
-                            effective_line_num,
-                            func_name,
-                        )
-                    function_tokens.append(postfix_line)
-            if return_count > 1:
-                raise SyntaxError(
-                    f"Function {func_name} must return at most one value, got {return_count}",
-                    func_line_num,
-                    func_name,
-                )
-            result_expr = " ".join(param_assignments + function_tokens)
-            net_effect = compute_stack_effect(result_expr, line_num, func_name)
-            if return_count == 1:
-                if net_effect != 1:
-                    raise SyntaxError(
-                        f"The return value stack of function {func_name} is unbalanced; expected 1 but got {net_effect}.",
-                        func_line_num,
-                        func_name,
-                    )
-            elif net_effect != 0:
-                raise SyntaxError(
-                    f"The function {func_name} should not return a value, but stack is not empty. Stack effect: {net_effect}.",
-                    func_line_num,
-                    func_name,
-                )
-            return result_expr
 
     stripped = strip_outer_parentheses(expr)
     if stripped != expr:
