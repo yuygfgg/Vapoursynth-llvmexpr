@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <cctype>
-#include <cmath>
 #include <cstdint>
 #include <format>
 #include <functional>
@@ -434,10 +433,9 @@ class OrcJit {
         llvm::TargetOptions Opts;
         Opts.AllowFPOpFusion = llvm::FPOpFusion::Fast;
         Opts.UnsafeFPMath = true;
-        Opts.NoInfsFPMath = true;
-        Opts.NoNaNsFPMath = false; // NaN is used to carry `^exit^`
-        // TODO: only disable `NoNaNsFPMath` for the specific expr that uses
-        // `^exit^`
+        Opts.NoInfsFPMath = false; // Inf is used to carry `^exit^`
+        Opts.NoNaNsFPMath = false; // NaN is used when props not exist
+        // TODO: only disable `NoInfsFPMat` and `NoNaNsFPMath` only when needed.
         jtmb.setOptions(Opts);
 
         auto jit_builder = llvm::orc::LLJITBuilder();
@@ -1729,9 +1727,7 @@ class Compiler {
                     rpn_stack.push_back(llvm::ConstantFP::get(
                         float_ty,
                         std::numeric_limits<float>::
-                            quiet_NaN())); // Accessing undefined props also
-                                           // produces NaN, should we use
-                                           // another value for `^exit^`?
+                            infinity())); // Use Inf to represent `^exit^`
                     break;
                 }
 
@@ -1881,8 +1877,9 @@ class Compiler {
             result_val = phi;
         }
 
-        llvm::Value* is_exit_val =
-            builder.CreateFCmpUNO(result_val, result_val);
+        llvm::Value* is_exit_val = builder.CreateFCmpOGE(
+            result_val, llvm::ConstantFP::get(
+                            float_ty, std::numeric_limits<float>::infinity()));
 
         llvm::BasicBlock* store_block =
             llvm::BasicBlock::Create(*context, "do_default_store", parent_func);
