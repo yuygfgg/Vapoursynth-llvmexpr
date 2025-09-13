@@ -8,11 +8,12 @@
 #include <mutex>
 #include <numbers>
 #include <numeric>
+#include <optional>
 #include <regex>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <system_error>
-#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -190,69 +191,144 @@ int parse_clip_idx_from_match(const std::smatch& match) {
 }
 } // namespace
 
+constexpr std::optional<TokenType> resolve_keyword(const std::string_view s) {
+    switch (s.size()) {
+    case 1:
+        switch (s[0]) {
+        case '+':
+            return TokenType::ADD;
+        case '-':
+            return TokenType::SUB;
+        case '*':
+            return TokenType::MUL;
+        case '/':
+            return TokenType::DIV;
+        case '%':
+            return TokenType::MOD;
+        case '>':
+            return TokenType::GT;
+        case '<':
+            return TokenType::LT;
+        case '=':
+            return TokenType::EQ;
+        case '?':
+            return TokenType::TERNARY;
+        case 'X':
+            return TokenType::CONSTANT_X;
+        case 'Y':
+            return TokenType::CONSTANT_Y;
+        case 'N':
+            return TokenType::CONSTANT_N;
+        }
+        break;
+    case 2:
+        if (s == ">=")
+            return TokenType::GE;
+        if (s == "<=")
+            return TokenType::LE;
+        if (s == "**")
+            return TokenType::POW;
+        if (s == "or")
+            return TokenType::OR;
+        if (s == "pi")
+            return TokenType::CONSTANT_PI;
+        break;
+    case 3:
+        if (s == "and")
+            return TokenType::AND;
+        if (s == "xor")
+            return TokenType::XOR;
+        if (s == "not")
+            return TokenType::NOT;
+        if (s == "pow")
+            return TokenType::POW;
+        if (s == "min")
+            return TokenType::MIN;
+        if (s == "max")
+            return TokenType::MAX;
+        if (s == "fma")
+            return TokenType::FMA;
+        if (s == "exp")
+            return TokenType::EXP;
+        if (s == "log")
+            return TokenType::LOG;
+        if (s == "abs")
+            return TokenType::ABS;
+        if (s == "sin")
+            return TokenType::SIN;
+        if (s == "cos")
+            return TokenType::COS;
+        if (s == "tan")
+            return TokenType::TAN;
+        if (s == "@[]")
+            return TokenType::STORE_ABS;
+        break;
+    case 4:
+        if (s == "clip")
+            return TokenType::CLIP;
+        if (s == "sqrt")
+            return TokenType::SQRT;
+        if (s == "ceil")
+            return TokenType::CEIL;
+        if (s == "asin")
+            return TokenType::ASIN;
+        if (s == "acos")
+            return TokenType::ACOS;
+        if (s == "atan")
+            return TokenType::ATAN;
+        if (s == "exp2")
+            return TokenType::EXP2;
+        if (s == "log2")
+            return TokenType::LOG2;
+        if (s == "sinh")
+            return TokenType::SINH;
+        if (s == "cosh")
+            return TokenType::COSH;
+        if (s == "tanh")
+            return TokenType::TANH;
+        break;
+    case 5:
+        if (s == "bitor")
+            return TokenType::BITOR;
+        if (s == "atan2")
+            return TokenType::ATAN2;
+        if (s == "clamp")
+            return TokenType::CLAMP;
+        if (s == "floor")
+            return TokenType::FLOOR;
+        if (s == "trunc")
+            return TokenType::TRUNC;
+        if (s == "round")
+            return TokenType::ROUND;
+        if (s == "log10")
+            return TokenType::LOG10;
+        if (s == "width")
+            return TokenType::CONSTANT_WIDTH;
+        break;
+    case 6:
+        if (s == "bitand")
+            return TokenType::BITAND;
+        if (s == "bitxor")
+            return TokenType::BITXOR;
+        if (s == "bitnot")
+            return TokenType::BITNOT;
+        if (s == "height")
+            return TokenType::CONSTANT_HEIGHT;
+        if (s == "^exit^")
+            return TokenType::EXIT_NO_WRITE;
+        break;
+    case 8:
+        if (s == "copysign")
+            return TokenType::COPYSIGN;
+        break;
+    }
+    return std::nullopt;
+}
+
 std::vector<Token> tokenize(const std::string& expr, int num_inputs) {
     std::vector<Token> tokens;
     std::stringstream ss(expr);
     std::string str_token;
-
-    static const std::unordered_map<std::string, TokenType> keyword_map = {
-        {"+", TokenType::ADD},
-        {"-", TokenType::SUB},
-        {"*", TokenType::MUL},
-        {"/", TokenType::DIV},
-        {"%", TokenType::MOD},
-        {">", TokenType::GT},
-        {"<", TokenType::LT},
-        {">=", TokenType::GE},
-        {"<=", TokenType::LE},
-        {"=", TokenType::EQ},
-        {"and", TokenType::AND},
-        {"or", TokenType::OR},
-        {"xor", TokenType::XOR},
-        {"not", TokenType::NOT},
-        {"bitand", TokenType::BITAND},
-        {"bitor", TokenType::BITOR},
-        {"bitxor", TokenType::BITXOR},
-        {"bitnot", TokenType::BITNOT},
-        {"pow", TokenType::POW},
-        {"**", TokenType::POW},
-        {"min", TokenType::MIN},
-        {"max", TokenType::MAX},
-        {"atan2", TokenType::ATAN2},
-        {"copysign", TokenType::COPYSIGN},
-        {"?", TokenType::TERNARY},
-        {"clip", TokenType::CLIP},
-        {"clamp", TokenType::CLAMP},
-        {"fma", TokenType::FMA},
-        {"sqrt", TokenType::SQRT},
-        {"exp", TokenType::EXP},
-        {"log", TokenType::LOG},
-        {"abs", TokenType::ABS},
-        {"floor", TokenType::FLOOR},
-        {"ceil", TokenType::CEIL},
-        {"trunc", TokenType::TRUNC},
-        {"round", TokenType::ROUND},
-        {"sin", TokenType::SIN},
-        {"cos", TokenType::COS},
-        {"tan", TokenType::TAN},
-        {"asin", TokenType::ASIN},
-        {"acos", TokenType::ACOS},
-        {"atan", TokenType::ATAN},
-        {"exp2", TokenType::EXP2},
-        {"log10", TokenType::LOG10},
-        {"log2", TokenType::LOG2},
-        {"sinh", TokenType::SINH},
-        {"cosh", TokenType::COSH},
-        {"tanh", TokenType::TANH},
-        {"X", TokenType::CONSTANT_X},
-        {"Y", TokenType::CONSTANT_Y},
-        {"width", TokenType::CONSTANT_WIDTH},
-        {"height", TokenType::CONSTANT_HEIGHT},
-        {"N", TokenType::CONSTANT_N},
-        {"pi", TokenType::CONSTANT_PI},
-        {"^exit^", TokenType::EXIT_NO_WRITE},
-        {"@[]", TokenType::STORE_ABS},
-    };
 
     int idx = 0;
     while (ss >> str_token) {
@@ -260,8 +336,8 @@ std::vector<Token> tokenize(const std::string& expr, int num_inputs) {
         t.text = str_token;
         std::smatch match;
 
-        if (auto it = keyword_map.find(str_token); it != keyword_map.end()) {
-            t.type = it->second;
+        if (auto keyword_type = resolve_keyword(str_token); keyword_type) {
+            t.type = *keyword_type;
         } else if (std::regex_match(str_token, match,
                                     std::regex(R"(^dup(\d*)$)"))) {
             t.type = TokenType::DUP;
