@@ -162,6 +162,8 @@ Functions are called using standard syntax: `functionName(argument1, argument2, 
 | `clamp`                           | 3                   | `clamp(x, lo, hi)`; clamps to `[lo, hi]`.                     |
 | `fma`                             | 3                   | Fused multiply-add: `(a * b) + c`.                            |
 | `dyn`                             | 3                   | Dynamic absolute pixel access. See Section 8.                 |
+| `store`                           | 3                   | `store(val, x, y)`; writes `val` to `[x, y]`.                 |
+| `exit`                            | 0                   | Suppresses default pixel write.                               |
 | `nth_N`                           | `M` (where `M ≥ N`) | `nth_3(a, b, c, d)` returns the 3rd smallest of the 4 values. |
 
 Notes:
