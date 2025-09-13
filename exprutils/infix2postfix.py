@@ -199,10 +199,10 @@ def infix2postfix(infix_code: str) -> str:
             if not stripped:
                 continue
             if (
-                re.match(r"^\s*if\s*\(", stripped)
-                or re.match(r"^\s*else\b", stripped)
-                or re.match(r"^\s*goto\s+[A-Za-z_]\w*", stripped)
-                or re.match(r"^\s*[A-Za-z_]\w*\s*:", stripped)
+                _IF_STMT_PATTERN.match(stripped)
+                or _ELSE_STMT_PATTERN.match(stripped)
+                or _GOTO_STMT_PATTERN.match(stripped)
+                or _LABEL_STMT_PATTERN.match(stripped)
             ):
                 raise SyntaxError(
                     "Control flow statements 'if/else/goto' and labels are not allowed inside functions.",
@@ -544,6 +544,10 @@ _IF_GOTO_PATTERN = re.compile(r"^\s*if\s*\((.*)\)\s*goto\s+([a-zA-Z_]\w*)")
 _GOTO_PATTERN = re.compile(r"^\s*goto\s+([a-zA-Z_]\w*)")
 _LABEL_PATTERN = re.compile(r"^\s*([a-zA-Z_]\w*):")
 _IF_GOTO_PATTERN = re.compile(r"^\s*if\s*\((.*)\)\s*goto\s+([a-zA-Z_]\w*)")
+_IF_STMT_PATTERN = re.compile(r"^\s*if\s*\(")
+_ELSE_STMT_PATTERN = re.compile(r"^\s*else\b")
+_GOTO_STMT_PATTERN = re.compile(r"^\s*goto\s+[A-Za-z_]\w*")
+_LABEL_STMT_PATTERN = re.compile(r"^\s*[A-Za-z_]\w*\s*:")
 
 
 class SyntaxError(Exception):
