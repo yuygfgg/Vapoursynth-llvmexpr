@@ -1120,6 +1120,14 @@ class Compiler {
         }
 
         // Data-flow analysis for initialized variables
+        std::set<std::string> all_vars;
+        for (const auto& token : tokens) {
+            if (token.type == TokenType::VAR_STORE ||
+                token.type == TokenType::VAR_LOAD) {
+                all_vars.insert(std::get<TokenPayload_Var>(token.payload).name);
+            }
+        }
+
         std::vector<std::set<std::string>> gen_sets(cfg_blocks.size());
         for (size_t i = 0; i < cfg_blocks.size(); ++i) {
             for (int j = cfg_blocks[i].start_token_idx;
@@ -1132,22 +1140,39 @@ class Compiler {
         }
 
         std::vector<std::set<std::string>> in_sets(cfg_blocks.size());
-        std::vector<std::set<std::string>> out_sets(cfg_blocks.size());
+        std::vector<std::set<std::string>> out_sets(cfg_blocks.size(),
+                                                    all_vars);
+
         bool changed = true;
         while (changed) {
             changed = false;
             for (size_t i = 0; i < cfg_blocks.size(); ++i) {
-                // IN[i] = Union of OUT[p] for all predecessors p
-                for (int p_idx : cfg_blocks[i].predecessors) {
-                    in_sets[i].insert(out_sets[p_idx].begin(),
-                                      out_sets[p_idx].end());
+                // IN[i] = Intersection of OUT[p] for all predecessors p
+                std::set<std::string> new_in;
+                if (cfg_blocks[i].predecessors.empty()) {
+                    // Entry block or unreachable. IN set is empty.
+                    new_in.clear();
+                } else {
+                    new_in = out_sets[cfg_blocks[i].predecessors[0]];
+                    for (size_t j = 1; j < cfg_blocks[i].predecessors.size();
+                         ++j) {
+                        int p_idx = cfg_blocks[i].predecessors[j];
+                        std::set<std::string> temp_intersect;
+                        std::set_intersection(
+                            new_in.begin(), new_in.end(),
+                            out_sets[p_idx].begin(), out_sets[p_idx].end(),
+                            std::inserter(temp_intersect,
+                                          temp_intersect.begin()));
+                        new_in = temp_intersect;
+                    }
                 }
+                in_sets[i] = new_in;
 
                 // OUT[i] = GEN[i] U IN[i]
                 std::set<std::string> new_out = gen_sets[i];
                 new_out.insert(in_sets[i].begin(), in_sets[i].end());
 
-                if (new_out.size() > out_sets[i].size()) {
+                if (new_out != out_sets[i]) {
                     out_sets[i] = new_out;
                     changed = true;
                 }
@@ -1278,7 +1303,7 @@ class Compiler {
             }
         }
 
-        // Allocate all variables in the entry block and initialize to 0
+        // Allocate all variables in the entry block
         for (const std::string& var_name : all_vars) {
             named_vars[var_name] = createAllocaInEntry(float_ty, var_name);
         }

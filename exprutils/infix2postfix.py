@@ -226,8 +226,14 @@ def infix2postfix(infix_code: str) -> str:
     all_labels: set[str] = set()
     all_goto_refs: list[tuple[str, int]] = []
 
-    def _process_code_block(code_block: str, line_offset: int) -> list[str]:
+    def _process_code_block(
+        code_block: str,
+        line_offset: int,
+        parent_scope_vars: set[str],
+        is_global_scope: bool,
+    ) -> list[str]:
         tokens: list[str] = []
+        scope_vars = parent_scope_vars.copy()
         remaining_code = code_block.lstrip()
         current_line = line_offset
 
@@ -252,7 +258,7 @@ def infix2postfix(infix_code: str) -> str:
                 ].count("\n")
                 cond_postfix = convert_expr(
                     condition,
-                    current_globals,
+                    scope_vars,
                     functions,
                     line_num,
                     global_mode_for_functions,
@@ -274,7 +280,7 @@ def infix2postfix(infix_code: str) -> str:
                 )
                 cond_postfix = convert_expr(
                     condition,
-                    current_globals,
+                    scope_vars,
                     functions,
                     line_num,
                     global_mode_for_functions,
@@ -292,7 +298,9 @@ def infix2postfix(infix_code: str) -> str:
                 tokens.append(f"#{while_start_label}")
                 tokens.append(f"{cond_postfix} not {while_end_label}#")
                 tokens.extend(
-                    _process_code_block(while_body, line_num + condition.count("\n"))
+                    _process_code_block(
+                        while_body, line_num + condition.count("\n"), scope_vars, False
+                    )
                 )
                 tokens.append(f"1 {while_start_label}#")
                 tokens.append(f"#{while_end_label}")
@@ -308,7 +316,7 @@ def infix2postfix(infix_code: str) -> str:
 
                 cond_postfix = convert_expr(
                     condition,
-                    current_globals,
+                    scope_vars,
                     functions,
                     line_num,
                     global_mode_for_functions,
@@ -338,19 +346,25 @@ def infix2postfix(infix_code: str) -> str:
                     # if-else block
                     tokens.append(f"{cond_postfix} not {else_label}#")
                     tokens.extend(
-                        _process_code_block(if_body, line_num + condition.count("\n"))
+                        _process_code_block(
+                            if_body, line_num + condition.count("\n"), scope_vars, False
+                        )
                     )
                     tokens.append(f"1 {endif_label}#")
                     tokens.append(f"#{else_label}")
                     tokens.extend(
-                        _process_code_block(else_body, line_num + if_body.count("\n"))
+                        _process_code_block(
+                            else_body, line_num + if_body.count("\n"), scope_vars, False
+                        )
                     )
                     tokens.append(f"#{endif_label}")
                 else:
                     # if-only block
                     tokens.append(f"{cond_postfix} not {endif_label}#")
                     tokens.extend(
-                        _process_code_block(if_body, line_num + condition.count("\n"))
+                        _process_code_block(
+                            if_body, line_num + condition.count("\n"), scope_vars, False
+                        )
                     )
                     tokens.append(f"#{endif_label}")
 
@@ -403,20 +417,22 @@ def infix2postfix(infix_code: str) -> str:
                                             func_name,
                                         )
 
-                    if var_name not in current_globals and re.search(
+                    if var_name not in scope_vars and re.search(
                         r"(?<!\$)\b" + re.escape(var_name) + r"\b", expr
                     ):
                         raise SyntaxError(
                             f"Variable '{var_name}' used before definition", line_num
                         )
 
-                    if var_name not in global_assignments:
-                        global_assignments[var_name] = line_num
-                    current_globals.add(var_name)
+                    if is_global_scope:
+                        if var_name not in global_assignments:
+                            global_assignments[var_name] = line_num
+                        current_globals.add(var_name)
+                    scope_vars.add(var_name)
 
                     postfix_expr = convert_expr(
                         expr,
-                        current_globals,
+                        scope_vars,
                         functions,
                         line_num,
                         global_mode_for_functions,
@@ -446,7 +462,7 @@ def infix2postfix(infix_code: str) -> str:
 
                     postfix_expr = convert_expr(
                         stmt,
-                        current_globals,
+                        scope_vars,
                         functions,
                         line_num,
                         global_mode_for_functions,
@@ -468,7 +484,7 @@ def infix2postfix(infix_code: str) -> str:
 
         return tokens
 
-    postfix_tokens = _process_code_block(cleaned_code, 1)
+    postfix_tokens = _process_code_block(cleaned_code, 1, set(), True)
 
     # Validate that all goto targets refer to a defined label anywhere in global scope
     for target_label, ln in all_goto_refs:

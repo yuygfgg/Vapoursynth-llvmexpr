@@ -80,7 +80,7 @@ RESULT = final_value
 ### 4.1. Variables
 
 - **Declaration:** Variables are declared implicitly upon their first assignment.
-- **Usage:** A variable must be assigned a value before it is used in an expression. Using an undefined variable will result in a syntax error.
+- **Usage:** A variable must be guaranteed to be assigned a value before it is used in an expression. The transpiler performs a static analysis to ensure a variable is defined on all possible execution paths before any use. Referencing a variable that is not guaranteed to be initialized will result in a syntax error.
 
 ### 4.2. Constants
 
@@ -198,7 +198,18 @@ Additional higher-level helpers can be provided via user-defined libraries, but 
 
 - **Global Scope:** Variables defined at the top level of the script.
 - **Function Scope:** Each function has its own local scope. This includes its parameters and any variables assigned within its body.
+- **Block Scope:** Variables defined inside `if`, `else`, and `while` blocks are local to that specific block. They cannot be accessed outside of the block they are defined in.
 
+**Example of Block Scope:**
+```
+if ($x > 10) {
+    a = 5  # 'a' is defined only inside this block
+}
+
+# Attempting to use 'a' here would cause a syntax error
+# because 'a' is not defined in the global scope.
+# RESULT = a
+```
 ### 7.2. Global Variable Access
 
 By default, functions operate in an isolated scope and cannot access global variables. This behavior can be modified with a global declaration placed immediately before a function definition.
