@@ -175,7 +175,9 @@ These operators truncate floating-point values to integers before the operation.
 - `var!`: Pops the top value from the stack and stores it in a variable named `var`.
 - `var@`: Pushes the value of the variable `var` onto the stack.
 
-**Variable Initialization:** All variables are automatically allocated and initialized to `0.0` at the beginning of expression evaluation, regardless of where they are first used in the code. However, the plugin will try its best to report an error if a variable is used before its first store (not guaranteed in complex control flows).
+**Variable Initialization:** Variables are allocated when the expression is compiled, but they are **not** automatically initialized to any value. It is your responsibility to store a value into a variable (`!`) before you load from it (`@`).
+
+The compiler performs a rigorous static analysis of the control flow. If it detects any path where a variable could be read before it is guaranteed to have been written to, it will raise an error and refuse to compile the expression. This prevents the use of uninitialized variables.
 
 **Example:** `x 2 / my_var! my_var@ my_var@ *` (Calculates `(x/2)^2`).
 
