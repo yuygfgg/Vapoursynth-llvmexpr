@@ -1,20 +1,20 @@
 """
- Copyright (C) 2025 yuygfgg
- 
- This file is part of Vapoursynth-llvmexpr.
- 
- Vapoursynth-llvmexpr is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
- 
- Vapoursynth-llvmexpr is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
- 
- You should have received a copy of the GNU General Public License
- along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
+Copyright (C) 2025 yuygfgg
+
+This file is part of Vapoursynth-llvmexpr.
+
+Vapoursynth-llvmexpr is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+Vapoursynth-llvmexpr is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 import regex as re
@@ -78,14 +78,11 @@ _CONSTANTS = {
     "width",
     "height",
     "pi",
+    "^exit^",
 }
 
-_TERNARY_OPS = {"?"}
-_CLAMP_OPS = {"clip", "clamp", "fma"}
+_TERNARY_OPS = {"?", "clip", "clamp", "fma"}
 
-_REL_STATIC_PATTERN_INFIX = re.compile(
-    r"(\$?\w+)\[\s*(-?\d+)\s*,\s*(-?\d+)\s*\](?::(?:c|m))?"
-)
 _REL_STATIC_PATTERN_POSTFIX = re.compile(
     r"(\w+)\[\s*(-?\d+)\s*,\s*(-?\d+)\s*\](?::(?:c|m))?"
 )
@@ -105,7 +102,6 @@ _HEX_PARTS_PATTERN = re.compile(
 _OCTAL_PATTERN = re.compile(r"^0[0-7]")
 _DROP_PATTERN = re.compile(r"^drop([1-9]\d*)?$")
 _CLIP_NAME_PATTERN = re.compile(r"(?:[a-z]|src\d+)$")
-_SRC_PATTERN = re.compile(r"^src\d+$")
 _FRAME_PROP_PATTERN = re.compile(r"^[a-zA-Z_]\w*\.[a-zA-Z_]\w*$")
 _STATIC_PIXEL_PATTERN = re.compile(
     r"^([a-zA-Z]\w*)\[\s*(-?\d+)\s*,\s*(-?\d+)\s*\](\:\w+)?$"
@@ -129,7 +125,7 @@ def is_clip_postfix(token: str) -> bool:
 @lru_cache
 def is_clip_infix(token: str) -> bool:
     """Check if a token string represents a clip."""
-    return is_clip_postfix(token.lstrip("$")) and token.startswith("$")
+    return token.startswith("$") and is_clip_postfix(token[1:])
 
 
 @lru_cache
@@ -137,15 +133,7 @@ def is_constant_postfix(token: str) -> bool:
     """
     Check if the token is a built-in constant.
     """
-    constants_set = {
-        "N",
-        "X",
-        "Y",
-        "width",
-        "height",
-        "pi",
-    }
-    if token in constants_set:
+    if token in _CONSTANTS:
         return True
     if is_clip_postfix(token):
         return True
@@ -157,7 +145,7 @@ def is_constant_infix(token: str) -> bool:
     """
     Check if the token is a built-in constant
     """
-    return is_constant_postfix(token.lstrip("$")) and token.startswith("$")
+    return token.startswith("$") and is_constant_postfix(token[1:])
 
 
 @lru_cache
@@ -283,16 +271,17 @@ def get_stack_effect(token: str) -> int:
         or is_constant_postfix(token)
         or _FRAME_PROP_PATTERN.match(token)
         or (
-            token.startswith("dup") and not (token.endswith("!") or token.endswith("@"))
+            token.startswith("dup")
+            and not _VAR_STORE_PATTERN.match(token)
+            and not _VAR_LOAD_PATTERN.match(token)
         )
-        or token == "^exit^"
     ):
         return 1
-    if token in _UNARY_OPS or token.startswith(("swap", "sort")):
+    if token in _UNARY_OPS or _SWAP_PATTERN.match(token) or _SORT_PATTERN.match(token):
         return 0
     if token in _BINARY_OPS:
         return -1
-    if token in _TERNARY_OPS or token in _CLAMP_OPS:
+    if token in _TERNARY_OPS:
         return -2
     if token == "@[]":
         return -3
@@ -317,16 +306,14 @@ def get_stack_effect(token: str) -> int:
     ):
         return 1
 
-    if token.startswith("drop"):
-        m = _DROP_PATTERN.fullmatch(token)
-        if m:
-            n_str = m.group(1)
-            return -(int(n_str) if n_str else 1)
+    if m := _DROP_PATTERN.fullmatch(token):
+        n_str = m.group(1)
+        return -(int(n_str) if n_str else 1)
 
-    if token.startswith("#") and len(token) > 1:
+    if _LABEL_DEF_PATTERN.match(token):
         return 0
 
-    if token.endswith("#") and len(token) > 1:
+    if _COND_JUMP_PATTERN.match(token):
         return -1
 
     return 0
@@ -341,7 +328,7 @@ def get_op_arity(token: str) -> int:
         return 1
     if token in _BINARY_OPS:
         return 2
-    if token in _TERNARY_OPS or token in _CLAMP_OPS:
+    if token in _TERNARY_OPS:
         return 3
     if token == "@[]":
         return 3
@@ -389,16 +376,3 @@ def get_op_arity(token: str) -> int:
                         )
                     return n
     return 0
-
-
-def get_used_variable_names(tokens: Union[list[str], str]) -> set[str]:
-    """Extract all variable names used in the expression."""
-
-    if isinstance(tokens, str):
-        tokens = tokenize_expr(tokens)
-
-    return set(
-        varname[:-1]
-        for varname in tokens
-        if varname.endswith("!") or varname.endswith("@")
-    )
