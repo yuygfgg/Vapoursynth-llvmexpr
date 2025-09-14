@@ -484,7 +484,7 @@ class OrcJit {
     std::unique_ptr<llvm::orc::LLJIT> lljit;
 
   public:
-    OrcJit() {
+    explicit OrcJit(bool no_nans_fp_math) {
         static struct LLVMInitializer {
             LLVMInitializer() {
                 llvm::InitializeNativeTarget();
@@ -512,9 +512,7 @@ class OrcJit {
         Opts.AllowFPOpFusion = llvm::FPOpFusion::Fast;
         Opts.UnsafeFPMath = true;
         Opts.NoInfsFPMath = true;
-        Opts.NoNaNsFPMath = false; // Special qNaNs are used for props not
-                                   // exist error and for exit signal
-        // TODO: only disable `NoNaNsFPMath` only when needed.
+        Opts.NoNaNsFPMath = no_nans_fp_math;
         jtmb.setOptions(Opts);
 
         auto jit_builder = llvm::orc::LLJITBuilder();
@@ -558,7 +556,8 @@ struct CompiledFunction {
 
 std::unordered_map<std::string, CompiledFunction> jit_cache;
 std::mutex cache_mutex;
-OrcJit global_jit;
+OrcJit global_jit_fast(true);
+OrcJit global_jit_nan_safe(false);
 
 class Compiler {
   private:
@@ -619,19 +618,33 @@ class Compiler {
           func_name(std::move(function_name)),
           context(std::make_unique<llvm::LLVMContext>()),
           module(std::make_unique<llvm::Module>("ExprJITModule", *context)),
-          builder(*context) {
-        llvm::FastMathFlags FMF;
-        FMF.setFast();
-        builder.setFastMathFlags(FMF);
-    }
+          builder(*context) {}
 
     CompiledFunction compile() {
+        bool needs_nans = false;
+        for (const auto& token : tokens) {
+            if (token.type ==
+                TokenType::EXIT_NO_WRITE) { // Akarin.Expr uses fast math even
+                                            // when props not exist, so we only
+                                            // check for `^exit^`.
+                needs_nans = true;
+                break;
+            }
+        }
+
+        OrcJit& jit = needs_nans ? global_jit_nan_safe : global_jit_fast;
+
+        llvm::FastMathFlags FMF;
+        FMF.setFast();
+        FMF.setNoNaNs(!needs_nans);
+        builder.setFastMathFlags(FMF);
+
         validate_and_build_cfg();
 
         define_function_signature();
         generate_loops();
 
-        module->setDataLayout(global_jit.getDataLayout());
+        module->setDataLayout(jit.getDataLayout());
 
         if (llvm::verifyModule(*module, &llvm::errs())) {
             module->print(llvm::errs(), nullptr);
@@ -686,8 +699,8 @@ class Compiler {
             }
         }
 
-        global_jit.addModule(std::move(module), std::move(context));
-        void* func_addr = global_jit.getFunctionAddress(func_name);
+        jit.addModule(std::move(module), std::move(context));
+        void* func_addr = jit.getFunctionAddress(func_name);
 
         if (!func_addr) {
             throw std::runtime_error("Failed to get JIT'd function address.");
@@ -1981,24 +1994,36 @@ class Compiler {
             result_val = phi;
         }
 
-        llvm::Value* result_int =
-            builder.CreateBitCast(result_val, builder.getInt32Ty());
-        llvm::Value* exit_nan_int = builder.getInt32(EXIT_NAN_PAYLOAD);
-        llvm::Value* is_exit_val =
-            builder.CreateICmpEQ(result_int, exit_nan_int);
+        bool has_exit = false;
+        for (const auto& token : tokens) {
+            if (token.type == TokenType::EXIT_NO_WRITE) {
+                has_exit = true;
+                break;
+            }
+        }
 
-        llvm::BasicBlock* store_block =
-            llvm::BasicBlock::Create(*context, "do_default_store", parent_func);
-        llvm::BasicBlock* after_store_block = llvm::BasicBlock::Create(
-            *context, "after_default_store", parent_func);
+        if (has_exit) {
+            llvm::Value* result_int =
+                builder.CreateBitCast(result_val, builder.getInt32Ty());
+            llvm::Value* exit_nan_int = builder.getInt32(EXIT_NAN_PAYLOAD);
+            llvm::Value* is_exit_val =
+                builder.CreateICmpEQ(result_int, exit_nan_int);
 
-        builder.CreateCondBr(is_exit_val, after_store_block, store_block);
+            llvm::BasicBlock* store_block = llvm::BasicBlock::Create(
+                *context, "do_default_store", parent_func);
+            llvm::BasicBlock* after_store_block = llvm::BasicBlock::Create(
+                *context, "after_default_store", parent_func);
 
-        builder.SetInsertPoint(store_block);
-        generate_pixel_store(result_val, x, y);
-        builder.CreateBr(after_store_block);
+            builder.CreateCondBr(is_exit_val, after_store_block, store_block);
 
-        builder.SetInsertPoint(after_store_block);
+            builder.SetInsertPoint(store_block);
+            generate_pixel_store(result_val, x, y);
+            builder.CreateBr(after_store_block);
+
+            builder.SetInsertPoint(after_store_block);
+        } else {
+            generate_pixel_store(result_val, x, y);
+        }
     }
 
     llvm::Value* generate_pixel_load(int clip_idx, llvm::Value* x,
