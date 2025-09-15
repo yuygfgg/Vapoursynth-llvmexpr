@@ -1,20 +1,20 @@
 """
- Copyright (C) 2025 yuygfgg
- 
- This file is part of Vapoursynth-llvmexpr.
- 
- Vapoursynth-llvmexpr is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
- 
- Vapoursynth-llvmexpr is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
- 
- You should have received a copy of the GNU General Public License
- along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
+Copyright (C) 2025 yuygfgg
+
+This file is part of Vapoursynth-llvmexpr.
+
+Vapoursynth-llvmexpr is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+Vapoursynth-llvmexpr is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 from .utils import (
@@ -212,23 +212,6 @@ def infix2postfix(infix_code: str) -> str:
         body_lines_strip = [line.strip() for line in body.split("\n") if line.strip()]
         has_return = any(line.startswith("return") for line in body_lines_strip)
 
-        # Forbid control flow at function scope: if/else/goto/labels
-        for offset, line_text in enumerate(body.split("\n")):
-            stripped = line_text.strip()
-            if not stripped:
-                continue
-            if (
-                _IF_STMT_PATTERN.match(stripped)
-                or _ELSE_STMT_PATTERN.match(stripped)
-                or _GOTO_STMT_PATTERN.match(stripped)
-                or _LABEL_STMT_PATTERN.match(stripped)
-            ):
-                raise SyntaxError(
-                    "Control flow statements 'if/else/goto' and labels are not allowed inside functions.",
-                    line_num + offset,
-                    func_name,
-                )
-
         functions[func_name] = (params, body, line_num, global_vars, has_return)
         return "\n" * match.group(0).count("\n")
 
@@ -250,6 +233,10 @@ def infix2postfix(infix_code: str) -> str:
         line_offset: int,
         parent_scope_vars: set[str],
         is_global_scope: bool,
+        func_name: Optional[str] = None,
+        label_prefix: str = "",
+        func_defined_labels: Optional[set[str]] = None,
+        func_goto_refs: Optional[list[tuple[str, int]]] = None,
     ) -> list[str]:
         tokens: list[str] = []
         scope_vars = parent_scope_vars.copy()
@@ -264,11 +251,28 @@ def infix2postfix(infix_code: str) -> str:
             goto_match = _GOTO_PATTERN.match(remaining_code)
             if_match = _IF_PATTERN.match(remaining_code)
             while_match = _WHILE_PATTERN.match(remaining_code)
+            return_match = (
+                _RETURN_STMT_PATTERN.match(remaining_code.lstrip().split("\n")[0])
+                if func_name
+                else None
+            )
 
             if label_match:
                 label_name = label_match.group(1)
-                all_labels.add(label_name)
-                tokens.append(f"#{label_name}")
+                if is_global_scope:
+                    all_labels.add(label_name)
+                    tokens.append(f"#{label_name}")
+                else:
+                    if func_defined_labels is not None:
+                        if label_name in func_defined_labels:
+                            raise SyntaxError(
+                                f"Duplicate label '{label_name}' in function '{func_name}'",
+                                current_line,
+                                func_name,
+                            )
+                        func_defined_labels.add(label_name)
+                    tokens.append(f"#{label_prefix}{label_name}")
+
                 remaining_code = remaining_code[label_match.end() :]
             elif if_goto_match:
                 condition, label_name = if_goto_match.groups()
@@ -281,14 +285,29 @@ def infix2postfix(infix_code: str) -> str:
                     functions,
                     line_num,
                     global_mode_for_functions,
+                    current_function=func_name,
+                    process_code_block=_process_code_block,
                 )
-                tokens.append(f"{cond_postfix} {label_name}#")
-                all_goto_refs.append((label_name, line_num))
+                if is_global_scope:
+                    all_goto_refs.append((label_name, line_num))
+                    tokens.append(f"{cond_postfix} {label_name}#")
+                else:
+                    if func_goto_refs is not None:
+                        func_goto_refs.append((label_name, line_num))
+                    tokens.append(f"{cond_postfix} {label_prefix}{label_name}#")
                 remaining_code = remaining_code[if_goto_match.end() :]
             elif goto_match:
                 label_name = goto_match.group(1)
-                tokens.append(f"1 {label_name}#")
-                all_goto_refs.append((label_name, current_line))
+                line_num = current_line + remaining_code[: goto_match.start(1)].count(
+                    "\n"
+                )
+                if is_global_scope:
+                    all_goto_refs.append((label_name, line_num))
+                    tokens.append(f"1 {label_name}#")
+                else:
+                    if func_goto_refs is not None:
+                        func_goto_refs.append((label_name, line_num))
+                    tokens.append(f"1 {label_prefix}{label_name}#")
                 remaining_code = remaining_code[goto_match.end() :]
             elif while_match:
                 label_counter[0] += 1
@@ -303,6 +322,8 @@ def infix2postfix(infix_code: str) -> str:
                     functions,
                     line_num,
                     global_mode_for_functions,
+                    current_function=func_name,
+                    process_code_block=_process_code_block,
                 )
 
                 block_start = while_match.end()
@@ -314,15 +335,22 @@ def infix2postfix(infix_code: str) -> str:
 
                 while_start_label = f"__internal_while_start_{current_label_id}"
                 while_end_label = f"__internal_while_end_{current_label_id}"
-                tokens.append(f"#{while_start_label}")
-                tokens.append(f"{cond_postfix} not {while_end_label}#")
+                tokens.append(f"#{label_prefix}{while_start_label}")
+                tokens.append(f"{cond_postfix} not {label_prefix}{while_end_label}#")
                 tokens.extend(
                     _process_code_block(
-                        while_body, line_num + condition.count("\n"), scope_vars, False
+                        while_body,
+                        line_num + condition.count("\n"),
+                        scope_vars,
+                        False,
+                        func_name,
+                        label_prefix,
+                        func_defined_labels,
+                        func_goto_refs,
                     )
                 )
-                tokens.append(f"1 {while_start_label}#")
-                tokens.append(f"#{while_end_label}")
+                tokens.append(f"1 {label_prefix}{while_start_label}#")
+                tokens.append(f"#{label_prefix}{while_end_label}")
             elif if_match:
                 label_counter[0] += 1
                 current_label_id = label_counter[0]
@@ -339,6 +367,8 @@ def infix2postfix(infix_code: str) -> str:
                     functions,
                     line_num,
                     global_mode_for_functions,
+                    current_function=func_name,
+                    process_code_block=_process_code_block,
                 )
 
                 block_start = if_match.end()
@@ -363,29 +393,86 @@ def infix2postfix(infix_code: str) -> str:
                     remaining_code = remaining_code[else_block_end + 1 :]
 
                     # if-else block
-                    tokens.append(f"{cond_postfix} not {else_label}#")
+                    tokens.append(f"{cond_postfix} not {label_prefix}{else_label}#")
                     tokens.extend(
                         _process_code_block(
-                            if_body, line_num + condition.count("\n"), scope_vars, False
+                            if_body,
+                            line_num + condition.count("\n"),
+                            scope_vars,
+                            False,
+                            func_name,
+                            label_prefix,
+                            func_defined_labels,
+                            func_goto_refs,
                         )
                     )
-                    tokens.append(f"1 {endif_label}#")
-                    tokens.append(f"#{else_label}")
+                    tokens.append(f"1 {label_prefix}{endif_label}#")
+                    tokens.append(f"#{label_prefix}{else_label}")
                     tokens.extend(
                         _process_code_block(
-                            else_body, line_num + if_body.count("\n"), scope_vars, False
+                            else_body,
+                            line_num + if_body.count("\n"),
+                            scope_vars,
+                            False,
+                            func_name,
+                            label_prefix,
+                            func_defined_labels,
+                            func_goto_refs,
                         )
                     )
-                    tokens.append(f"#{endif_label}")
+                    tokens.append(f"#{label_prefix}{endif_label}")
                 else:
                     # if-only block
-                    tokens.append(f"{cond_postfix} not {endif_label}#")
+                    tokens.append(f"{cond_postfix} not {label_prefix}{endif_label}#")
                     tokens.extend(
                         _process_code_block(
-                            if_body, line_num + condition.count("\n"), scope_vars, False
+                            if_body,
+                            line_num + condition.count("\n"),
+                            scope_vars,
+                            False,
+                            func_name,
+                            label_prefix,
+                            func_defined_labels,
+                            func_goto_refs,
                         )
                     )
-                    tokens.append(f"#{endif_label}")
+                    tokens.append(f"#{label_prefix}{endif_label}")
+
+            elif return_match:
+                line_num = current_line
+                if func_name is None:
+                    raise SyntaxError(
+                        "return statement is not allowed in global scope", line_num
+                    )
+
+                has_return_val = functions[func_name][4]
+                expr = return_match.group(1)
+
+                if expr:
+                    if not has_return_val:
+                        raise SyntaxError(
+                            f"Function '{func_name}' should not return a value.",
+                            line_num,
+                            func_name,
+                        )
+                    postfix_expr = convert_expr(
+                        expr.strip(),
+                        scope_vars,
+                        functions,
+                        line_num,
+                        global_mode_for_functions,
+                        current_function=func_name,
+                        process_code_block=_process_code_block,
+                    )
+                    tokens.append(postfix_expr)
+                else:
+                    if has_return_val:
+                        raise SyntaxError(
+                            f"Function '{func_name}' must return a value.",
+                            line_num,
+                            func_name,
+                        )
+                remaining_code = remaining_code.lstrip()[return_match.end() :]
 
             else:
                 # Simple statement (assignment or expression)
@@ -405,10 +492,14 @@ def infix2postfix(infix_code: str) -> str:
                     var_name, expr = stmt.split("=", 1)
                     var_name = var_name.strip()
                     if var_name.startswith("__internal_"):
-                        raise SyntaxError(
-                            f"Variable name '{var_name}' cannot start with '__internal_' (reserved prefix)",
-                            line_num,
-                        )
+                        if not (
+                            func_name
+                            and var_name.startswith(f"__internal_{func_name}_")
+                        ):
+                            raise SyntaxError(
+                                f"Variable name '{var_name}' cannot start with '__internal_' (reserved prefix)",
+                                line_num,
+                            )
                     if is_constant_infix(var_name):
                         raise SyntaxError(
                             f"Cannot assign to constant '{var_name}'.", line_num
@@ -417,23 +508,23 @@ def infix2postfix(infix_code: str) -> str:
 
                     m_call = _M_CALL_PATTERN.match(expr)
                     if m_call:
-                        func_name = m_call.group(1)
-                        if func_name in functions:
-                            if not functions[func_name][4]:
+                        called_func_name = m_call.group(1)
+                        if called_func_name in functions:
+                            if not functions[called_func_name][4]:
                                 raise SyntaxError(
-                                    f"Function '{func_name}' does not return a value and cannot be used in an assignment.",
+                                    f"Function '{called_func_name}' does not return a value and cannot be used in an assignment.",
                                     line_num,
                                 )
                             func_global_mode = global_mode_for_functions.get(
-                                func_name, GlobalMode.NONE
+                                called_func_name, GlobalMode.NONE
                             )
                             if func_global_mode == GlobalMode.SPECIFIC:
-                                for gv in functions[func_name][3]:
+                                for gv in functions[called_func_name][3]:
                                     if gv not in current_globals:
                                         raise SyntaxError(
-                                            f"Global variable '{gv}' used in function '{func_name}' is not defined before its first call.",
+                                            f"Global variable '{gv}' used in function '{called_func_name}' is not defined before its first call.",
                                             line_num,
-                                            func_name,
+                                            called_func_name,
                                         )
 
                     if var_name not in scope_vars and re.search(
@@ -455,6 +546,8 @@ def infix2postfix(infix_code: str) -> str:
                         functions,
                         line_num,
                         global_mode_for_functions,
+                        current_function=func_name,
+                        process_code_block=_process_code_block,
                     )
                     full_postfix_expr = f"{postfix_expr} {var_name}!"
                     if compute_stack_effect(full_postfix_expr, line_num) != 0:
@@ -465,18 +558,18 @@ def infix2postfix(infix_code: str) -> str:
                 else:
                     m_call = _M_CALL_PATTERN.match(stmt)
                     if m_call:
-                        func_name = m_call.group(1)
-                        if func_name in functions:
+                        called_func_name = m_call.group(1)
+                        if called_func_name in functions:
                             func_global_mode = global_mode_for_functions.get(
-                                func_name, GlobalMode.NONE
+                                called_func_name, GlobalMode.NONE
                             )
                             if func_global_mode == GlobalMode.SPECIFIC:
-                                for gv in functions[func_name][3]:
+                                for gv in functions[called_func_name][3]:
                                     if gv not in current_globals:
                                         raise SyntaxError(
-                                            f"Global variable '{gv}' used in function '{func_name}' is not defined before its first call.",
+                                            f"Global variable '{gv}' used in function '{called_func_name}' is not defined before its first call.",
                                             line_num,
-                                            func_name,
+                                            called_func_name,
                                         )
 
                     postfix_expr = convert_expr(
@@ -485,6 +578,8 @@ def infix2postfix(infix_code: str) -> str:
                         functions,
                         line_num,
                         global_mode_for_functions,
+                        current_function=func_name,
+                        process_code_block=_process_code_block,
                     )
                     if compute_stack_effect(postfix_expr, line_num) != 0:
                         raise SyntaxError(
@@ -583,6 +678,7 @@ _IF_STMT_PATTERN = re.compile(r"^\s*if\s*\(")
 _ELSE_STMT_PATTERN = re.compile(r"^\s*else\b")
 _GOTO_STMT_PATTERN = re.compile(r"^\s*goto\s+[A-Za-z_]\w*")
 _LABEL_STMT_PATTERN = re.compile(r"^\s*[A-Za-z_]\w*\s*:")
+_RETURN_STMT_PATTERN = re.compile(r"^\s*return(?:\s+(.*))?$")
 
 
 class SyntaxError(Exception):
@@ -704,7 +800,7 @@ def compute_stack_effect(
             raise SyntaxError(
                 f"Stack underflow for operator {token} at token index {i} \n"
                 f"Stack size: {stack_size}, arity: {arity} \n"
-                f"Tokens: {' '.join(tokens)}",
+                f"Tokens: {" ".join(tokens)}",
                 line_num,
                 func_name,
             )
@@ -880,12 +976,16 @@ def convert_expr(
     current_function: Optional[str] = None,
     local_vars: Optional[set[str]] = None,
     literals_in_scope: Optional[set[str]] = None,
+    process_code_block=None,
 ) -> str:
     """
     Convert a single infix expression to a postfix expression.
     Supports binary and unary operators, function calls, and custom function definitions.
     """
     expr = expr.strip()
+
+    if current_function and local_vars is None:
+        local_vars = variables
 
     if is_token_numeric(expr):
         return expr
@@ -938,6 +1038,7 @@ def convert_expr(
                     current_function,
                     local_vars,
                     literals_in_scope,
+                    process_code_block,
                 )
                 for arg in args
             ]
@@ -966,6 +1067,7 @@ def convert_expr(
                 current_function,
                 local_vars,
                 literals_in_scope,
+                process_code_block,
             )
             for arg in args
         ]
@@ -1052,7 +1154,7 @@ def convert_expr(
                 return f"{args_postfix[0]} {func_name}"
         # Handle custom function calls.
         if func_name in functions:
-            params, body, func_line_num, global_vars, _ = functions[func_name]
+            params, body, func_line_num, global_vars, has_return = functions[func_name]
             if len(args) != len(params):
                 raise SyntaxError(
                     f"Function {func_name} requires {len(params)} parameters, but {len(args)} were provided.",
@@ -1061,21 +1163,7 @@ def convert_expr(
                 )
             # Rename parameters: __internal_<funcname>_<varname>
             param_map = {p: f"__internal_{func_name}_{p}" for p in params}
-            body_lines = [line.strip() for line in body.split("\n")]
-            body_lines_strip = [
-                line.strip() for line in body.split("\n") if line.strip()
-            ]
-            return_indices = [
-                i
-                for i, line in enumerate(body_lines_strip)
-                if line.startswith("return")
-            ]
-            if return_indices and return_indices[0] != len(body_lines_strip) - 1:
-                raise SyntaxError(
-                    f"Return statement must be the last line in function '{func_name}'",
-                    func_line_num,
-                    func_name,
-                )
+            body_lines = body.split("\n")
 
             local_map: dict[str, str] = {}
             func_global_mode = global_mode_for_functions.get(func_name, GlobalMode.NONE)
@@ -1086,9 +1174,9 @@ def convert_expr(
                 effective_globals = global_vars
 
             for offset, body_line in enumerate(body_lines):
-                if body_line.startswith("return"):
+                if body_line.strip().startswith("return"):
                     continue
-                m_line = _M_LINE_PATTERN.match(body_line)
+                m_line = _M_LINE_PATTERN.match(body_line.strip())
                 if m_line:
                     var = m_line.group(1)
                     if var.startswith("__internal_"):
@@ -1162,110 +1250,38 @@ def convert_expr(
                     new_line = re.sub(pattern, replace_func, new_line)
 
                 new_lines.append(new_line)
-            function_tokens: list[str] = []
-            return_count = 0
-            for offset, body_line in enumerate(new_lines):
-                effective_line_num = func_line_num + offset
-                if body_line.startswith(
-                    "return"
-                ):  # Return does nothing, but it looks better to have one.
-                    return_count += 1
-                    ret_expr = body_line[len("return") :].strip()
 
-                    # Check if a function that does not return a value is being returned.
-                    m_call = _M_CALL_PATTERN.match(ret_expr)
-                    if m_call:
-                        called_func_name = m_call.group(1)
-                        if called_func_name in functions:
-                            if not functions[called_func_name][
-                                4
-                            ]:  # has_return is False
-                                raise SyntaxError(
-                                    f"Function '{called_func_name}' does not return a value and cannot be used in a return statement.",
-                                    effective_line_num,
-                                    func_name,
-                                )
+            renamed_body = "\n".join(new_lines)
+            func_defined_labels: set[str] = set()
+            func_goto_refs: list[tuple[str, int]] = []
+            label_prefix = f"__internal_{func_name}_"
 
-                    function_tokens.append(
-                        convert_expr(
-                            ret_expr,
-                            variables,
-                            functions,
-                            effective_line_num,
-                            global_mode_for_functions,
-                            func_name,
-                            new_local_vars,
-                            literals_for_body,
-                        )
-                    )
-                # Process assignment statements.
-                elif _ASSIGN_PATTERN.search(body_line):
-                    var_name, expr_line = body_line.split("=", 1)
-                    var_name = var_name.strip()
-                    if is_constant_infix(f"{var_name}"):
-                        raise SyntaxError(
-                            f"Cannot assign to constant '{var_name}'.",
-                            effective_line_num,
-                            func_name,
-                        )
-                    if var_name not in new_local_vars and re.search(
-                        r"(?<!\$)\b" + re.escape(var_name) + r"\b", expr_line
-                    ):
-                        _, orig_var = extract_function_info(var_name, func_name)
-                        raise SyntaxError(
-                            f"Variable '{orig_var}' used before definition",
-                            effective_line_num,
-                            func_name,
-                        )
-                    if var_name not in new_local_vars:
-                        new_local_vars.add(var_name)
-
-                    postfix_line = f"{convert_expr(expr_line, variables, functions, effective_line_num, global_mode_for_functions, func_name, new_local_vars, literals_for_body)} {var_name}!"
-                    if (
-                        compute_stack_effect(
-                            postfix_line, effective_line_num, func_name
-                        )
-                        != 0
-                    ):
-                        raise SyntaxError(
-                            "Assignment statement has unbalanced stack.",
-                            effective_line_num,
-                            func_name,
-                        )
-
-                    function_tokens.append(postfix_line)
-                else:
-                    postfix_line = convert_expr(
-                        body_line,
-                        variables,
-                        functions,
-                        effective_line_num,
-                        global_mode_for_functions,
-                        func_name,
-                        new_local_vars,
-                        literals_for_body,
-                    )
-                    if (
-                        compute_stack_effect(
-                            postfix_line, effective_line_num, func_name
-                        )
-                        != 0
-                    ):
-                        raise SyntaxError(
-                            "Expression statement has unbalanced stack. Maybe you forgot to assign it to a variable?",
-                            effective_line_num,
-                            func_name,
-                        )
-                    function_tokens.append(postfix_line)
-            if return_count > 1:
-                raise SyntaxError(
-                    f"Function {func_name} must return at most one value, got {return_count}",
-                    func_line_num,
-                    func_name,
+            if process_code_block is None:
+                raise RuntimeError(
+                    "process_code_block callback is required in convert_expr when expanding functions"
                 )
+            function_tokens = process_code_block(
+                renamed_body,
+                func_line_num,
+                new_local_vars,
+                is_global_scope=False,
+                func_name=func_name,
+                label_prefix=label_prefix,
+                func_defined_labels=func_defined_labels,
+                func_goto_refs=func_goto_refs,
+            )
+
+            for target_label, ln in func_goto_refs:
+                if target_label not in func_defined_labels:
+                    raise SyntaxError(
+                        f"goto target '{target_label}' is undefined in function '{func_name}'",
+                        ln,
+                        func_name,
+                    )
+
             result_expr = " ".join(param_assignments + function_tokens)
             net_effect = compute_stack_effect(result_expr, line_num, func_name)
-            if return_count == 1:
+            if has_return:
                 if net_effect != 1:
                     raise SyntaxError(
                         f"The return value stack of function {func_name} is unbalanced; expected 1 but got {net_effect}.",
@@ -1291,6 +1307,7 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
+            process_code_block,
         )
 
     m_static = _M_STATIC_PATTERN.match(expr)
@@ -1324,6 +1341,7 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
+            process_code_block,
         )
         true_conv = convert_expr(
             true_expr,
@@ -1334,6 +1352,7 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
+            process_code_block,
         )
         false_conv = convert_expr(
             false_expr,
@@ -1344,6 +1363,7 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
+            process_code_block,
         )
         return f"{cond_conv} {true_conv} {false_conv} ?"
 
@@ -1378,6 +1398,7 @@ def convert_expr(
                 current_function,
                 local_vars,
                 literals_in_scope,
+                process_code_block,
             )
             right_postfix = convert_expr(
                 right,
@@ -1388,6 +1409,7 @@ def convert_expr(
                 current_function,
                 local_vars,
                 literals_in_scope,
+                process_code_block,
             )
             if _LETTER_PATTERN.fullmatch(
                 left.strip()
@@ -1416,6 +1438,7 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
+            process_code_block,
         )
         return f"{operand} not"
 
@@ -1429,6 +1452,7 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
+            process_code_block,
         )
         return f"{operand} -1 *"
 
@@ -1442,6 +1466,7 @@ def convert_expr(
             current_function,
             local_vars,
             literals_in_scope,
+            process_code_block,
         )
         return f"{operand} bitnot"
 

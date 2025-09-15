@@ -260,7 +260,7 @@ Access a pixel from a source clip at a dynamically calculated coordinate. This i
 
 ## 9. Control Flow (if/else/goto and Labels)
 
-The infix syntax supports structured conditionals and low-level jumps at the global scope. These compile to RPN labels and conditional jumps.
+The infix syntax supports structured conditionals and low-level jumps at both global and function scope. These compile to RPN labels and conditional jumps.
 
 ### 9.1. If / Else Blocks
 
@@ -327,12 +327,7 @@ while (counter > 0) {
 RESULT = counter # will be 0
 ```
 
-### 9.4. Function Scope Restrictions
-
-- Inside `function` bodies, control flow statements are forbidden: `if`, `else`, `goto`, `while`, and labels are not allowed and will cause a syntax error.
-- User-defined functions must be straight-line code with at most one `return` as the last statement.
-
-### 9.5. Examples
+### 9.4. Examples
 
 Simple conditional assignment:
 
