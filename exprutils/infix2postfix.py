@@ -237,6 +237,7 @@ def infix2postfix(infix_code: str) -> str:
         label_prefix: str = "",
         func_defined_labels: Optional[set[str]] = None,
         func_goto_refs: Optional[list[tuple[str, int]]] = None,
+        literals_in_scope: Optional[set[str]] = None,
     ) -> list[str]:
         tokens: list[str] = []
         scope_vars = parent_scope_vars.copy()
@@ -287,6 +288,7 @@ def infix2postfix(infix_code: str) -> str:
                     global_mode_for_functions,
                     current_function=func_name,
                     process_code_block=_process_code_block,
+                    literals_in_scope=literals_in_scope,
                 )
                 if is_global_scope:
                     all_goto_refs.append((label_name, line_num))
@@ -324,6 +326,7 @@ def infix2postfix(infix_code: str) -> str:
                     global_mode_for_functions,
                     current_function=func_name,
                     process_code_block=_process_code_block,
+                    literals_in_scope=literals_in_scope,
                 )
 
                 block_start = while_match.end()
@@ -347,6 +350,7 @@ def infix2postfix(infix_code: str) -> str:
                         label_prefix,
                         func_defined_labels,
                         func_goto_refs,
+                        literals_in_scope=literals_in_scope,
                     )
                 )
                 tokens.append(f"1 {label_prefix}{while_start_label}#")
@@ -369,6 +373,7 @@ def infix2postfix(infix_code: str) -> str:
                     global_mode_for_functions,
                     current_function=func_name,
                     process_code_block=_process_code_block,
+                    literals_in_scope=literals_in_scope,
                 )
 
                 block_start = if_match.end()
@@ -404,6 +409,7 @@ def infix2postfix(infix_code: str) -> str:
                             label_prefix,
                             func_defined_labels,
                             func_goto_refs,
+                            literals_in_scope=literals_in_scope,
                         )
                     )
                     tokens.append(f"1 {label_prefix}{endif_label}#")
@@ -418,6 +424,7 @@ def infix2postfix(infix_code: str) -> str:
                             label_prefix,
                             func_defined_labels,
                             func_goto_refs,
+                            literals_in_scope=literals_in_scope,
                         )
                     )
                     tokens.append(f"#{label_prefix}{endif_label}")
@@ -434,6 +441,7 @@ def infix2postfix(infix_code: str) -> str:
                             label_prefix,
                             func_defined_labels,
                             func_goto_refs,
+                            literals_in_scope=literals_in_scope,
                         )
                     )
                     tokens.append(f"#{label_prefix}{endif_label}")
@@ -463,6 +471,7 @@ def infix2postfix(infix_code: str) -> str:
                         global_mode_for_functions,
                         current_function=func_name,
                         process_code_block=_process_code_block,
+                        literals_in_scope=literals_in_scope,
                     )
                     tokens.append(postfix_expr)
                 else:
@@ -548,6 +557,7 @@ def infix2postfix(infix_code: str) -> str:
                         global_mode_for_functions,
                         current_function=func_name,
                         process_code_block=_process_code_block,
+                        literals_in_scope=literals_in_scope,
                     )
                     full_postfix_expr = f"{postfix_expr} {var_name}!"
                     if compute_stack_effect(full_postfix_expr, line_num) != 0:
@@ -580,6 +590,7 @@ def infix2postfix(infix_code: str) -> str:
                         global_mode_for_functions,
                         current_function=func_name,
                         process_code_block=_process_code_block,
+                        literals_in_scope=literals_in_scope,
                     )
                     if compute_stack_effect(postfix_expr, line_num) != 0:
                         raise SyntaxError(
@@ -1269,6 +1280,7 @@ def convert_expr(
                 label_prefix=label_prefix,
                 func_defined_labels=func_defined_labels,
                 func_goto_refs=func_goto_refs,
+                literals_in_scope=literals_for_body,
             )
 
             for target_label, ln in func_goto_refs:

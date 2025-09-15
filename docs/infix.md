@@ -183,7 +183,7 @@ function functionName(param1, param2) {
 }
 ```
 
-- **Return Statement:** A function can have at most one `return` statement, which must be the last non-empty statement in its body. If a function has no `return` statement, it produces no value.
+- **Return Statement:** A function can have **at most one** `return` statement, which must be the last non-empty statement in its body. If a function has no `return` statement, it produces no value.
 - **Parameters:** Function parameters are read-only and cannot be reassigned within the function body.
 - **Inlining:** Function calls are effectively inlined at compile time. Recursion is not supported.
 - **Nesting:** Function definitions cannot be nested.
