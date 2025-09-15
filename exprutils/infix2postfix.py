@@ -494,7 +494,7 @@ def infix2postfix(infix_code: str) -> str:
                     if var_name.startswith("__internal_"):
                         if not (
                             func_name
-                            and var_name.startswith(f"__internal_{func_name}_")
+                            and var_name.startswith(f"__internal_func_{func_name}_")
                         ):
                             raise SyntaxError(
                                 f"Variable name '{var_name}' cannot start with '__internal_' (reserved prefix)",
@@ -628,7 +628,7 @@ def infix2postfix(infix_code: str) -> str:
 _SCIENTIFIC_E_PATTERN = re.compile(r"(?<=[0-9\.])e(?=[+-]?[0-9])", re.IGNORECASE)
 _HEX_P_PATTERN = re.compile(r"(?<=[0-9a-fA-F\.])p(?=[+-]?[0-9])", re.IGNORECASE)
 _FUNC_CALL_PATTERN = re.compile(r"(\w+)\s*\(")
-_FUNC_INFO_PATTERN = re.compile(r"__internal_([a-zA-Z_]\w*)_([a-zA-Z_]\w+)$")
+_FUNC_INFO_PATTERN = re.compile(r"__internal_func_([a-zA-Z_]\w*)_([a-zA-Z_]\w+)$")
 _FUNC_PATTERN = re.compile(r"function\s+(\w+)")
 _GLOBAL_DECL_PATTERN = re.compile(r"^<global(.*)>$")
 _FUNCTION_DEF_PATTERN = re.compile(r"^\s*function\s+(\w+)\s*\(([^)]*)\)\s*\{")
@@ -753,13 +753,13 @@ def extract_function_info(
     current_function: Optional[str] = None,
 ) -> tuple[Optional[str], Optional[str]]:
     """
-    Given a renamed internal variable (i.e. __internal_funcname_varname),
+    Given a renamed internal variable (i.e. __internal_func_funcname_varname),
     extract the original function name and variable name.
     """
     if current_function is not None and internal_var.startswith(
-        f"__internal_{current_function}_"
+        f"__internal_func_{current_function}_"
     ):
-        return current_function, internal_var[len(f"__internal_{current_function}_") :]
+        return current_function, internal_var[len(f"__internal_func_{current_function}_") :]
     match = _FUNC_INFO_PATTERN.match(internal_var)
     if match:
         return match.group(1), match.group(2)
@@ -1161,8 +1161,8 @@ def convert_expr(
                     line_num,
                     current_function,
                 )
-            # Rename parameters: __internal_<funcname>_<varname>
-            param_map = {p: f"__internal_{func_name}_{p}" for p in params}
+            # Rename parameters: __internal_func_<funcname>_<varname>
+            param_map = {p: f"__internal_func_{func_name}_{p}" for p in params}
             body_lines = body.split("\n")
 
             local_map: dict[str, str] = {}
@@ -1201,10 +1201,10 @@ def convert_expr(
                     # Only rename & map local variables
                     if (
                         var not in param_map
-                        and not var.startswith(f"__internal_{func_name}_")
+                        and not var.startswith(f"__internal_func_{func_name}_")
                         and var not in effective_globals
                     ):
-                        local_map[var] = f"__internal_{func_name}_{var}"
+                        local_map[var] = f"__internal_func_{func_name}_{var}"
 
             rename_map: dict[str, str] = {}
             rename_map.update(param_map)
