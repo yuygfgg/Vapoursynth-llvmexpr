@@ -138,6 +138,7 @@ Operators are left-associative, except for the unary and ternary operators. The 
 | 10         | `? :`               | Ternary Conditional      | Ternary    | Right         |
 
 Note: Bitwise operators operates on integer values. When operating on floating-point values, operands are first rounded to the nearest integer.
+Note: Logical operators treat any value greater than 0 as `true`. They return `1.0` for true and `0.0` for false.
 
 ## 6. Functions
 

@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "exprutils"
+version = "0.0.1"
+description = "Expression conversion utilities for Vapoursynth-llvmexpr (infix/postfix)."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "regex>=2024.11.6",
+]
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "yuygfgg" }]
+keywords = ["vapoursynth", "llvm", "expression", "infix", "postfix"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
+
+[project.urls]
+Homepage = "https://github.com/yuygfgg/Vapoursynth-llvmexpr"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["exprutils"]
+exclude = ["build", "builddir", "scripts", "docs"]
