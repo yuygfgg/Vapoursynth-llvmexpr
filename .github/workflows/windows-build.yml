@@ -89,14 +89,14 @@ jobs:
         shell: msys2 {0}
         run: |
           set -e
-          dll=$(find stage -type f -name 'llvmexpr.dll' | head -n 1)
+          dll=$(find stage -type f -name 'libllvmexpr.dll' | head -n 1)
           if [ -z "$dll" ]; then
-            echo "llvmexpr.dll not found in install tree" >&2
+            echo "libllvmexpr.dll not found in install tree" >&2
             exit 1
           fi
           outdir=artifact
           mkdir -p "$outdir"
-          cp "$dll" "$outdir/llvmexpr.dll"
+          cp "$dll" "$outdir/libllvmexpr.dll"
           cp LICENSE "$outdir/" || true
           cp README.md "$outdir/" || true
           echo "artifact_dir=$outdir" >> $GITHUB_OUTPUT
