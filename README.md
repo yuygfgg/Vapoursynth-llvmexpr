@@ -40,7 +40,7 @@ The `exprutils` library provides an alternative way to generate the expression s
 
 ## Building
 
-This project uses the Meson build system.
+### Build and install the plugin
 
 1.  **Configure the build directory:**
     ```sh
@@ -51,3 +51,9 @@ This project uses the Meson build system.
     ```sh
     ninja -C builddir install
     ```
+
+### Install the python library
+
+```sh
+pip install .
+```

@@ -2391,7 +2391,7 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
         }
 
         d->vi = *vi[0];
-        int format_id =
+        const int format_id =
             static_cast<int>(vsapi->propGetInt(in, "format", 0, &err));
         if (!err) {
             const VSFormat* f = vsapi->getFormatPreset(format_id, core);
@@ -2414,7 +2414,7 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
             }
         }
 
-        int nexpr = vsapi->propNumElements(in, "expr");
+        const int nexpr = vsapi->propNumElements(in, "expr");
         if (nexpr == 0)
             throw std::runtime_error(
                 "At least one expression must be provided.");
