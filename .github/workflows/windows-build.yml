@@ -3,7 +3,7 @@ name: build-windows-x64
 on:
   push:
     branches: [ main ]
-    tags: [ 'v*' ]
+    tags: [ 'R*' ]
   pull_request:
   workflow_dispatch:
 
@@ -122,5 +122,3 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: llvmexpr-windows-x64-static-llvm20.zip
-
-
