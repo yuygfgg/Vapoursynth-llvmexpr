@@ -2389,9 +2389,32 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
                     "All clips must have the same dimensions.");
             }
         }
-        d->vi = *vi[0];
 
-        const int nexpr = vsapi->propNumElements(in, "expr");
+        d->vi = *vi[0];
+        int format_id =
+            static_cast<int>(vsapi->propGetInt(in, "format", 0, &err));
+        if (!err) {
+            const VSFormat* f = vsapi->getFormatPreset(format_id, core);
+            if (f) {
+                if (d->vi.format->colorFamily == cmCompat) {
+                    throw std::runtime_error(
+                        "Compat formats are not supported.");
+                }
+                if (d->vi.format->numPlanes != f->numPlanes) {
+                    throw std::runtime_error("The number of planes in the "
+                                             "inputs and output must match.");
+                }
+                d->vi.format = vsapi->registerFormat(
+                    d->vi.format->colorFamily, f->sampleType, f->bitsPerSample,
+                    d->vi.format->subSamplingW, d->vi.format->subSamplingH,
+                    core);
+                if (!d->vi.format) {
+                    throw std::runtime_error("Failed to register new format.");
+                }
+            }
+        }
+
+        int nexpr = vsapi->propNumElements(in, "expr");
         if (nexpr == 0)
             throw std::runtime_error(
                 "At least one expression must be provided.");
@@ -2487,6 +2510,7 @@ VapourSynthPluginInit(VSConfigPlugin configFunc,
                "LLVM JIT RPN Expression Filter", VAPOURSYNTH_API_VERSION, 1,
                plugin);
     registerFunc("Expr",
-                 "clips:clip[];expr:data[];boundary:int:opt;dump_ir:data:opt;",
+                 "clips:clip[];expr:data[];format:int:opt;boundary:int:opt;"
+                 "dump_ir:data:opt;",
                  exprCreate, nullptr, plugin);
 }
