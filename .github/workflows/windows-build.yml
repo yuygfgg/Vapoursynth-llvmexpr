@@ -99,6 +99,8 @@ jobs:
           cp "$dll" "$outdir/libllvmexpr.dll"
           cp LICENSE "$outdir/" || true
           cp README.md "$outdir/" || true
+          cp -r exprutils/ "$outdir/" || true
+          cp pyproject.toml "$outdir/" || true
           echo "artifact_dir=$outdir" >> $GITHUB_OUTPUT
 
       - name: Upload artifact
