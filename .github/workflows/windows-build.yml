@@ -1,0 +1,116 @@
+name: build-windows-x64
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'R*' ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Windows x64 (MSYS2, static LLVM)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          msystem: MINGW64
+          install: >-
+            base-devel
+            git
+            ninja
+            mingw-w64-x86_64-meson
+            mingw-w64-x86_64-python
+            curl
+            unzip
+            zip
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-llvm
+            mingw-w64-x86_64-vapoursynth
+
+      - name: Show tool versions
+        shell: msys2 {0}
+        run: |
+          clang --version || true
+          g++ --version || true
+          meson --version
+          ninja --version
+          llvm-config --version
+          pkg-config --version
+
+      - name: Check LLVM version (>= 20)
+        shell: msys2 {0}
+        run: |
+          set -e
+          ver=$(llvm-config --version | sed 's/\..*//')
+          if [ "$ver" -lt 20 ]; then
+            echo "LLVM >= 20 is required, found: $(llvm-config --version)" >&2
+            exit 1
+          fi
+
+      - name: Configure (Meson)
+        shell: msys2 {0}
+        run: |
+          meson setup builddir \
+            -Dstatic-llvm=true \
+            --buildtype=release
+
+      - name: Build
+        shell: msys2 {0}
+        run: |
+          ninja -C builddir
+
+      - name: Install to staging dir
+        shell: msys2 {0}
+        run: |
+          DESTDIR="$PWD/stage" meson install -C builddir
+          find stage -maxdepth 5 -type f -print
+
+      - name: Collect artifact
+        id: collect
+        shell: msys2 {0}
+        run: |
+          set -e
+          dll=$(find stage -type f -name 'libllvmexpr.dll' | head -n 1)
+          if [ -z "$dll" ]; then
+            echo "libllvmexpr.dll not found in install tree" >&2
+            exit 1
+          fi
+          outdir=artifact
+          mkdir -p "$outdir"
+          cp "$dll" "$outdir/libllvmexpr.dll"
+          cp LICENSE "$outdir/" || true
+          cp README.md "$outdir/" || true
+          cp -r exprutils/ "$outdir/" || true
+          cp pyproject.toml "$outdir/" || true
+          echo "artifact_dir=$outdir" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvmexpr-windows-x64-static-llvm20
+          path: ${{ steps.collect.outputs.artifact_dir }}
+          if-no-files-found: error
+
+      - name: Create zip for release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: msys2 {0}
+        run: |
+          cd "${{ steps.collect.outputs.artifact_dir }}"
+          zip -9r ../llvmexpr-windows-x64-static-llvm20.zip .
+
+      - name: Upload Release Asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: llvmexpr-windows-x64-static-llvm20.zip
