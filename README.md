@@ -2,7 +2,7 @@
 
 A [VapourSynth](https://www.vapoursynth.com/) filter for evaluating complex, per-pixel mathematical or logical expressions. It utilizes an LLVM-based JIT (Just-In-Time) compiler to translate expressions into native code for better performance.
 
-`llvmexpr.Expr` is fully compatible with the syntax of `akarin.Expr`, with additional extensions. While being slower, `llvmexpr` is Turing-complete and might be used in more scenarios.
+`llvmexpr.Expr` is fully compatible with the syntax of `akarin.Expr`, with additional extensions. While being a bit slower (llvmexpr with LLVM21 is ~15% slower than akarin with LLVM15), `llvmexpr` is Turing-complete and might be used in more scenarios.
 
 ## Core Components
 
@@ -14,7 +14,7 @@ This is the core engine of the project. It is a VapourSynth filter that accepts 
 
 **Function Signature:**
 ```
-Expr(clip[] clips, string[] expr[, int boundary=0, string dump_ir=""])
+llvmexpr.Expr(clip[] clips, string[] expr[, int format, int boundary=0, string dump_ir=""])
 ```
 
 ### 2. `exprutils` (Python Utility Library)
