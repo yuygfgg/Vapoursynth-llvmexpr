@@ -1434,9 +1434,9 @@ class Compiler {
                     rpn_stack.pop_back();
                     auto a_val = rpn_stack.back();
                     rpn_stack.pop_back();
-                    auto a_bool = builder.CreateFCmpONE(
+                    auto a_bool = builder.CreateFCmpOGT(
                         a_val, llvm::ConstantFP::get(float_ty, 0.0));
-                    auto b_bool = builder.CreateFCmpONE(
+                    auto b_bool = builder.CreateFCmpOGT(
                         b_val, llvm::ConstantFP::get(float_ty, 0.0));
                     llvm::Value* logic_res = nullptr;
                     switch (which) {
@@ -1785,7 +1785,7 @@ class Compiler {
                     auto a = rpn_stack.back();
                     rpn_stack.pop_back();
                     rpn_stack.push_back(builder.CreateSelect(
-                        builder.CreateFCmpOEQ(
+                        builder.CreateFCmpOLE(
                             a, llvm::ConstantFP::get(float_ty, 0.0)),
                         llvm::ConstantFP::get(float_ty, 1.0),
                         llvm::ConstantFP::get(float_ty, 0.0)));
@@ -1809,7 +1809,7 @@ class Compiler {
                     auto a = rpn_stack.back();
                     rpn_stack.pop_back();
                     rpn_stack.push_back(builder.CreateSelect(
-                        builder.CreateFCmpONE(
+                        builder.CreateFCmpOGT(
                             a, llvm::ConstantFP::get(float_ty, 0.0)),
                         b, c));
                     break;
@@ -2483,7 +2483,7 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
 VS_EXTERNAL_API(void)
 VapourSynthPluginInit(VSConfigPlugin configFunc,
                       VSRegisterFunction registerFunc, VSPlugin* plugin) {
-    configFunc("com.yuygfgg.llvmexpr", "yuygfgg",
+    configFunc("com.yuygfgg.llvmexpr", "llvmexpr",
                "LLVM JIT RPN Expression Filter", VAPOURSYNTH_API_VERSION, 1,
                plugin);
     registerFunc("Expr",

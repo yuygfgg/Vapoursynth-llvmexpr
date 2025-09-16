@@ -1,16 +1,35 @@
 # Vapoursynth-llvmexpr
 
-A [VapourSynth](https://www.vapoursynth.com/) filter that evaluates per-pixel mathematical or logical expressions. It uses an LLVM-based JIT (Just-In-Time) compiler for high performance.
+A [VapourSynth](https://www.vapoursynth.com/) filter for evaluating complex, per-pixel mathematical or logical expressions. It utilizes an LLVM-based JIT (Just-In-Time) compiler to translate expressions into native code for better performance.
 
-`yuygfgg.Expr` is fully compatible with `akarin.Expr`, with other extensions in addition.
+`llvmexpr.Expr` is fully compatible with the syntax of `akarin.Expr`, with additional extensions. While being slower, `llvmexpr` is Turing-complete and might be used in more scenarios.
+
+## Core Components
+
+This project consists of two main parts: the core C++ plugin and a supporting Python utility library.
+
+### 1. `llvmexpr` (C++ VapourSynth Plugin)
+
+This is the core engine of the project. It is a VapourSynth filter that accepts expression strings written in **postfix notation** (also known as Reverse Polish Notation, or RPN). At runtime, it JIT-compiles these expressions into highly efficient machine code and applies them to each pixel of the video frame.
+
+**Function Signature:**
+```
+Expr(clip[] clips, string[] expr[, int boundary=0, string dump_ir=""])
+```
+
+### 2. `exprutils` (Python Utility Library)
+
+This is a companion Python library designed to assist with writing expressions. It provides:
+
+*   **`infix2postfix`**: A transpiler that converts C-style **infix expressions** into the postfix format required by the C++ plugin.
+*   **`postfix2infix`**: A reverse converter for debugging or understanding existing postfix expressions; Its output is guaranteed to be compatible with the `infix2postfix` transpiler.
+
+The `exprutils` library provides an alternative way to generate the expression strings used by the `llvmexpr` plugin.
 
 ## Documentation
 
-For a complete guide to the expression syntax and all available operators, please see the [**Documentation**](docs/postfix.md).
-
-### Exprutils
-
-The `exprutils` python package contains utilities for working with expressions. It contains `postfix2infix` and `infix2postfix` to convert between infix and postfix expressions. [**Documentation**](docs/infix.md)
+*   **[Infix Syntax](docs/infix.md)**: Describes the C-style syntax for use with the `exprutils.infix2postfix` transpiler.
+*   **[Postfix Syntax](docs/postfix.md)**: The core RPN syntax and operator reference for the `llvmexpr` plugin.
 
 ## Dependencies
 
