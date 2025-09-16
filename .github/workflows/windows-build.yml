@@ -58,17 +58,6 @@ jobs:
             exit 1
           fi
 
-      - name: Download VapourSynth headers
-        shell: msys2 {0}
-        run: |
-          set -e
-          curl -s -o vs.zip -L https://github.com/vapoursynth/vapoursynth/archive/refs/tags/R57.zip
-          unzip -q vs.zip
-          mv vapoursynth-*/ vapoursynth/
-          echo "VAPOURSYNTH_INCLUDE=$PWD/vapoursynth/include" >> $GITHUB_ENV
-          echo "CPATH=$PWD/vapoursynth/include:$CPATH" >> $GITHUB_ENV
-          echo "CPLUS_INCLUDE_PATH=$PWD/vapoursynth/include:$CPLUS_INCLUDE_PATH" >> $GITHUB_ENV
-
       - name: Configure (Meson)
         shell: msys2 {0}
         run: |
