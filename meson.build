@@ -8,12 +8,14 @@
 # (at your option) any later version.
 # 
 # Vapoursynth-llvmexpr is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# but WITHOUT ANY WARRANTY;
+# without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 # GNU General Public License for more details.
 # 
 # You should have received a copy of the GNU General Public License
-# along with Vapoursynth-llvmexpr.  If not, see <https:#www.gnu.org/licenses/>.
+# along with Vapoursynth-llvmexpr.
+# If not, see <https:#www.gnu.org/licenses/>.
 
 project('llvmexpr', 'cpp', 'c',
   default_options: ['buildtype=release', 'warning_level=2', 'b_lto=true', 'b_ndebug=if-release', 'cpp_std=c++23'],
@@ -38,12 +40,39 @@ endif
 static_llvm = get_option('static-llvm')
 llvm_dep = dependency('llvm', version: '>=20.0.0', method: 'config-tool', modules: ['core', 'orcjit', 'native', 'all-targets'], static: static_llvm)
 
+dependencies = [vapoursynth_dep, llvm_dep]
+link_args = []
+
+if static_llvm
+  zlib_dep = dependency('zlib', static: true, required: false)
+  if zlib_dep.found()
+    dependencies += zlib_dep
+  endif
+
+  zstd_dep_check = dependency('libzstd', static: true, required: false)
+  if zstd_dep_check.found() and host_machine.system() == 'linux'
+    link_args += ['-Wl,-Bstatic', '-lzstd', '-Wl,-Bdynamic']
+  elif zstd_dep_check.found()
+    dependencies += zstd_dep_check
+  endif
+
+  xml2_dep = dependency('libxml-2.0', static: true, required: false)
+  if xml2_dep.found()
+    dependencies += xml2_dep
+  endif
+endif
+
+if static_llvm and host_machine.system() == 'windows'
+  link_args += '-static'
+endif
+
 sources = [
   'llvmexpr/llvmexpr.cpp'
 ]
 
 shared_module('llvmexpr', sources,
-  dependencies: [vapoursynth_dep, llvm_dep],
+  dependencies: dependencies,
+  link_args: link_args,
   install: true,
   install_dir: install_dir,
   gnu_symbol_visibility: 'hidden'
