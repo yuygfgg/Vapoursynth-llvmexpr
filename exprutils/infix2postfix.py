@@ -242,11 +242,12 @@ def infix2postfix(infix_code: str) -> str:
     ) -> list[str]:
         tokens: list[str] = []
         scope_vars = parent_scope_vars.copy()
-        remaining_code = code_block.lstrip()
+        remaining_code = code_block
         current_line = line_offset
 
         while remaining_code:
             start_len = len(remaining_code)
+            loop_start_code = remaining_code
 
             label_match = _LABEL_PATTERN.match(remaining_code)
             if_goto_match = _IF_GOTO_PATTERN.match(remaining_code)
@@ -611,7 +612,7 @@ def infix2postfix(infix_code: str) -> str:
                     tokens.append(postfix_expr)
 
             consumed_chars = start_len - len(remaining_code)
-            consumed_lines = code_block[:consumed_chars].count("\n")
+            consumed_lines = loop_start_code[:consumed_chars].count("\n")
             current_line += consumed_lines
             remaining_code = remaining_code.lstrip(" \t")
             if remaining_code.startswith("\n"):
@@ -781,7 +782,10 @@ def extract_function_info(
     if current_function is not None and internal_var.startswith(
         f"__internal_func_{current_function}_"
     ):
-        return current_function, internal_var[len(f"__internal_func_{current_function}_") :]
+        return (
+            current_function,
+            internal_var[len(f"__internal_func_{current_function}_") :],
+        )
     match = _FUNC_INFO_PATTERN.match(internal_var)
     if match:
         return match.group(1), match.group(2)
