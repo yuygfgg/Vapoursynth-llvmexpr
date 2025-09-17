@@ -1,0 +1,350 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'R*' ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64-glibc
+            os: ubuntu-latest
+            libc: glibc
+            artifact_name: llvmexpr-linux-x64-glibc-static-llvm20
+            library_name: libllvmexpr.so
+          - name: Linux x64-musl
+            os: ubuntu-latest
+            libc: musl
+            artifact_name: llvmexpr-linux-x64-musl-static-llvm20
+            library_name: libllvmexpr.so
+          - name: macOS arm64
+            os: macos-14
+            libc: ''
+            artifact_name: llvmexpr-macos-arm64-static-llvm20
+            library_name: libllvmexpr.dylib
+          - name: Windows x64
+            os: windows-latest
+            libc: ''
+            artifact_name: llvmexpr-windows-x64-static-llvm20
+            library_name: libllvmexpr.dll
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Linux (glibc) specific setup
+      - name: Setup dependencies (Linux glibc)
+        if: runner.os == 'Linux' && matrix.libc == 'glibc'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            python3 \
+            python3-pip \
+            curl \
+            unzip \
+            zip \
+            zstd
+          pip install meson ninja
+
+      # Linux (musl) specific setup
+      - name: Setup Zig (Linux musl)
+        if: runner.os == 'Linux' && matrix.libc == 'musl'
+        run: |
+          ZIG_VERSION="0.14.0"
+          ZIG_DIST="zig-linux-x86_64-${ZIG_VERSION}"
+          wget "https://ziglang.org/download/${ZIG_VERSION}/${ZIG_DIST}.tar.xz"
+          tar -xf "${ZIG_DIST}.tar.xz"
+          echo "$PWD/${ZIG_DIST}" >> $GITHUB_PATH
+      - name: Setup dependencies (Linux musl)
+        if: runner.os == 'Linux' && matrix.libc == 'musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            python3 \
+            python3-pip \
+            curl \
+            unzip \
+            zip \
+            zstd \
+            zlib1g-dev \
+            libzstd-dev \
+            libxml2-dev
+          python3 -m pip install meson ninja
+
+      # macOS specific setup
+      - name: Setup dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install meson ninja pkg-config llvm vapoursynth zstd
+
+      # Windows specific setup
+      - name: Setup MSYS2 (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          msystem: MINGW64
+          install: >-
+            base-devel
+            git
+            ninja
+            mingw-w64-x86_64-meson
+            mingw-w64-x86_64-python
+            curl
+            unzip
+            zip
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-llvm
+            mingw-w64-x86_64-vapoursynth
+
+      # Common steps for Linux
+      - name: Download VS headers and patch header location (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          git clone https://github.com/vapoursynth/vapoursynth --depth=1
+          cp vapoursynth/include/*.h llvmexpr
+          sed -i -e '/#include <V/y|<>|""|' llvmexpr/llvmexpr.cpp
+          
+      - name: Create fake VapourSynth pkg-config file (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p $HOME/pkgconfig
+          cat > $HOME/pkgconfig/vapoursynth.pc << 'EOF'
+          prefix=/usr/local
+          exec_prefix=${prefix}
+          libdir=${exec_prefix}/lib
+          includedir=${prefix}/include
+          
+          Name: VapourSynth
+          Description: A video processing framework
+          Version: 72.0
+          Libs: -L${libdir}
+          Cflags: -I${includedir}
+          EOF
+          echo "PKG_CONFIG_PATH=$HOME/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+      - name: Install LLVM 20 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 20
+
+      # Set environment variables
+      - name: Set environment variables (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "/usr/lib/llvm-20/bin" >> $GITHUB_PATH
+          echo "LLVM_CONFIG=/usr/lib/llvm-20/bin/llvm-config" >> $GITHUB_ENV
+      - name: Set environment variables (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "$(brew --prefix llvm)/bin" >> $GITHUB_PATH
+          echo "CPATH=/opt/homebrew/include" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=/opt/homebrew/lib" >> $GITHUB_ENV
+
+      # Musl specific compiler setup
+      - name: Set musl compiler environment with Zig
+        if: runner.os == 'Linux' && matrix.libc == 'musl'
+        run: |
+          mkdir -p /usr/local/bin
+          
+          ZIG_PATH=$(which zig)
+          echo "Zig found at: $ZIG_PATH"
+          
+          cat > /usr/local/bin/zig-cc << EOF
+          #!/bin/bash
+          exec $ZIG_PATH cc -target x86_64-linux-musl -static -L/usr/lib/x86_64-linux-gnu "\$@"
+          EOF
+          chmod +x /usr/local/bin/zig-cc
+          
+          cat > /usr/local/bin/zig-cxx << EOF
+          #!/bin/bash
+          exec $ZIG_PATH c++ -target x86_64-linux-musl -static -L/usr/lib/x86_64-linux-gnu "\$@"
+          EOF
+          chmod +x /usr/local/bin/zig-cxx
+          
+          echo "CC=/usr/local/bin/zig-cc" >> $GITHUB_ENV
+          echo "CXX=/usr/local/bin/zig-cxx" >> $GITHUB_ENV
+
+      - name: Show tool versions (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          clang --version || true
+          g++ --version || true
+          if [[ "${{ matrix.libc }}" == "musl" ]]; then
+            zig version
+          fi
+          meson --version
+          ninja --version
+          llvm-config --version
+          pkg-config --version
+      - name: Show tool versions (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          clang --version || true
+          g++ --version || true
+          if [[ "${{ runner.os }}" == "Linux" && "${{ matrix.libc }}" == "musl" ]]; then
+            zig version
+          fi
+          meson --version
+          ninja --version
+          llvm-config --version
+          pkg-config --version
+
+      - name: Check LLVM version (>= 20) (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -e
+          ver=$(llvm-config --version | cut -d. -f1)
+          if [ "$ver" -lt 20 ]; then
+            echo "LLVM >= 20 is required, found: $(llvm-config --version)" >&2
+            exit 1
+          fi
+      - name: Check LLVM version (>= 20) (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -e
+          ver=$(llvm-config --version | cut -d. -f1)
+          if [ "$ver" -lt 20 ]; then
+            echo "LLVM >= 20 is required, found: $(llvm-config --version)" >&2
+            exit 1
+          fi
+
+      - name: Configure (Meson) (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          meson setup builddir \
+            -Dstatic-llvm=true \
+            --buildtype=release
+      - name: Configure (Meson) (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          meson setup builddir \
+            -Dstatic-llvm=true \
+            --buildtype=release
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          ninja -C builddir
+      - name: Build (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ninja -C builddir
+
+      - name: Install to staging dir (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          DESTDIR="$PWD/stage" meson install -C builddir
+          find stage -maxdepth 5 -type f -print
+      - name: Install to staging dir (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          DESTDIR="$PWD/stage" meson install -C builddir
+          find stage -maxdepth 5 -type f -print
+
+      - name: Collect artifact (Windows)
+        id: collect_windows
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -e
+          libfile=$(find stage -type f -name '${{ matrix.library_name }}' | head -n 1)
+          if [ -z "$libfile" ]; then
+            echo "${{ matrix.library_name }} not found in install tree" >&2
+            exit 1
+          fi
+          outdir=artifact
+          mkdir -p "$outdir"
+          cp "$libfile" "$outdir/${{ matrix.library_name }}"
+          cp LICENSE "$outdir/" || true
+          cp README.md "$outdir/" || true
+          cp -r exprutils/ "$outdir/" || true
+          cp pyproject.toml "$outdir/" || true
+          echo "artifact_dir=$outdir" >> $GITHUB_OUTPUT
+      - name: Collect artifact (Unix)
+        id: collect_unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -e
+          libfile=$(find stage -type f -name '${{ matrix.library_name }}' | head -n 1)
+          if [ -z "$libfile" ]; then
+            echo "${{ matrix.library_name }} not found in install tree" >&2
+            exit 1
+          fi
+          outdir=artifact
+          mkdir -p "$outdir"
+          cp "$libfile" "$outdir/${{ matrix.library_name }}"
+          cp LICENSE "$outdir/" || true
+          cp README.md "$outdir/" || true
+          cp -r exprutils/ "$outdir/" || true
+          cp pyproject.toml "$outdir/" || true
+          echo "artifact_dir=$outdir" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ steps.collect_windows.outputs.artifact_dir || steps.collect_unix.outputs.artifact_dir }}
+          if-no-files-found: error
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release_assets
+          for dir in artifacts/*;
+          do
+            if [ -d "$dir" ]; then
+              artifact_name=$(basename "$dir")
+              (cd "$dir" && zip -9r "../../release_assets/${artifact_name}.zip" .)
+            fi
+          done
+
+      - name: List created assets
+        run: ls -l release_assets
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release_assets/*.zip
