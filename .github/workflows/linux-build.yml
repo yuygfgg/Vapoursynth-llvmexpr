@@ -40,18 +40,29 @@ jobs:
           git clone https://github.com/vapoursynth/vapoursynth --depth=1
           cp vapoursynth/include/*.h llvmexpr
           sed -i -e '/#include <V/y|<>|""|' llvmexpr/llvmexpr.cpp
+          - name: Create fake VapourSynth pkg-config file
+          run: |
+            mkdir -p $HOME/pkgconfig
+            cat > $HOME/pkgconfig/vapoursynth.pc << EOF
+            prefix=/usr/local
+            exec_prefix=\${prefix}
+            libdir=\${exec_prefix}/lib
+            includedir=\${prefix}/include
+  
+            Name: VapourSynth
+            Description: A video processing framework
+            Version: 72.0
+            Libs: -L\${libdir}
+            Cflags: -I\${includedir}
+            EOF
+            export PKG_CONFIG_PATH="$HOME/pkgconfig:$PKG_CONFIG_PATH"
+            echo "PKG_CONFIG_PATH=$HOME/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
       - name: Install LLVM 20
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 20
-          sudo apt-get install -y \
-            libllvm20 \
-            libllvm20-dev \
-            llvm-20 \
-            llvm-20-dev \
-            llvm-20-runtime
 
       - name: Set environment variables
         run: |
