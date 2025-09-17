@@ -90,13 +90,13 @@ jobs:
           
           cat > /usr/local/bin/zig-cc << EOF
           #!/bin/bash
-          exec $ZIG_PATH cc -target x86_64-linux-musl -static --library-path /usr/lib/x86_64-linux-gnu "\$@"
+          exec $ZIG_PATH cc -target x86_64-linux-musl -static -L/usr/lib/x86_64-linux-gnu "\$@"
           EOF
           chmod +x /usr/local/bin/zig-cc
           
           cat > /usr/local/bin/zig-cxx << EOF
           #!/bin/bash
-          exec $ZIG_PATH c++ -target x86_64-linux-musl -static --library-path /usr/lib/x86_64-linux-gnu "\$@"
+          exec $ZIG_PATH c++ -target x86_64-linux-musl -static -L/usr/lib/x86_64-linux-gnu "\$@"
           EOF
           chmod +x /usr/local/bin/zig-cxx
           
