@@ -21,7 +21,7 @@ jobs:
 
       - name: Setup Zig
         run: |
-          ZIG_VERSION="0.14.0"
+          ZIG_VERSION="0.13.0"
           ZIG_DIST="zig-linux-x86_64-${ZIG_VERSION}"
           wget "https://ziglang.org/download/${ZIG_VERSION}/${ZIG_DIST}.tar.xz"
           tar -xf "${ZIG_DIST}.tar.xz"
@@ -87,9 +87,6 @@ jobs:
           ar = '/usr/lib/llvm-20/bin/llvm-ar'
           strip = '/usr/lib/llvm-20/bin/llvm-strip'
           pkg-config = 'pkg-config'
-
-          [properties]
-          linker_id = 'lld'
 
           [host_machine]
           system = 'linux'
