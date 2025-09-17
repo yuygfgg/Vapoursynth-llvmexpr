@@ -55,6 +55,8 @@ jobs:
 
       - name: Build
         run: |
+          export CPATH="/opt/homebrew/include"
+          export LIBRARY_PATH="/opt/homebrew/lib"
           ninja -C builddir
 
       - name: Install to staging dir

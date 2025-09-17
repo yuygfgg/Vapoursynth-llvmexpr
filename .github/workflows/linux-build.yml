@@ -24,6 +24,7 @@ jobs:
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 20 all
+          brew install llvm@20
 
       - name: Install apt dependencies
         run: |
@@ -44,6 +45,8 @@ jobs:
         run: |
           echo "CC=clang-20" >> $GITHUB_ENV
           echo "CXX=clang++-20" >> $GITHUB_ENV
+          echo "CPATH=$(brew --prefix)/include" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=$(brew --prefix)/lib" >> $GITHUB_ENV
 
       - name: Show tool versions
         run: |
