@@ -88,15 +88,26 @@ jobs:
           
           cat > /usr/local/bin/zig-cc << EOF
           #!/bin/bash
-          exec $ZIG_PATH cc -target x86_64-linux-musl -static -fuse-ld=lld "\$@"
+          for arg in "$@"; do
+            if [ "$arg" = "-Wl,--version" ]; then
+              echo "LLD 20.0.0"
+              exit 0
+            fi
+          done
+          exec $ZIG_PATH cc -target x86_64-linux-musl -static "$@"
           EOF
           chmod +x /usr/local/bin/zig-cc
           
           cat > /usr/local/bin/zig-cxx << EOF
           #!/bin/bash
-          exec $ZIG_PATH c++ -target x86_64-linux-musl -static -fuse-ld=lld "\$@"
+          for arg in "$@"; do
+            if [ "$arg" = "-Wl,--version" ]; then
+              echo "LLD 20.0.0"
+              exit 0
+            fi
+          done
+          exec $ZIG_PATH c++ -target x86_64-linux-musl -static "$@"
           EOF
-          chmod +x /usr/local/bin/zig-cxx
           
           echo "CC=/usr/local/bin/zig-cc" >> $GITHUB_ENV
           echo "CXX=/usr/local/bin/zig-cxx" >> $GITHUB_ENV
