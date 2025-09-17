@@ -41,6 +41,7 @@ jobs:
             unzip \
             zip \
             zstd
+          python3 -m pip install meson ninja
 
       - name: Download VS headers and patch header location
         shell: bash
@@ -88,26 +89,15 @@ jobs:
           
           cat > /usr/local/bin/zig-cc << EOF
           #!/bin/bash
-          for arg in "$@"; do
-            if [ "$arg" = "-Wl,--version" ]; then
-              echo "LLD 20.0.0"
-              exit 0
-            fi
-          done
-          exec $ZIG_PATH cc -target x86_64-linux-musl -static "$@"
+          exec $ZIG_PATH cc -target x86_64-linux-musl -static"\$@"
           EOF
           chmod +x /usr/local/bin/zig-cc
           
           cat > /usr/local/bin/zig-cxx << EOF
           #!/bin/bash
-          for arg in "$@"; do
-            if [ "$arg" = "-Wl,--version" ]; then
-              echo "LLD 20.0.0"
-              exit 0
-            fi
-          done
-          exec $ZIG_PATH c++ -target x86_64-linux-musl -static "$@"
+          exec $ZIG_PATH c++ -target x86_64-linux-musl -static"\$@"
           EOF
+          chmod +x /usr/local/bin/zig-cxx
           
           echo "CC=/usr/local/bin/zig-cc" >> $GITHUB_ENV
           echo "CXX=/usr/local/bin/zig-cxx" >> $GITHUB_ENV
