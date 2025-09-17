@@ -86,7 +86,7 @@ jobs:
           cpp = ['zig', 'c++', '-target', 'x86_64-linux-musl']
           ar = '/usr/lib/llvm-20/bin/llvm-ar'
           strip = '/usr/lib/llvm-20/bin/llvm-strip'
-          'pkg-config' = 'pkg-config'
+          pkg-config = 'pkg-config'
 
           [properties]
           linker_id = 'lld'
