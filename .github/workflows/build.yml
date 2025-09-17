@@ -56,7 +56,8 @@ jobs:
             curl \
             unzip \
             zip \
-            zstd
+            zstd \
+            liblzma-dev
           pip install meson ninja
 
       # Linux (musl) specific setup
