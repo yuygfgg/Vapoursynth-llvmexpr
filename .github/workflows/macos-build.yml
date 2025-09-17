@@ -48,7 +48,7 @@ jobs:
       - name: Configure (Meson)
         run: |
           export CPATH="/opt/homebrew/include"
-	  export LIBRARY_PATH="/opt/homebrew/lib"
+          export LIBRARY_PATH="/opt/homebrew/lib"
           meson setup builddir \
             -Dstatic-llvm=true \
             --buildtype=release
