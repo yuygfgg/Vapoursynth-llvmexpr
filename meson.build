@@ -38,12 +38,34 @@ endif
 static_llvm = get_option('static-llvm')
 llvm_dep = dependency('llvm', version: '>=20.0.0', method: 'config-tool', modules: ['core', 'orcjit', 'native', 'all-targets'], static: static_llvm)
 
+dependencies = [vapoursynth_dep, llvm_dep]
+if static_llvm
+  zlib_dep = dependency('zlib', static: true, required: false)
+  if zlib_dep.found()
+    dependencies += zlib_dep
+  endif
+  zstd_dep = dependency('libzstd', static: true, required: false)
+  if zstd_dep.found()
+    dependencies += zstd_dep
+  endif
+  xml2_dep = dependency('libxml-2.0', static: true, required: false)
+  if xml2_dep.found()
+    dependencies += xml2_dep
+  endif
+endif
+
+link_args = []
+if static_llvm and host_machine.system() == 'windows'
+  link_args += '-static'
+endif
+
 sources = [
   'llvmexpr/llvmexpr.cpp'
 ]
 
 shared_module('llvmexpr', sources,
-  dependencies: [vapoursynth_dep, llvm_dep],
+  dependencies: dependencies,
+  link_args: link_args,
   install: true,
   install_dir: install_dir,
   gnu_symbol_visibility: 'hidden'
