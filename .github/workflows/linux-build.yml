@@ -44,20 +44,20 @@ jobs:
       - name: Create fake VapourSynth pkg-config file
         run: |
           mkdir -p $HOME/pkgconfig
-          cat > $HOME/pkgconfig/vapoursynth.pc << EOF
-            prefix=/usr/local
-            exec_prefix=\${prefix}
-            libdir=\${exec_prefix}/lib
-            includedir=\${prefix}/include
-  
-            Name: VapourSynth
-            Description: A video processing framework
-            Version: 72.0
-            Libs: -L\${libdir}
-            Cflags: -I\${includedir}
-            EOF
-            export PKG_CONFIG_PATH="$HOME/pkgconfig:$PKG_CONFIG_PATH"
-            echo "PKG_CONFIG_PATH=$HOME/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          cat > $HOME/pkgconfig/vapoursynth.pc << 'EOF'
+          prefix=/usr/local
+          exec_prefix=${prefix}
+          libdir=${exec_prefix}/lib
+          includedir=${prefix}/include
+          
+          Name: VapourSynth
+          Description: A video processing framework
+          Version: 72.0
+          Libs: -L${libdir}
+          Cflags: -I${includedir}
+          EOF
+          export PKG_CONFIG_PATH="$HOME/pkgconfig:$PKG_CONFIG_PATH"
+          echo "PKG_CONFIG_PATH=$HOME/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
 
       - name: Install LLVM 20
         run: |
@@ -90,6 +90,7 @@ jobs:
 
       - name: Configure (Meson)
         run: |
+          export PKG_CONFIG_PATH="$HOME/pkgconfig:$PKG_CONFIG_PATH"
           meson setup builddir \
             -Dstatic-llvm=true \
             --buildtype=release
