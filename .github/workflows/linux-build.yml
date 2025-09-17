@@ -1,0 +1,129 @@
+name: build-linux-x64
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'R*' ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Linux x64 (static LLVM)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            meson \
+            ninja-build \
+            pkg-config \
+            python3 \
+            python3-pip \
+            curl \
+            unzip \
+            zip \
+            zstd
+
+      - name: Download VS headers and patch header location
+        shell: bash
+        run: |
+          git clone https://github.com/vapoursynth/vapoursynth --depth=1
+          cp vapoursynth/include/*.h llvmexpr
+          sed -i -e '/#include <V/y|<>|""|' llvmexpr/llvmexpr.cpp
+
+      - name: Install LLVM 20
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 20
+          sudo apt-get install -y \
+            libllvm20 \
+            libllvm20-dev \
+            llvm-20 \
+            llvm-20-dev \
+            llvm-20-runtime
+
+      - name: Set environment variables
+        run: |
+          echo "/usr/lib/llvm-20/bin" >> $GITHUB_PATH
+          echo "LLVM_CONFIG=/usr/lib/llvm-20/bin/llvm-config" >> $GITHUB_ENV
+
+      - name: Show tool versions
+        run: |
+          clang --version || true
+          g++ --version || true
+          meson --version
+          ninja --version
+          llvm-config --version
+          pkg-config --version
+
+      - name: Check LLVM version (>= 20)
+        run: |
+          set -e
+          ver=$(llvm-config --version | cut -d. -f1)
+          if [ "$ver" -lt 20 ]; then
+            echo "LLVM >= 20 is required, found: $(llvm-config --version)" >&2
+            exit 1
+          fi
+
+      - name: Configure (Meson)
+        run: |
+          meson setup builddir \
+            -Dstatic-llvm=true \
+            --buildtype=release
+
+      - name: Build
+        run: |
+          ninja -C builddir
+
+      - name: Install to staging dir
+        run: |
+          DESTDIR="$PWD/stage" meson install -C builddir
+          find stage -maxdepth 5 -type f -print
+
+      - name: Collect artifact
+        id: collect
+        run: |
+          set -e
+          so=$(find stage -type f -name 'libllvmexpr.so' | head -n 1)
+          if [ -z "$so" ]; then
+            echo "libllvmexpr.so not found in install tree" >&2
+            exit 1
+          fi
+          outdir=artifact
+          mkdir -p "$outdir"
+          cp "$so" "$outdir/libllvmexpr.so"
+          cp LICENSE "$outdir/" || true
+          cp README.md "$outdir/" || true
+          cp -r exprutils/ "$outdir/" || true
+          cp pyproject.toml "$outdir/" || true
+          echo "artifact_dir=$outdir" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvmexpr-linux-x64-static-llvm20
+          path: ${{ steps.collect.outputs.artifact_dir }}
+          if-no-files-found: error
+
+      - name: Create zip for release
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          cd "${{ steps.collect.outputs.artifact_dir }}"
+          zip -9r ../llvmexpr-linux-x64-static-llvm20.zip .
+
+      - name: Upload Release Asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: llvmexpr-linux-x64-static-llvm20.zip
