@@ -82,15 +82,19 @@ jobs:
         run: |
           mkdir -p /usr/local/bin
           
-          cat > /usr/local/bin/zig-cc << 'EOF'
+          # Get the actual zig path from PATH
+          ZIG_PATH=$(which zig)
+          echo "Zig found at: $ZIG_PATH"
+          
+          cat > /usr/local/bin/zig-cc << EOF
           #!/bin/bash
-          exec /usr/local/zig/zig cc -target x86_64-linux-musl -static "$@"
+          exec $ZIG_PATH cc -target x86_64-linux-musl -static "\$@"
           EOF
           chmod +x /usr/local/bin/zig-cc
           
-          cat > /usr/local/bin/zig-cxx << 'EOF'
+          cat > /usr/local/bin/zig-cxx << EOF
           #!/bin/bash
-          exec /usr/local/zig/zig c++ -target x86_64-linux-musl -static "$@"
+          exec $ZIG_PATH c++ -target x86_64-linux-musl -static "\$@"
           EOF
           chmod +x /usr/local/bin/zig-cxx
           
