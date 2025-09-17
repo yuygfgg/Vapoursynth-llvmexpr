@@ -40,10 +40,11 @@ jobs:
           git clone https://github.com/vapoursynth/vapoursynth --depth=1
           cp vapoursynth/include/*.h llvmexpr
           sed -i -e '/#include <V/y|<>|""|' llvmexpr/llvmexpr.cpp
-          - name: Create fake VapourSynth pkg-config file
-          run: |
-            mkdir -p $HOME/pkgconfig
-            cat > $HOME/pkgconfig/vapoursynth.pc << EOF
+
+      - name: Create fake VapourSynth pkg-config file
+        run: |
+          mkdir -p $HOME/pkgconfig
+          cat > $HOME/pkgconfig/vapoursynth.pc << EOF
             prefix=/usr/local
             exec_prefix=\${prefix}
             libdir=\${exec_prefix}/lib
