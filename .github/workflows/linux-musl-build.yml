@@ -21,7 +21,7 @@ jobs:
 
       - name: Setup Zig
         run: |
-          ZIG_VERSION="0.13.0"
+          ZIG_VERSION="0.14.0"
           ZIG_DIST="zig-linux-x86_64-${ZIG_VERSION}"
           wget "https://ziglang.org/download/${ZIG_VERSION}/${ZIG_DIST}.tar.xz"
           tar -xf "${ZIG_DIST}.tar.xz"
@@ -77,23 +77,25 @@ jobs:
         run: |
           echo "/usr/lib/llvm-20/bin" >> $GITHUB_PATH
           echo "LLVM_CONFIG=/usr/lib/llvm-20/bin/llvm-config" >> $GITHUB_ENV
-
-      - name: Create Meson cross-compilation file for musl
+      
+      - name: Set musl compiler environment with Zig
         run: |
-          cat > zig-musl-cross.txt << 'EOF'
-          [binaries]
-          c = ['zig', 'cc', '-target', 'x86_64-linux-musl']
-          cpp = ['zig', 'c++', '-target', 'x86_64-linux-musl']
-          ar = '/usr/lib/llvm-20/bin/llvm-ar'
-          strip = '/usr/lib/llvm-20/bin/llvm-strip'
-          pkg-config = 'pkg-config'
-
-          [host_machine]
-          system = 'linux'
-          cpu_family = 'x86_64'
-          cpu = 'x86_64'
-          endian = 'little'
+          mkdir -p /usr/local/bin
+          
+          cat > /usr/local/bin/zig-cc << 'EOF'
+          #!/bin/bash
+          exec /usr/local/zig/zig cc -target x86_64-linux-musl -static "$@"
           EOF
+          chmod +x /usr/local/bin/zig-cc
+          
+          cat > /usr/local/bin/zig-cxx << 'EOF'
+          #!/bin/bash
+          exec /usr/local/zig/zig c++ -target x86_64-linux-musl -static "$@"
+          EOF
+          chmod +x /usr/local/bin/zig-cxx
+          
+          echo "CC=/usr/local/bin/zig-cc" >> $GITHUB_ENV
+          echo "CXX=/usr/local/bin/zig-cxx" >> $GITHUB_ENV
 
       - name: Show tool versions
         run: |
@@ -118,7 +120,6 @@ jobs:
         run: |
           export PKG_CONFIG_PATH="$HOME/pkgconfig:$PKG_CONFIG_PATH"
           meson setup builddir \
-            --cross-file zig-musl-cross.txt \
             -Dstatic-llvm=true \
             --buildtype=release
 
