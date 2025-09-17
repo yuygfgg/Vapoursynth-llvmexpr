@@ -1,4 +1,4 @@
-name: build-linux-x64
+name: build-linux-x64-glibc
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build:
-    name: Linux x64 (static LLVM)
+    name: Linux x64-glibc (static LLVM)
     runs-on: ubuntu-latest
 
     steps:
@@ -24,8 +24,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential \
-            meson \
-            ninja-build \
             pkg-config \
             python3 \
             python3-pip \
@@ -33,6 +31,7 @@ jobs:
             unzip \
             zip \
             zstd
+          pip install meson ninja
 
       - name: Download VS headers and patch header location
         shell: bash

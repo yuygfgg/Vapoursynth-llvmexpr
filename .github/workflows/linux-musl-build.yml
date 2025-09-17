@@ -1,4 +1,4 @@
-name: build-linux-x86-musl
+name: build-linux-x64-musl
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build:
-    name: Linux x86_64-musl (static LLVM, zig cc)
+    name: Linux x64-musl (static LLVM, zig cc)
     runs-on: ubuntu-latest
 
     steps:
@@ -87,13 +87,13 @@ jobs:
           
           cat > /usr/local/bin/zig-cc << EOF
           #!/bin/bash
-          exec $ZIG_PATH cc -target x86_64-linux-musl -static"\$@"
+          exec $ZIG_PATH cc -target x86_64-linux-musl -static "\$@"
           EOF
           chmod +x /usr/local/bin/zig-cc
           
           cat > /usr/local/bin/zig-cxx << EOF
           #!/bin/bash
-          exec $ZIG_PATH c++ -target x86_64-linux-musl -static"\$@"
+          exec $ZIG_PATH c++ -target x86_64-linux-musl -static "\$@"
           EOF
           chmod +x /usr/local/bin/zig-cxx
           
