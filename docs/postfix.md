@@ -128,6 +128,8 @@ These operators treat any value greater than 0 as `true`. They return `1.0` for 
 | `abs` | 1 | `x abs` is the absolute value of `x`. |
 | `copysign` | 2 | `x y copysign` returns a value with the magnitude of `x` and the sign of `y`. |
 | `fma` | 3 | `a b c fma` computes `(a * b) + c` as a single fused multiply-add. |
+| `neg` | 1 | `x neg` negates `x`. |
+| `sgn` | 1 | `x sgn` is the sign of `x`: -1 if x<0; 0 when x==0; 1 if x>0. |
 
 #### **3.4. Conditional Operator**
 

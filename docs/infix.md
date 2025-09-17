@@ -157,6 +157,7 @@ Functions are called using standard syntax: `functionName(argument1, argument2, 
 | `log`, `log2`, `log10`            | 1                   | Natural/base-2/base-10 logarithms.                            |
 | `sqrt`                            | 1                   | Square root.                                                  |
 | `abs`                             | 1                   | Absolute value.                                               |
+| `sgn`                             | 1                   | Signum function: -1 if x < 0, 0 if x == 0, 1 if x > 0.        |
 | `floor`, `ceil`, `round`, `trunc` | 1                   | Rounding family.                                              |
 | `min`, `max`                      | 2                   | Minimum/maximum.                                              |
 | `copysign`                        | 2                   | Magnitude of first operand, sign of second.                   |

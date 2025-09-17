@@ -265,12 +265,16 @@ def postfix2infix(expr: str, check_mode: bool = False) -> str:
             "cosh",
             "tanh",
             "ceil",
+            "sgn",
+            "neg",
         ):
             a = pop()
             if token == "not":
                 push(f"(!({a}))")
             elif token == "bitnot":
                 push(f"(~round({a}))")
+            elif token == "neg":
+                push(f"(-{a})")
             else:
                 push(f"{token}({a})")
             i += 1

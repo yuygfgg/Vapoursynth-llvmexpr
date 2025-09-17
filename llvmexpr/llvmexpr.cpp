@@ -132,6 +132,8 @@ enum class TokenType {
     SINH,
     COSH,
     TANH,
+    SGN,
+    NEG,
 
     // Ternary and other multi-arg
     TERNARY, // ?
@@ -279,6 +281,10 @@ constexpr std::optional<TokenType> resolve_keyword(const std::string_view s) {
             return TokenType::COS;
         if (s == "tan")
             return TokenType::TAN;
+        if (s == "sgn")
+            return TokenType::SGN;
+        if (s == "neg")
+            return TokenType::NEG;
         if (s == "@[]")
             return TokenType::STORE_ABS;
         break;
@@ -993,6 +999,8 @@ class Compiler {
         case TokenType::SINH:
         case TokenType::COSH:
         case TokenType::TANH:
+        case TokenType::SGN:
+        case TokenType::NEG:
             return 0;
 
         // BINARY: PUSH 1, POP 2
@@ -1778,6 +1786,25 @@ class Compiler {
                 }
                 case TokenType::TANH: {
                     applyUnaryIntrinsic(llvm::Intrinsic::tanh);
+                    break;
+                }
+                case TokenType::SGN: {
+                    auto x = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    auto zero = llvm::ConstantFP::get(float_ty, 0.0);
+                    auto one = llvm::ConstantFP::get(float_ty, 1.0);
+                    auto minus_one = llvm::ConstantFP::get(float_ty, -1.0);
+                    auto is_pos = builder.CreateFCmpOGT(x, zero);
+                    auto is_neg = builder.CreateFCmpOLT(x, zero);
+                    rpn_stack.push_back(builder.CreateSelect(
+                        is_pos, one,
+                        builder.CreateSelect(is_neg, minus_one, zero)));
+                    break;
+                }
+                case TokenType::NEG: {
+                    auto a = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    rpn_stack.push_back(builder.CreateFNeg(a));
                     break;
                 }
 

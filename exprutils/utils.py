@@ -29,6 +29,8 @@ _UNARY_OPS = {
     "cos",
     "abs",
     "not",
+    "neg",
+    "sgn",
     "bitnot",
     "trunc",
     "round",

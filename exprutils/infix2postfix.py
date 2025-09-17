@@ -1149,6 +1149,7 @@ def convert_expr(
                 "round",
                 "floor",
                 "abs",
+                "sgn",
                 "sqrt",
                 "trunc",
                 "exp2",
@@ -1475,7 +1476,7 @@ def convert_expr(
             literals_in_scope,
             process_code_block,
         )
-        return f"{operand} -1 *"
+        return f"{operand} neg"
 
     if expr.startswith("~"):
         operand = convert_expr(
@@ -1600,6 +1601,7 @@ def is_builtin_function(func_name: str) -> bool:
         "round",
         "floor",
         "abs",
+        "sgn",
         "sqrt",
         "trunc",
         "exp2",
