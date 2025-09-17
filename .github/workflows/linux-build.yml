@@ -25,14 +25,20 @@ jobs:
           chmod +x llvm.sh
           sudo ./llvm.sh 20 all
 
-      - name: Install other dependencies
+      - name: Install apt dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             meson \
             ninja-build \
-            pkg-config \
-            libvapoursynth-dev
+            pkg-config
+
+      - name: Install Vapoursynth via Homebrew
+        run: |
+          NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew install vapoursynth
+          echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig" >> $GITHUB_ENV
 
       - name: Set environment variables
         run: |

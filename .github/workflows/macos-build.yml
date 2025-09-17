@@ -21,7 +21,7 @@ jobs:
 
       - name: Setup dependencies
         run: |
-          brew install meson ninja pkg-config llvm vapoursynth
+          brew install meson ninja pkg-config llvm vapoursynth zstd
 
       - name: Set environment variables
         run: |
@@ -47,6 +47,8 @@ jobs:
 
       - name: Configure (Meson)
         run: |
+          export CPATH="/opt/homebrew/include"
+	  export LIBRARY_PATH="/opt/homebrew/lib"
           meson setup builddir \
             -Dstatic-llvm=true \
             --buildtype=release
