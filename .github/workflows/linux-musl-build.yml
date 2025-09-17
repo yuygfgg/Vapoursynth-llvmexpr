@@ -38,7 +38,10 @@ jobs:
             curl \
             unzip \
             zip \
-            zstd
+            zstd \
+            zlib1g-dev \
+            libzstd-dev \
+            libxml2-dev
           python3 -m pip install meson ninja
 
       - name: Download VS headers and patch header location
