@@ -120,7 +120,7 @@ jobs:
         run: |
           git clone https://github.com/vapoursynth/vapoursynth --depth=1
           cp vapoursynth/include/*.h llvmexpr
-          sed -i -e '/#include <V/y|<>|""|'
+          sed -i -e '/#include <V/y|<>|""|' llvmexpr/llvmexpr.cpp
           
       - name: Create fake VapourSynth pkg-config file (Linux)
         if: runner.os == 'Linux'
