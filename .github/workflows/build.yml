@@ -84,7 +84,8 @@ jobs:
             zstd \
             zlib1g-dev \
             libzstd-dev \
-            libxml2-dev
+            libxml2-dev \
+            liblzma-dev
           python3 -m pip install meson ninja
 
       # macOS specific setup
