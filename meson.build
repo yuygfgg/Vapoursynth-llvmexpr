@@ -50,7 +50,7 @@ if static_llvm
   endif
 
   zstd_dep_check = dependency('libzstd', static: true, required: false)
-  if zstd_dep_check.found() and gcc_syntax
+  if zstd_dep_check.found() and host_machine.system() == 'linux'
     link_args += ['-Wl,-Bstatic', '-lzstd', '-Wl,-Bdynamic']
   elif zstd_dep_check.found()
     dependencies += zstd_dep_check
