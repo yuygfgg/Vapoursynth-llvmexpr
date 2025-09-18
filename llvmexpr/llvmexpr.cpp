@@ -2172,7 +2172,9 @@ class Compiler {
             llvm::Value* clamped_f =
                 createBinaryIntrinsicCall(llvm::Intrinsic::minnum, temp, max_f);
 
-            final_val = builder.CreateFPToUI(clamped_f, builder.getInt32Ty());
+            llvm::Value* rounded_f =
+                createUnaryIntrinsicCall(llvm::Intrinsic::roundeven, clamped_f);
+            final_val = builder.CreateFPToUI(rounded_f, builder.getInt32Ty());
 
             if (bpp == 1) {
                 final_val = builder.CreateTrunc(final_val, builder.getInt8Ty());
