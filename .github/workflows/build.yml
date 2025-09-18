@@ -11,9 +11,116 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-windows-release:
+    name: Windows x64 Release
+    runs-on: windows-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            libc: ''
+            artifact_name: llvmexpr-windows-x64-static-llvm20
+            library_name: libllvmexpr.dll
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Windows specific setup
+      - name: Setup MSYS2 (Windows)
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          msystem: MINGW64
+          install: >-
+            base-devel
+            git
+            ninja
+            mingw-w64-x86_64-meson
+            mingw-w64-x86_64-python
+            curl
+            unzip
+            zip
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-llvm
+            mingw-w64-x86_64-vapoursynth
+
+      - name: Show tool versions (Windows)
+        shell: msys2 {0}
+        run: |
+          clang --version || true
+          g++ --version || true
+          meson --version
+          ninja --version
+          llvm-config --version
+          pkg-config --version
+
+      - name: Check LLVM version (>= 20) (Windows)
+        shell: msys2 {0}
+        run: |
+          set -e
+          ver=$(llvm-config --version | cut -d. -f1)
+          if [ "$ver" -lt 20 ]; then
+            echo "LLVM >= 20 is required, found: $(llvm-config --version)" >&2
+            exit 1
+          fi
+
+      - name: Configure (Meson) (Windows)
+        shell: msys2 {0}
+        run: |
+          meson setup builddir \
+            -Dstatic-llvm=true \
+            --buildtype=release
+
+      - name: Build (Windows)
+        shell: msys2 {0}
+        run: |
+          ninja -C builddir
+
+      - name: Check dependencies (Windows)
+        shell: msys2 {0}
+        run: ldd builddir/${{ matrix.library_name }}
+
+      - name: Install to staging dir (Windows)
+        shell: msys2 {0}
+        run: |
+          DESTDIR="$PWD/stage" meson install -C builddir
+          find stage -maxdepth 5 -type f -print
+
+      - name: Collect artifact (Windows)
+        id: collect_windows
+        shell: msys2 {0}
+        run: |
+          set -e
+          libfile=$(find stage -type f -name '${{ matrix.library_name }}' | head -n 1)
+          if [ -z "$libfile" ]; then
+            echo "${{ matrix.library_name }} not found in install tree" >&2
+            exit 1
+          fi
+          outdir=artifact
+          mkdir -p "$outdir"
+          cp "$libfile" "$outdir/${{ matrix.library_name }}"
+          cp LICENSE "$outdir/" || true
+          cp README.md "$outdir/" || true
+          cp -r exprutils/ "$outdir/" || true
+          cp pyproject.toml "$outdir/" || true
+          echo "artifact_dir=$outdir" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ steps.collect_windows.outputs.artifact_dir }}
+          if-no-files-found: error
+
+  build-all:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     strategy:
       fail-fast: false
       matrix:
@@ -366,7 +473,7 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
-    needs: build
+    needs: build-windows-release
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
