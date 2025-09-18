@@ -213,7 +213,7 @@ jobs:
           wget https://github.com/unicode-org/icu/releases/download/release-${URL_VERSION}/icu4c-${TGZ_VERSION}-src.tgz
           tar -xzf icu4c-${TGZ_VERSION}-src.tgz
           cd icu/source
-          ./configure --prefix=/usr/local --enable-static --disable-shared CFLAGS="-fPIC" CXXFLAGS="-fPIC"
+          ./configure --prefix=/usr/local --enable-static --disable-shared CFLAGS="-fPIC" CXXFLAGS="-fPIC" LIBS="-lc++"
           make -j$(nproc)
           sudo make install
 
