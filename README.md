@@ -38,7 +38,7 @@ The `exprutils` library provides an alternative way to generate the expression s
 *   [LLVM](https://llvm.org/) development libraries (>= 20.0.0)
 *   [Meson](https://mesonbuild.com/) build system
 
-## Building
+## Building and installing
 
 ### Build and install the plugin
 
@@ -56,4 +56,14 @@ The `exprutils` library provides an alternative way to generate the expression s
 
 ```sh
 pip install .
+```
+
+## Testing
+
+To run the tests, you need to have VapourSynth installed.
+
+This project uses pytest for testing.
+
+```sh
+pytest .
 ```
