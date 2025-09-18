@@ -404,7 +404,7 @@ def infix2postfix(infix_code: str) -> str:
                     remaining_code = remaining_code[else_block_end + 1 :]
 
                     # if-else block
-                    tokens.append(f"{cond_postfix} not {label_prefix}{else_label}#")
+                    tokens.append(f"{cond_postfix} 0 = {label_prefix}{else_label}#")
                     tokens.extend(
                         _process_code_block(
                             if_body,
