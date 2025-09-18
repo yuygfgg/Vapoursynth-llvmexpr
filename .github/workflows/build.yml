@@ -82,7 +82,6 @@ jobs:
             unzip \
             zip \
             zstd \
-            zlib1g-dev \
             libzstd-dev \
             libxml2-dev \
             liblzma-dev
@@ -191,6 +190,17 @@ jobs:
           
           echo "CC=/usr/local/bin/zig-cc" >> $GITHUB_ENV
           echo "CXX=/usr/local/bin/zig-cxx" >> $GITHUB_ENV
+
+      - name: Build and install zlib with PIC
+        if: runner.os == 'Linux' && matrix.libc == 'musl'
+        run: |
+          ZLIB_VERSION="1.3.1"
+          wget https://zlib.net/zlib-${ZLIB_VERSION}.tar.gz
+          tar -xzf zlib-${ZLIB_VERSION}.tar.gz
+          cd zlib-${ZLIB_VERSION}
+          CFLAGS="-fPIC" ./configure --prefix=/usr/local --static
+          make -j$(nproc)
+          sudo make install
 
       - name: Show tool versions (Windows)
         if: runner.os == 'Windows'
