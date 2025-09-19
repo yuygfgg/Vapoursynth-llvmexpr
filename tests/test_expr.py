@@ -28,6 +28,7 @@ along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
 
 import pytest
 import vapoursynth as vs
+import numpy as np
 
 core = vs.core
 
@@ -291,3 +292,64 @@ def test_direct_output_write_and_exit() -> None:
     fr = res.get_frame(0)
     assert fr[0][2, 1] == pytest.approx(5.0)
     assert fr[0][0, 0] == pytest.approx(0.0)
+
+
+@pytest.fixture(scope="module")
+def ramp_clip() -> vs.VideoNode:
+    width, height = 4, 4
+    base = core.std.BlankClip(format=vs.GRAYS, width=width, height=height, color=0.0)
+
+    def ramp_frame(n, f):
+        fout = f.copy()
+        arr = np.asarray(fout[0])
+        for y in range(height):
+            for x in range(width):
+                arr[y, x] = y * width + x
+        return fout
+
+    return core.std.ModifyFrame(base, clips=base, selector=ramp_frame)
+
+
+boundary_test_cases = [
+    # Default boundary (clamp)
+    pytest.param("x[-1,-1]", None, 0, 0, 0.0, id="clamp_default_topleft"),
+    pytest.param("x[1,1]", None, 3, 3, 15.0, id="clamp_default_bottomright"),
+    pytest.param("x[-2,0]", None, 1, 1, 4.0, id="clamp_default_rel"),
+
+    # Explicit clamp with boundary parameter
+    pytest.param("x[-1,-1]", 0, 0, 0, 0.0, id="clamp_param_topleft"),
+    pytest.param("x[1,1]", 0, 3, 3, 15.0, id="clamp_param_bottomright"),
+
+    # Explicit clamp with :c suffix
+    pytest.param("x[-1,-1]:c", None, 0, 0, 0.0, id="clamp_suffix_topleft"),
+    pytest.param("x[1,1]:c", None, 3, 3, 15.0, id="clamp_suffix_bottomright"),
+
+    # Mirror with boundary parameter
+    pytest.param("x[-1,-1]", 1, 0, 0, 5.0, id="mirror_param_topleft"),
+    pytest.param("x[1,1]", 1, 3, 3, 10.0, id="mirror_param_bottomright"),
+    pytest.param("x[-2,0]", 1, 1, 1, 5.0, id="mirror_param_rel"),
+
+    # Mirror with :m suffix
+    pytest.param("x[-1,-1]:m", None, 0, 0, 5.0, id="mirror_suffix_topleft"),
+    pytest.param("x[1,1]:m", None, 3, 3, 10.0, id="mirror_suffix_bottomright"),
+
+    # Override behavior
+    pytest.param("x[-1,-1]:m", 0, 0, 0, 5.0, id="override_clamp_with_mirror"),
+    pytest.param("x[-1,-1]:c", 1, 0, 0, 0.0, id="override_mirror_with_clamp"),
+    
+    # More mirror tests
+    pytest.param("x[4,4]", 1, 0, 0, 10.0, id="mirror_param_far_coord1"),
+    pytest.param("x[5,5]", 1, 0, 0, 5.0, id="mirror_param_far_coord2"),
+    pytest.param("x[-4,-4]", 1, 0, 0, 10.0, id="mirror_param_far_coord3"),
+]
+
+
+@pytest.mark.parametrize("expr, boundary, x, y, expected", boundary_test_cases)
+def test_boundary_conditions(ramp_clip: vs.VideoNode, expr: str, boundary: int | None, x: int, y: int, expected: float) -> None:
+    if boundary:
+        res = core.llvmexpr.Expr(ramp_clip, expr, boundary=boundary)
+    else:
+        res = core.llvmexpr.Expr(ramp_clip, expr)
+    
+    frame = res.get_frame(0)
+    assert frame[0][y, x] == pytest.approx(expected)

@@ -629,6 +629,19 @@ class Compiler {
     };
     std::vector<CFGBlock> cfg_blocks;
     std::map<std::string, int> label_to_block_idx;
+    struct RelYAccess {
+        int clip_idx;
+        int rel_y;
+        bool use_mirror;
+
+        bool operator<(const RelYAccess& other) const {
+            return std::tie(clip_idx, rel_y, use_mirror) <
+                   std::tie(other.clip_idx, other.rel_y, other.use_mirror);
+        }
+    };
+    std::vector<RelYAccess> unique_rel_y_accesses;
+    std::map<RelYAccess, llvm::Value*> row_ptr_cache;
+
     std::vector<int> stack_depth_in;
 
   public:
@@ -665,6 +678,7 @@ class Compiler {
         builder.setFastMathFlags(FMF);
 
         validate_and_build_cfg();
+        collect_rel_y_accesses();
 
         define_function_signature();
         generate_loops();
@@ -814,6 +828,116 @@ class Compiler {
         func->addParamAttr(2, llvm::Attribute::ReadOnly); // props (float*)
     }
 
+    void collect_rel_y_accesses() {
+        std::set<RelYAccess> seen;
+        for (const auto& token : tokens) {
+            if (token.type == TokenType::CLIP_REL) {
+                const auto& payload =
+                    std::get<TokenPayload_ClipAccess>(token.payload);
+                bool use_mirror =
+                    payload.has_mode ? payload.use_mirror : mirror_boundary;
+                RelYAccess access{payload.clip_idx, payload.rel_y, use_mirror};
+                if (seen.find(access) == seen.end()) {
+                    seen.insert(access);
+                    unique_rel_y_accesses.push_back(access);
+                }
+            }
+        }
+    }
+
+    llvm::Value* get_final_coord(llvm::Value* coord, llvm::Value* max_dim,
+                                 bool use_mirror) {
+        llvm::Value* zero = builder.getInt32(0);
+        llvm::Value* one = builder.getInt32(1);
+
+        llvm::Value* result;
+        if (use_mirror) {
+            // idx = abs(idx); N = 2*(len-1); if (N==0) N=1; r = idx % N;
+            // result = (len-1) - abs(r - (len-1))
+            llvm::Function* abs_func = llvm::Intrinsic::getOrInsertDeclaration(
+                module.get(), llvm::Intrinsic::abs, {builder.getInt32Ty()});
+            auto abs_coord = builder.CreateCall(abs_func, {coord, builder.getInt1(false)});
+
+            auto dim_minus_1 = builder.CreateSub(max_dim, one);
+            auto twice_dim_minus_1 = builder.CreateMul(dim_minus_1, builder.getInt32(2));
+
+            // base = base | (base==0 ? 1 : 0)
+            auto base_is_zero = builder.CreateICmpEQ(twice_dim_minus_1, zero);
+            auto one_if_zero = builder.CreateZExt(base_is_zero, builder.getInt32Ty());
+            auto safe_mod_base = builder.CreateOr(twice_dim_minus_1, one_if_zero);
+
+            auto rem = builder.CreateURem(abs_coord, safe_mod_base);
+
+            // result = (len-1) - abs(rem - (len-1))
+            auto diff = builder.CreateSub(rem, dim_minus_1);
+            auto abs_diff = builder.CreateCall(abs_func, {diff, builder.getInt1(false)});
+            result = builder.CreateSub(dim_minus_1, abs_diff);
+        } else { // Clamping
+            // clamp(coord, 0, max_dim - 1)
+            auto dim_minus_1 = builder.CreateSub(max_dim, one);
+
+            llvm::Function* smax_func = llvm::Intrinsic::getOrInsertDeclaration(
+                module.get(), llvm::Intrinsic::smax, {builder.getInt32Ty()});
+            llvm::Function* smin_func = llvm::Intrinsic::getOrInsertDeclaration(
+                module.get(), llvm::Intrinsic::smin, {builder.getInt32Ty()});
+
+            auto clamped_at_zero = builder.CreateCall(smax_func, {coord, zero});
+            result = builder.CreateCall(smin_func, {clamped_at_zero, dim_minus_1});
+        }
+
+        return result;
+    }
+
+    llvm::Value* generate_load_from_row_ptr(llvm::Value* row_ptr, int clip_idx,
+                                            llvm::Value* x, int rel_x,
+                                            bool use_mirror) {
+        const VSVideoInfo* vinfo = vi[clip_idx];
+        llvm::Value* clip_width = builder.getInt32(vinfo->width);
+        llvm::Value* coord_x = builder.CreateAdd(x, builder.getInt32(rel_x));
+        llvm::Value* final_x = get_final_coord(coord_x, clip_width, use_mirror);
+
+        const VSFormat* format = vinfo->format;
+        int bpp = format->bytesPerSample;
+        int vs_clip_idx = clip_idx + 1;
+
+        llvm::Value* x_offset =
+            builder.CreateMul(final_x, builder.getInt32(bpp));
+        llvm::Value* pixel_addr =
+            builder.CreateGEP(builder.getInt8Ty(), row_ptr, x_offset);
+
+        int pixel_align = std::gcd(ALIGNMENT, bpp);
+        assumeAligned(pixel_addr, static_cast<unsigned>(pixel_align));
+
+        llvm::Value* loaded_val;
+        if (format->sampleType == stInteger) {
+            llvm::Type* load_type =
+                bpp == 1
+                    ? builder.getInt8Ty()
+                    : (bpp == 2 ? builder.getInt16Ty() : builder.getInt32Ty());
+            llvm::LoadInst* li = builder.CreateLoad(load_type, pixel_addr);
+            setMemoryInstAttrs(li, static_cast<unsigned>(pixel_align),
+                               vs_clip_idx);
+            loaded_val = builder.CreateZExtOrBitCast(li, builder.getInt32Ty());
+            return builder.CreateUIToFP(loaded_val, builder.getFloatTy());
+        } else { // stFloat
+            if (bpp == 4) {
+                llvm::LoadInst* li =
+                    builder.CreateLoad(builder.getFloatTy(), pixel_addr);
+                setMemoryInstAttrs(li, static_cast<unsigned>(pixel_align),
+                                   vs_clip_idx);
+                return li;
+            } else if (bpp == 2) {
+                llvm::LoadInst* li =
+                    builder.CreateLoad(builder.getHalfTy(), pixel_addr);
+                setMemoryInstAttrs(li, static_cast<unsigned>(pixel_align),
+                                   vs_clip_idx);
+                return builder.CreateFPExt(li, builder.getFloatTy());
+            } else {
+                throw std::runtime_error("Unsupported float sample size.");
+            }
+        }
+    }
+
     void generate_loops() {
         llvm::BasicBlock* entry_bb =
             llvm::BasicBlock::Create(*context, "entry", func);
@@ -893,6 +1017,27 @@ class Compiler {
         builder.CreateCondBr(y_cond, loop_y_body, loop_y_exit);
 
         builder.SetInsertPoint(loop_y_body);
+
+        // Pre-calculate and cache row pointers for all unique relative Y accesses
+        row_ptr_cache.clear();
+        for (const auto& access : unique_rel_y_accesses) {
+            const VSVideoInfo* vinfo = vi[access.clip_idx];
+            llvm::Value* clip_height = builder.getInt32(vinfo->height);
+            llvm::Value* coord_y =
+                builder.CreateAdd(y_val, builder.getInt32(access.rel_y));
+            llvm::Value* final_y =
+                get_final_coord(coord_y, clip_height, access.use_mirror);
+
+            int vs_clip_idx = access.clip_idx + 1;
+            llvm::Value* base_ptr = preloaded_base_ptrs[vs_clip_idx];
+            llvm::Value* stride = preloaded_strides[vs_clip_idx];
+
+            llvm::Value* y_offset = builder.CreateMul(final_y, stride);
+            llvm::Value* row_ptr = builder.CreateGEP(
+                builder.getInt8Ty(), base_ptr, y_offset, "row_ptr");
+            row_ptr_cache[access] = row_ptr;
+        }
+
         llvm::BasicBlock* loop_x_header =
             llvm::BasicBlock::Create(*context, "loop_x_header", parent_func);
         llvm::BasicBlock* loop_x_body =
@@ -1549,14 +1694,14 @@ class Compiler {
                 case TokenType::CLIP_REL: {
                     const auto& payload =
                         std::get<TokenPayload_ClipAccess>(token.payload);
-                    llvm::Value* coord_x =
-                        builder.CreateAdd(x, builder.getInt32(payload.rel_x));
-                    llvm::Value* coord_y =
-                        builder.CreateAdd(y, builder.getInt32(payload.rel_y));
                     bool use_mirror =
                         payload.has_mode ? payload.use_mirror : mirror_boundary;
-                    rpn_stack.push_back(generate_pixel_load(
-                        payload.clip_idx, coord_x, coord_y, use_mirror));
+                    RelYAccess access{payload.clip_idx, payload.rel_y,
+                                      use_mirror};
+                    llvm::Value* row_ptr = row_ptr_cache.at(access);
+                    rpn_stack.push_back(
+                        generate_load_from_row_ptr(row_ptr, payload.clip_idx, x,
+                                                   payload.rel_x, use_mirror));
                     break;
                 }
                 case TokenType::CLIP_ABS: {
@@ -2074,70 +2219,23 @@ class Compiler {
 
     llvm::Value* generate_pixel_load(int clip_idx, llvm::Value* x,
                                      llvm::Value* y, bool mirror) {
-        llvm::Value* clamped_x = generate_boundary_check(x, width_arg, mirror);
-        llvm::Value* clamped_y = generate_boundary_check(y, height_arg, mirror);
+        const VSVideoInfo* vinfo = vi[clip_idx];
+        llvm::Value* clip_width = builder.getInt32(vinfo->width);
+        llvm::Value* clip_height = builder.getInt32(vinfo->height);
 
-        const VSFormat* format = vi[clip_idx]->format;
-        int bpp = format->bytesPerSample;
+        llvm::Value* final_x = get_final_coord(x, clip_width, mirror);
+        llvm::Value* final_y = get_final_coord(y, clip_height, mirror);
+
         int vs_clip_idx = clip_idx + 1; // 0 is dst
-
         llvm::Value* base_ptr = preloaded_base_ptrs[vs_clip_idx];
         llvm::Value* stride = preloaded_strides[vs_clip_idx];
 
-        llvm::Value* y_offset = builder.CreateMul(clamped_y, stride);
-        llvm::Value* x_offset =
-            builder.CreateMul(clamped_x, builder.getInt32(bpp));
-        llvm::Value* total_offset = builder.CreateAdd(y_offset, x_offset);
-        llvm::Value* pixel_addr =
-            builder.CreateGEP(builder.getInt8Ty(), base_ptr, total_offset);
+        llvm::Value* y_offset = builder.CreateMul(final_y, stride);
+        llvm::Value* row_ptr =
+            builder.CreateGEP(builder.getInt8Ty(), base_ptr, y_offset);
 
-        // Assume pixel address alignment, safe as gcd(32, bpp)
-        int pixel_align = std::gcd(32, bpp);
-        assumeAligned(pixel_addr, static_cast<unsigned>(pixel_align));
-
-        llvm::Value* loaded_val;
-        if (format->sampleType == stInteger) {
-            if (bpp == 1) {
-                llvm::LoadInst* li =
-                    builder.CreateLoad(builder.getInt8Ty(), pixel_addr);
-                setMemoryInstAttrs(li, static_cast<unsigned>(pixel_align),
-                                   vs_clip_idx);
-                loaded_val = li;
-                loaded_val =
-                    builder.CreateZExt(loaded_val, builder.getInt32Ty());
-            } else if (bpp == 2) {
-                llvm::LoadInst* li =
-                    builder.CreateLoad(builder.getInt16Ty(), pixel_addr);
-                setMemoryInstAttrs(li, static_cast<unsigned>(pixel_align),
-                                   vs_clip_idx);
-                loaded_val = li;
-                loaded_val =
-                    builder.CreateZExt(loaded_val, builder.getInt32Ty());
-            } else { // bpp == 4
-                llvm::LoadInst* li =
-                    builder.CreateLoad(builder.getInt32Ty(), pixel_addr);
-                setMemoryInstAttrs(li, static_cast<unsigned>(pixel_align),
-                                   vs_clip_idx);
-                loaded_val = li;
-            }
-            return builder.CreateUIToFP(loaded_val, builder.getFloatTy());
-        } else { // stFloat
-            if (bpp == 4) {
-                llvm::LoadInst* li =
-                    builder.CreateLoad(builder.getFloatTy(), pixel_addr);
-                setMemoryInstAttrs(li, static_cast<unsigned>(pixel_align),
-                                   vs_clip_idx);
-                return li;
-            } else if (bpp == 2) {
-                llvm::LoadInst* li =
-                    builder.CreateLoad(builder.getHalfTy(), pixel_addr);
-                setMemoryInstAttrs(li, static_cast<unsigned>(pixel_align),
-                                   vs_clip_idx);
-                return builder.CreateFPExt(li, builder.getFloatTy());
-            } else {
-                throw std::runtime_error("Unsupported float sample size.");
-            }
-        }
+        return generate_load_from_row_ptr(row_ptr, clip_idx, final_x, 0,
+                                          mirror);
     }
 
     void generate_pixel_store(llvm::Value* value_to_store, llvm::Value* x,
@@ -2155,8 +2253,7 @@ class Compiler {
         llvm::Value* pixel_addr =
             builder.CreateGEP(builder.getInt8Ty(), base_ptr, total_offset);
 
-        // Assume pixel address alignment, safe as gcd(32, bpp)
-        int pixel_align = std::gcd(32, bpp);
+        int pixel_align = std::gcd(ALIGNMENT, bpp);
         assumeAligned(pixel_addr, static_cast<unsigned>(pixel_align));
 
         llvm::Value* final_val;
@@ -2176,25 +2273,13 @@ class Compiler {
                 createUnaryIntrinsicCall(llvm::Intrinsic::roundeven, clamped_f);
             final_val = builder.CreateFPToUI(rounded_f, builder.getInt32Ty());
 
-            if (bpp == 1) {
-                final_val = builder.CreateTrunc(final_val, builder.getInt8Ty());
-                llvm::StoreInst* si =
-                    builder.CreateStore(final_val, pixel_addr);
-                setMemoryInstAttrs(si, static_cast<unsigned>(pixel_align),
-                                   dst_idx);
-            } else if (bpp == 2) {
-                final_val =
-                    builder.CreateTrunc(final_val, builder.getInt16Ty());
-                llvm::StoreInst* si =
-                    builder.CreateStore(final_val, pixel_addr);
-                setMemoryInstAttrs(si, static_cast<unsigned>(pixel_align),
-                                   dst_idx);
-            } else { // bpp == 4
-                llvm::StoreInst* si =
-                    builder.CreateStore(final_val, pixel_addr);
-                setMemoryInstAttrs(si, static_cast<unsigned>(pixel_align),
-                                   dst_idx);
-            }
+            llvm::Type* store_type =
+                bpp == 1
+                    ? builder.getInt8Ty()
+                    : (bpp == 2 ? builder.getInt16Ty() : builder.getInt32Ty());
+            final_val = builder.CreateTruncOrBitCast(final_val, store_type);
+            llvm::StoreInst* si = builder.CreateStore(final_val, pixel_addr);
+            setMemoryInstAttrs(si, static_cast<unsigned>(pixel_align), dst_idx);
         } else { // stFloat
             if (bpp == 4) {
                 llvm::StoreInst* si =
@@ -2211,36 +2296,6 @@ class Compiler {
             } else {
                 throw std::runtime_error("Unsupported float sample size.");
             }
-        }
-    }
-
-    llvm::Value* generate_boundary_check(llvm::Value* coord, llvm::Value* max,
-                                         bool mirror) {
-        if (mirror) {
-            auto c0 = builder.getInt32(0);
-            auto c2 = builder.getInt32(2);
-
-            auto lt0 = builder.CreateICmpSLT(coord, c0);
-            auto v_lt0 = builder.CreateSub(builder.getInt32(-1), coord);
-
-            auto ge_max = builder.CreateICmpSGE(coord, max);
-            auto v_ge_max = builder.CreateSub(
-                builder.CreateSub(builder.CreateMul(c2, max), c2), coord);
-
-            auto result = builder.CreateSelect(lt0, v_lt0, coord);
-            result = builder.CreateSelect(ge_max, v_ge_max, result);
-            return result;
-
-        } else { // Clamp
-            auto c0 = builder.getInt32(0);
-            auto max_minus_1 = builder.CreateSub(max, builder.getInt32(1));
-
-            auto ge0 = builder.CreateICmpSGE(coord, c0);
-            auto v_ge0 = builder.CreateSelect(ge0, coord, c0);
-
-            auto lt_max = builder.CreateICmpSLT(v_ge0, max);
-            auto v_lt_max = builder.CreateSelect(lt_max, v_ge0, max_minus_1);
-            return v_lt_max;
         }
     }
 };

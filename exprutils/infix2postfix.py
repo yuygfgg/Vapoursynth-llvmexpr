@@ -51,21 +51,6 @@ class GlobalMode(StrEnum):
     SPECIFIC = "specific"
 
 
-def find_matching_brace(code: str, start_index: int) -> int:
-    """
-    Find the index of the matching closing brace.
-    """
-    brace_depth = 1
-    for i in range(start_index, len(code)):
-        if code[i] == "{":
-            brace_depth += 1
-        elif code[i] == "}":
-            brace_depth -= 1
-            if brace_depth == 0:
-                return i
-    return -1
-
-
 def infix2postfix(infix_code: str) -> str:
     R"""
     Convert infix expressions to postfix expressions.
@@ -834,6 +819,21 @@ def compute_stack_effect(
         stack_size += get_stack_effect(token)
 
     return stack_size
+
+
+def find_matching_brace(code: str, start_index: int) -> int:
+    """
+    Find the index of the matching closing brace.
+    """
+    brace_depth = 1
+    for i in range(start_index, len(code)):
+        if code[i] == "{":
+            brace_depth += 1
+        elif code[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                return i
+    return -1
 
 
 def parse_ternary(
