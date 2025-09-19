@@ -53,8 +53,11 @@ jobs:
       - name: Force static zstd linkage (Windows)
         shell: msys2 {0}
         run: | 
-          rm /mingw64/lib/libzstd.dll.a
+          rm -f /mingw64/lib/libzstd.dll.a
+          rm -f /mingw64/bin/zstd.dll
           pacman -S --noconfirm libzstd-devel
+          ls -la /mingw64/lib/libzstd.a || echo "Warning: libzstd.a not found"
+          pkg-config --libs --static libzstd || echo "Warning: pkg-config libzstd failed"
 
       - name: Show tool versions (Windows)
         shell: msys2 {0}
