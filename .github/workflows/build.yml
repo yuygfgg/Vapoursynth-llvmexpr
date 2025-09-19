@@ -232,14 +232,15 @@ jobs:
             mingw-w64-x86_64-vapoursynth
             mingw-w64-x86_64-zstd
 
-            - name: Force static zstd linkage (Windows)
-            shell: msys2 {0}
-            run: | 
-              rm -f /mingw64/lib/libzstd.dll.a
-              rm -f /mingw64/bin/zstd.dll
-              pacman -S --noconfirm libzstd-devel
-              ls -la /mingw64/lib/libzstd.a || echo "Warning: libzstd.a not found"
-              pkg-config --libs --static libzstd || echo "Warning: pkg-config libzstd failed"
+      - name: Force static zstd linkage (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: | 
+          rm -f /mingw64/lib/libzstd.dll.a
+          rm -f /mingw64/bin/zstd.dll
+          pacman -S --noconfirm libzstd-devel
+          ls -la /mingw64/lib/libzstd.a || echo "Warning: libzstd.a not found"
+          pkg-config --libs --static libzstd || echo "Warning: pkg-config libzstd failed"
 
       # Common steps for Linux
       - name: Download VS headers and patch header location (Linux)
