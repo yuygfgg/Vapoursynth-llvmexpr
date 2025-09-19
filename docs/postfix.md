@@ -30,6 +30,8 @@ The final value on the stack is the result for the pixel.
 
 When mixing formats, scale values accordingly. For example, to add an 8-bit value to a 10-bit value, you might use `x y 4 * +` (multiplying the 8-bit value `y` by 4 to scale it to the 10-bit range).
 
+When a non-integer result is writing to an integer pixel, it will be rounded to the nearest even integer.
+
 ---
 
 ### **2. Operands: Pushing Values onto the Stack**
@@ -198,6 +200,7 @@ Access pixels from any clip at absolute or relative coordinates.
 
 - **Dynamic Absolute Access:** `absX absY clip[]`
   - Accesses a pixel at an absolute coordinate, where `absX` and `absY` can be computed by expressions.
+  - If the coordinates are not integers, they will be rounded half to even.
   - **Warning:** Dynamic Absolute Access may not be vectorized by the JIT compiler if coordinates are computed at runtime, causing severe performance degradation.
   - **Example:** `X 2 / Y x[]` reads the pixel at half the current X coordinate from the first clip.
 
@@ -216,7 +219,7 @@ These operators provide fine-grained control over pixel output, allowing express
 
 | Operator | Operands | Description |
 | :--- | :--- | :--- |
-| `@[]` | 3 | `val absX absY @[]` pops a value `val` and two coordinates `absX`, `absY`, and writes `val` to the output pixel at `[absX, absY]`. This allows an expression for one pixel to write to another. |
+| `@[]` | 3 | `val absX absY @[]` pops a value `val` and two coordinates `absX`, `absY`, and writes `val` to the output pixel at `[absX, absY]`. This allows an expression for one pixel to write to another. If the coordinates are not integers, they will be truncated to integers. |
 | `^exit^` | 0 | Pushes a special marker value onto the stack. If, after the entire expression is evaluated, this marker is the *only* item remaining on the stack, the default write to the current pixel `[X, Y]` is suppressed. This is useful in expressions that only use `@[]` to write to other pixels. |
 
 **Undefined Behavior Warning:**

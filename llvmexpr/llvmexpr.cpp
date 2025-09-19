@@ -1722,10 +1722,19 @@ class Compiler {
                     rpn_stack.pop_back();
                     llvm::Value* coord_x_f = rpn_stack.back();
                     rpn_stack.pop_back();
-                    llvm::Value* coord_y =
-                        builder.CreateFPToSI(coord_y_f, i32_ty);
-                    llvm::Value* coord_x =
-                        builder.CreateFPToSI(coord_x_f, i32_ty);
+
+                    llvm::Value* coord_y = builder.CreateCall(
+                        llvm::Intrinsic::getOrInsertDeclaration(
+                            module.get(), llvm::Intrinsic::rint, {float_ty}),
+                        {coord_y_f});
+                    coord_y = builder.CreateFPToSI(coord_y, i32_ty);
+
+                    llvm::Value* coord_x = builder.CreateCall(
+                        llvm::Intrinsic::getOrInsertDeclaration(
+                            module.get(), llvm::Intrinsic::rint, {float_ty}),
+                        {coord_x_f});
+                    coord_x = builder.CreateFPToSI(coord_x, i32_ty);
+
                     rpn_stack.push_back(generate_pixel_load(
                         payload.clip_idx, coord_x, coord_y, mirror_boundary));
                     break;

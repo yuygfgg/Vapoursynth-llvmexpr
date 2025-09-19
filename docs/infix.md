@@ -164,7 +164,7 @@ Functions are called using standard syntax: `functionName(argument1, argument2, 
 | `clamp`                           | 3                   | `clamp(x, lo, hi)`; clamps to `[lo, hi]`.                     |
 | `fma`                             | 3                   | Fused multiply-add: `(a * b) + c`.                            |
 | `dyn`                             | 3                   | Dynamic absolute pixel access. See Section 8.                 |
-| `store`                           | 3                   | `store(val, x, y)`; writes `val` to `[x, y]`.                 |
+| `store`                           | 3                   | `store(val, x, y)`; writes `val` to `[trunc(x), trunc(y)]`.   |
 | `exit`                            | 0                   | Suppresses default pixel write.                               |
 | `nth_N`                           | `M` (where `M ≥ N`) | `nth_3(a, b, c, d)` returns the 3rd smallest of the 4 values. |
 
@@ -257,7 +257,7 @@ Access a pixel from a source clip at a dynamically calculated coordinate. This i
 
 - **Syntax:** `dyn($clip, x_expr, y_expr)`
 - `$clip` must be a source clip constant.
-- `x_expr` and `y_expr` can be any valid expressions that evaluate to the desired coordinates.
+- `x_expr` and `y_expr` can be any valid expressions that evaluate to the desired coordinates. If the coordinates are not integers, they will be rounded half to even.
 - `dyn($src0, $X + 2, $Y + 3)` is equivalent to `$src0[2, 3]`.
 
 ## 9. Control Flow (if/else/goto and Labels)

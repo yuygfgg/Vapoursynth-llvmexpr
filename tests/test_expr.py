@@ -353,3 +353,12 @@ def test_boundary_conditions(ramp_clip: vs.VideoNode, expr: str, boundary: int |
     
     frame = res.get_frame(0)
     assert frame[0][y, x] == pytest.approx(expected)
+    
+def test_non_integer_coordinate_rounding() -> None:
+    c = core.std.BlankClip(format=vs.GRAYS, color=0.0, width=4, height=2)
+    c = core.llvmexpr.Expr(c, "X")
+    res = core.llvmexpr.Expr(c, "X 0.5 + Y 0.5 + x[]", vs.GRAYS)
+    assert res.get_frame(0)[0][0, 0] == pytest.approx(0.0)
+    assert res.get_frame(0)[0][0, 1] == pytest.approx(2.0)
+    assert res.get_frame(0)[0][0, 2] == pytest.approx(2.0)
+    assert res.get_frame(0)[0][0, 3] == pytest.approx(3.0)
