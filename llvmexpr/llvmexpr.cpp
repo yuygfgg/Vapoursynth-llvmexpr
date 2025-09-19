@@ -715,8 +715,11 @@ class Compiler {
             PB.registerLoopAnalyses(LAM);
             PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
-            llvm::ModulePassManager MPM =
-                PB.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::O3);
+            llvm::ModulePassManager MPM;
+            if (auto Err = PB.parsePassPipeline(MPM, "default<O3>")) {
+                llvm::errs() << "Failed to parse 'default<O3>' pipeline: " << llvm::toString(std::move(Err)) << "\n";
+                throw std::runtime_error("Failed to create default optimization pipeline.");
+            }
             MPM.run(*module, MAM);
         }
 
