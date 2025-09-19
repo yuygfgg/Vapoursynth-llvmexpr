@@ -52,9 +52,9 @@ jobs:
 
       - name: Force static zstd linkage (Windows)
         shell: msys2 {0}
-        run: |
+        run: | 
           rm /mingw64/lib/libzstd.dll.a
-          pacman -S libzstd-devel
+          pacman -S --noconfirm libzstd-devel
 
       - name: Show tool versions (Windows)
         shell: msys2 {0}
@@ -234,7 +234,7 @@ jobs:
         shell: msys2 {0}
         run: | 
           rm /mingw64/lib/libzstd.dll.a
-          pacman -S libzstd-devel
+          pacman -S --noconfirm libzstd-devel
 
       # Common steps for Linux
       - name: Download VS headers and patch header location (Linux)
