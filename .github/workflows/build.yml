@@ -48,6 +48,7 @@ jobs:
             mingw-w64-x86_64-pkg-config
             mingw-w64-x86_64-llvm
             mingw-w64-x86_64-vapoursynth
+            mingw-w64-x86_64-zstd
 
       - name: Force static zstd linkage (Windows)
         shell: msys2 {0}
@@ -224,6 +225,7 @@ jobs:
             mingw-w64-x86_64-pkg-config
             mingw-w64-x86_64-llvm
             mingw-w64-x86_64-vapoursynth
+            mingw-w64-x86_64-zstd
 
       - name: Force static zstd linkage (Windows)
         if: runner.os == 'Windows'
