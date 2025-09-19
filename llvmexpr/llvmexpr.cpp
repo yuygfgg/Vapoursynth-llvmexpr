@@ -717,8 +717,10 @@ class Compiler {
 
             llvm::ModulePassManager MPM;
             if (auto Err = PB.parsePassPipeline(MPM, "default<O3>")) {
-                llvm::errs() << "Failed to parse 'default<O3>' pipeline: " << llvm::toString(std::move(Err)) << "\n";
-                throw std::runtime_error("Failed to create default optimization pipeline.");
+                llvm::errs() << "Failed to parse 'default<O3>' pipeline: "
+                             << llvm::toString(std::move(Err)) << "\n";
+                throw std::runtime_error(
+                    "Failed to create default optimization pipeline.");
             }
             MPM.run(*module, MAM);
         }
@@ -859,21 +861,26 @@ class Compiler {
             // result = (len-1) - abs(r - (len-1))
             llvm::Function* abs_func = llvm::Intrinsic::getOrInsertDeclaration(
                 module.get(), llvm::Intrinsic::abs, {builder.getInt32Ty()});
-            auto abs_coord = builder.CreateCall(abs_func, {coord, builder.getInt1(false)});
+            auto abs_coord =
+                builder.CreateCall(abs_func, {coord, builder.getInt1(false)});
 
             auto dim_minus_1 = builder.CreateSub(max_dim, one);
-            auto twice_dim_minus_1 = builder.CreateMul(dim_minus_1, builder.getInt32(2));
+            auto twice_dim_minus_1 =
+                builder.CreateMul(dim_minus_1, builder.getInt32(2));
 
             // base = base | (base==0 ? 1 : 0)
             auto base_is_zero = builder.CreateICmpEQ(twice_dim_minus_1, zero);
-            auto one_if_zero = builder.CreateZExt(base_is_zero, builder.getInt32Ty());
-            auto safe_mod_base = builder.CreateOr(twice_dim_minus_1, one_if_zero);
+            auto one_if_zero =
+                builder.CreateZExt(base_is_zero, builder.getInt32Ty());
+            auto safe_mod_base =
+                builder.CreateOr(twice_dim_minus_1, one_if_zero);
 
             auto rem = builder.CreateURem(abs_coord, safe_mod_base);
 
             // result = (len-1) - abs(rem - (len-1))
             auto diff = builder.CreateSub(rem, dim_minus_1);
-            auto abs_diff = builder.CreateCall(abs_func, {diff, builder.getInt1(false)});
+            auto abs_diff =
+                builder.CreateCall(abs_func, {diff, builder.getInt1(false)});
             result = builder.CreateSub(dim_minus_1, abs_diff);
         } else { // Clamping
             // clamp(coord, 0, max_dim - 1)
@@ -885,7 +892,8 @@ class Compiler {
                 module.get(), llvm::Intrinsic::smin, {builder.getInt32Ty()});
 
             auto clamped_at_zero = builder.CreateCall(smax_func, {coord, zero});
-            result = builder.CreateCall(smin_func, {clamped_at_zero, dim_minus_1});
+            result =
+                builder.CreateCall(smin_func, {clamped_at_zero, dim_minus_1});
         }
 
         return result;
@@ -1941,12 +1949,14 @@ class Compiler {
                     rpn_stack.pop_back();
                     auto zero = llvm::ConstantFP::get(float_ty, 0.0);
                     auto one = llvm::ConstantFP::get(float_ty, 1.0);
-                    auto minus_one = llvm::ConstantFP::get(float_ty, -1.0);
-                    auto is_pos = builder.CreateFCmpOGT(x, zero);
-                    auto is_neg = builder.CreateFCmpOLT(x, zero);
-                    rpn_stack.push_back(builder.CreateSelect(
-                        is_pos, one,
-                        builder.CreateSelect(is_neg, minus_one, zero)));
+                    auto nonzero = builder.CreateFCmpONE(x, zero);
+                    auto sign = builder.CreateCall(
+                        llvm::Intrinsic::getOrInsertDeclaration(
+                            module.get(), llvm::Intrinsic::copysign,
+                            {float_ty}),
+                        {one, x});
+                    rpn_stack.push_back(
+                        builder.CreateSelect(nonzero, sign, zero));
                     break;
                 }
                 case TokenType::NEG: {
