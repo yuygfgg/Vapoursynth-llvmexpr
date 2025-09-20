@@ -232,7 +232,7 @@ def test_stack_manipulation() -> None:
     res_drop = core.llvmexpr.Expr(c0, "1 2 3 drop2", vs.GRAYS)
     assert res_drop.get_frame(0)[0][0, 0] == pytest.approx(1.0)
     res_sort = core.llvmexpr.Expr(c0, "3 1 2 sort3 drop2", vs.GRAYS)
-    assert res_sort.get_frame(0)[0][0, 0] == pytest.approx(1.0)
+    assert res_sort.get_frame(0)[0][0, 0] == pytest.approx(3.0)
 
 
 def test_named_variables_and_loop_power() -> None:

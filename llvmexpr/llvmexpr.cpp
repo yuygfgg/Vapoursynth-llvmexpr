@@ -2205,7 +2205,7 @@ class Compiler {
                         }
                     }
 
-                    for (int k = 0; k < n; ++k) {
+                    for (int k = n - 1; k >= 0; --k) {
                         rpn_stack.push_back(values[k]);
                     }
                     break;
