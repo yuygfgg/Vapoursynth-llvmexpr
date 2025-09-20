@@ -681,6 +681,33 @@ class Compiler {
         collect_rel_y_accesses();
 
         define_function_signature();
+
+        {
+            llvm::AttrBuilder FuncAttrs(func->getContext());
+            if (FMF.allowContract()) {
+                FuncAttrs.addAttribute("fp-contract", "fast");
+            }
+            if (FMF.approxFunc()) {
+                FuncAttrs.addAttribute("approx-func-fp-math", "true");
+            }
+            if (FMF.noInfs()) {
+                FuncAttrs.addAttribute("no-infs-fp-math", "true");
+            }
+            if (FMF.noNaNs()) {
+                FuncAttrs.addAttribute("no-nans-fp-math", "true");
+            }
+            if (FMF.noSignedZeros()) {
+                FuncAttrs.addAttribute("no-signed-zeros-fp-math", "true");
+            }
+            if (FMF.allowReciprocal()) {
+                FuncAttrs.addAttribute("allow-reciprocal-fp-math", "true");
+            }
+
+            FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
+            FuncAttrs.addAttribute(llvm::Attribute::WillReturn);
+            func->addFnAttrs(FuncAttrs);
+        }
+
         generate_loops();
 
         module->setDataLayout(jit.getDataLayout());
