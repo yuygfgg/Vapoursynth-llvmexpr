@@ -754,9 +754,12 @@ class Compiler {
             PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
             llvm::ModulePassManager MPM;
+            // Run O3 optimization for 5 times gives over 15% performance improvement in some cases
+            constexpr const char* PIPELINE = "default<O3>,default<O3>,default<O3>,default<O3>,default<O3>";
             // TODO: Figure out how to enable polly optimization, and if that helps
-            if (auto Err = PB.parsePassPipeline(MPM, "default<O3>")) {
-                llvm::errs() << "Failed to parse 'default<O3>' pipeline: "
+            if (auto Err = PB.parsePassPipeline(
+                    MPM, PIPELINE)) {
+                llvm::errs() << "Failed to parse '" << PIPELINE << "' pipeline: "
                              << llvm::toString(std::move(Err)) << "\n";
                 throw std::runtime_error(
                     "Failed to create default optimization pipeline.");
