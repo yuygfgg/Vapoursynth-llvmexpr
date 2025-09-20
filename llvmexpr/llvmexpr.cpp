@@ -594,6 +594,8 @@ class Compiler {
     std::string dump_ir_path;
     const std::map<std::pair<int, std::string>, int>& prop_map;
     std::string func_name;
+    bool uses_x = false;
+    bool uses_y = false;
 
     std::unique_ptr<llvm::LLVMContext> context;
     std::unique_ptr<llvm::Module> module;
@@ -656,7 +658,16 @@ class Compiler {
           func_name(std::move(function_name)),
           context(std::make_unique<llvm::LLVMContext>()),
           module(std::make_unique<llvm::Module>("ExprJITModule", *context)),
-          builder(*context) {}
+          builder(*context) {
+        for (const auto& token : tokens) {
+            if (token.type == TokenType::CONSTANT_X)
+                uses_x = true;
+            if (token.type == TokenType::CONSTANT_Y)
+                uses_y = true;
+            if (uses_x && uses_y)
+                break;
+        }
+    }
 
     CompiledFunction compile() {
         bool needs_nans = false;
@@ -792,19 +803,21 @@ class Compiler {
 
     llvm::Value* createUnaryIntrinsicCall(llvm::Intrinsic::ID intrinsic_id,
                                           llvm::Value* arg) {
-        return builder.CreateCall(
-            llvm::Intrinsic::getOrInsertDeclaration(module.get(), intrinsic_id,
-                                                    {builder.getFloatTy()}),
-            {arg});
+        auto* callee = llvm::Intrinsic::getOrInsertDeclaration(
+            module.get(), intrinsic_id, {arg->getType()});
+        auto* call = builder.CreateCall(callee, {arg});
+        call->setFastMathFlags(builder.getFastMathFlags());
+        return call;
     }
 
     llvm::Value* createBinaryIntrinsicCall(llvm::Intrinsic::ID intrinsic_id,
                                            llvm::Value* arg1,
                                            llvm::Value* arg2) {
-        return builder.CreateCall(
-            llvm::Intrinsic::getOrInsertDeclaration(module.get(), intrinsic_id,
-                                                    {builder.getFloatTy()}),
-            {arg1, arg2});
+        auto* callee = llvm::Intrinsic::getOrInsertDeclaration(
+            module.get(), intrinsic_id, {arg1->getType()});
+        auto* call = builder.CreateCall(callee, {arg1, arg2});
+        call->setFastMathFlags(builder.getFastMathFlags());
+        return call;
     }
 
     void assumeAligned(llvm::Value* ptrValue, unsigned alignment) {
@@ -995,6 +1008,17 @@ class Compiler {
             builder.CreateAlloca(builder.getInt32Ty(), nullptr, "x.var");
         builder.CreateStore(builder.getInt32(0), y_var);
 
+        llvm::Value* x_fp_var = nullptr;
+        if (uses_x) {
+            x_fp_var = createAllocaInEntry(builder.getFloatTy(), "x_fp.var");
+        }
+        llvm::Value* y_fp_var = nullptr;
+        if (uses_y) {
+            y_fp_var = createAllocaInEntry(builder.getFloatTy(), "y_fp.var");
+            builder.CreateStore(
+                llvm::ConstantFP::get(builder.getFloatTy(), 0.0), y_fp_var);
+        }
+
         // Index 0 = dst, 1..num_inputs = sources
         preloaded_base_ptrs.resize(num_inputs + 1);
         preloaded_strides.resize(num_inputs + 1);
@@ -1086,6 +1110,10 @@ class Compiler {
         // Reset x.var at the start of each row
         llvm::Value* x_var = x_var_entry;
         builder.CreateStore(builder.getInt32(0), x_var);
+        if (uses_x) {
+            builder.CreateStore(
+                llvm::ConstantFP::get(builder.getFloatTy(), 0.0), x_fp_var);
+        }
         builder.CreateBr(loop_x_header);
 
         builder.SetInsertPoint(loop_x_header);
@@ -1120,15 +1148,35 @@ class Compiler {
         loop_br->setMetadata(llvm::LLVMContext::MD_loop, loop_id);
 
         builder.SetInsertPoint(loop_x_body);
-        generate_ir_from_tokens(x_val, y_val);
+        llvm::Value* x_fp = nullptr;
+        if (uses_x) {
+            x_fp = builder.CreateLoad(builder.getFloatTy(), x_fp_var, "x_fp");
+        }
+        llvm::Value* y_fp = nullptr;
+        if (uses_y) {
+            y_fp = builder.CreateLoad(builder.getFloatTy(), y_fp_var, "y_fp");
+        }
+        generate_ir_from_tokens(x_val, y_val, x_fp, y_fp);
 
         llvm::Value* x_next = builder.CreateAdd(x_val, builder.getInt32(1));
         builder.CreateStore(x_next, x_var);
+        if (uses_x) {
+            llvm::Value* x_fp_next = builder.CreateFAdd(
+                x_fp, llvm::ConstantFP::get(builder.getFloatTy(), 1.0));
+            builder.CreateStore(x_fp_next, x_fp_var);
+        }
         builder.CreateBr(loop_x_header);
 
         builder.SetInsertPoint(loop_x_exit);
         llvm::Value* y_next = builder.CreateAdd(y_val, builder.getInt32(1));
         builder.CreateStore(y_next, y_var);
+        if (uses_y) {
+            llvm::Value* y_fp_val =
+                builder.CreateLoad(builder.getFloatTy(), y_fp_var);
+            llvm::Value* y_fp_next = builder.CreateFAdd(
+                y_fp_val, llvm::ConstantFP::get(builder.getFloatTy(), 1.0));
+            builder.CreateStore(y_fp_next, y_fp_var);
+        }
         builder.CreateBr(loop_y_header);
 
         builder.SetInsertPoint(loop_y_exit);
@@ -1504,7 +1552,8 @@ class Compiler {
         }
     }
 
-    void generate_ir_from_tokens(llvm::Value* x, llvm::Value* y) {
+    void generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
+                                 llvm::Value* x_fp, llvm::Value* y_fp) {
         llvm::Type* float_ty = builder.getFloatTy();
         llvm::Type* i32_ty = builder.getInt32Ty();
         llvm::Function* parent_func = builder.GetInsertBlock()->getParent();
@@ -1687,10 +1736,10 @@ class Compiler {
                     break;
                 }
                 case TokenType::CONSTANT_X:
-                    rpn_stack.push_back(builder.CreateSIToFP(x, float_ty));
+                    rpn_stack.push_back(x_fp);
                     break;
                 case TokenType::CONSTANT_Y:
-                    rpn_stack.push_back(builder.CreateSIToFP(y, float_ty));
+                    rpn_stack.push_back(y_fp);
                     break;
                 case TokenType::CONSTANT_WIDTH:
                     rpn_stack.push_back(
