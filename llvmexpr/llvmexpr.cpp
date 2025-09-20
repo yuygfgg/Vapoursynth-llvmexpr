@@ -754,6 +754,7 @@ class Compiler {
             PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
             llvm::ModulePassManager MPM;
+            // TODO: Figure out how to enable polly optimization, and if that helps
             if (auto Err = PB.parsePassPipeline(MPM, "default<O3>")) {
                 llvm::errs() << "Failed to parse 'default<O3>' pipeline: "
                              << llvm::toString(std::move(Err)) << "\n";
@@ -1116,7 +1117,27 @@ class Compiler {
         llvm::Value* x_cond =
             builder.CreateICmpSLT(x_val, builder.getInt32(width), "x.cond");
 
-        llvm::MDNode* loop_id = llvm::MDNode::getDistinct(*context, {});
+        // Add loop metadata to hint vectorization/interleaving
+        // TODO: Figure out why vectorization doesn't work when interleaving is enabled
+        llvm::Metadata* enable_vec[] = {
+            llvm::MDString::get(*context, "llvm.loop.vectorize.enable"),
+            llvm::ConstantAsMetadata::get(
+                llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 1))};
+        llvm::MDNode* enable_vec_node = llvm::MDNode::get(*context, enable_vec);
+
+        llvm::Metadata* interleave_md[] = {
+            llvm::MDString::get(*context, "llvm.loop.interleave.count"),
+            llvm::ConstantAsMetadata::get(
+                llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 4))};
+        llvm::MDNode* interleave_node =
+            llvm::MDNode::get(*context, interleave_md);
+
+        llvm::SmallVector<llvm::Metadata*, 4> loop_md_elems;
+        loop_md_elems.push_back(nullptr); // to be replaced with self reference
+        loop_md_elems.push_back(enable_vec_node);
+        loop_md_elems.push_back(interleave_node);
+        llvm::MDNode* loop_id =
+            llvm::MDNode::getDistinct(*context, loop_md_elems);
         loop_id->replaceOperandWith(0, loop_id);
 
         llvm::BranchInst* loop_br =
