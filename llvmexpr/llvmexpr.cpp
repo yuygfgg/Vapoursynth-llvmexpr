@@ -573,7 +573,7 @@ class OrcJit {
 };
 
 using ProcessProc = void (*)(uint8_t** rwptrs, const int* strides,
-                             const float* props, int width, int height);
+                             const float* props);
 
 struct CompiledFunction {
     ProcessProc func_ptr = nullptr;
@@ -590,6 +590,8 @@ class Compiler {
     const VSVideoInfo* vo;
     const std::vector<const VSVideoInfo*>& vi;
     int num_inputs;
+    int width;
+    int height;
     bool mirror_boundary;
     std::string dump_ir_path;
     const std::map<std::pair<int, std::string>, int>& prop_map;
@@ -605,8 +607,6 @@ class Compiler {
     llvm::Value* rwptrs_arg;
     llvm::Value* strides_arg;
     llvm::Value* props_arg;
-    llvm::Value* width_arg;
-    llvm::Value* height_arg;
 
     // Loop-invariant caches
     std::vector<llvm::Value*> preloaded_base_ptrs;
@@ -648,14 +648,14 @@ class Compiler {
 
   public:
     Compiler(std::vector<Token>&& tokens_in, const VSVideoInfo* out_vi,
-             const std::vector<const VSVideoInfo*>& in_vi, bool mirror,
-             std::string dump_path,
+             const std::vector<const VSVideoInfo*>& in_vi, int width_in,
+             int height_in, bool mirror, std::string dump_path,
              const std::map<std::pair<int, std::string>, int>& p_map,
              std::string function_name)
         : tokens(std::move(tokens_in)), vo(out_vi), vi(in_vi),
-          num_inputs(in_vi.size()), mirror_boundary(mirror),
-          dump_ir_path(std::move(dump_path)), prop_map(p_map),
-          func_name(std::move(function_name)),
+          num_inputs(in_vi.size()), width(width_in), height(height_in),
+          mirror_boundary(mirror), dump_ir_path(std::move(dump_path)),
+          prop_map(p_map), func_name(std::move(function_name)),
           context(std::make_unique<llvm::LLVMContext>()),
           module(std::make_unique<llvm::Module>("ExprJITModule", *context)),
           builder(*context) {
@@ -848,11 +848,9 @@ class Compiler {
             ptr_ty; // opaque pointer (represents uint8_t**)
         llvm::Type* i32_ptr_ty = ptr_ty; // opaque pointer (represents int32_t*)
         llvm::Type* float_ptr_ty = ptr_ty; // opaque pointer (represents float*)
-        llvm::Type* i32_ty = llvm::Type::getInt32Ty(*context);
 
         llvm::FunctionType* func_ty = llvm::FunctionType::get(
-            void_ty, {i8_ptr_ptr_ty, i32_ptr_ty, float_ptr_ty, i32_ty, i32_ty},
-            false);
+            void_ty, {i8_ptr_ptr_ty, i32_ptr_ty, float_ptr_ty}, false);
 
         func = llvm::Function::Create(func_ty, llvm::Function::ExternalLinkage,
                                       func_name, module.get());
@@ -864,10 +862,6 @@ class Compiler {
         strides_arg->setName("strides");
         props_arg = &*args++;
         props_arg->setName("props");
-        width_arg = &*args++;
-        width_arg->setName("width");
-        height_arg = &*args++;
-        height_arg->setName("height");
 
         func->addParamAttr(1, llvm::Attribute::ReadOnly); // strides (int32_t*)
         func->addParamAttr(2, llvm::Attribute::ReadOnly); // props (float*)
@@ -943,9 +937,9 @@ class Compiler {
                                             llvm::Value* x, int rel_x,
                                             bool use_mirror) {
         const VSVideoInfo* vinfo = vi[clip_idx];
-        llvm::Value* clip_width = builder.getInt32(vinfo->width);
         llvm::Value* coord_x = builder.CreateAdd(x, builder.getInt32(rel_x));
-        llvm::Value* final_x = get_final_coord(coord_x, clip_width, use_mirror);
+        llvm::Value* final_x =
+            get_final_coord(coord_x, builder.getInt32(width), use_mirror);
 
         const VSFormat* format = vinfo->format;
         int bpp = format->bytesPerSample;
@@ -1075,7 +1069,7 @@ class Compiler {
         llvm::Value* y_val =
             builder.CreateLoad(builder.getInt32Ty(), y_var, "y");
         llvm::Value* y_cond =
-            builder.CreateICmpSLT(y_val, height_arg, "y.cond");
+            builder.CreateICmpSLT(y_val, builder.getInt32(height), "y.cond");
         builder.CreateCondBr(y_cond, loop_y_body, loop_y_exit);
 
         builder.SetInsertPoint(loop_y_body);
@@ -1119,28 +1113,10 @@ class Compiler {
         builder.SetInsertPoint(loop_x_header);
         llvm::Value* x_val =
             builder.CreateLoad(builder.getInt32Ty(), x_var, "x");
-        llvm::Value* x_cond = builder.CreateICmpSLT(x_val, width_arg, "x.cond");
+        llvm::Value* x_cond =
+            builder.CreateICmpSLT(x_val, builder.getInt32(width), "x.cond");
 
-        // Add loop metadata to hint vectorization/interleaving
-        llvm::Metadata* enable_vec[] = {
-            llvm::MDString::get(*context, "llvm.loop.vectorize.enable"),
-            llvm::ConstantAsMetadata::get(
-                llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 1))};
-        llvm::MDNode* enable_vec_node = llvm::MDNode::get(*context, enable_vec);
-
-        llvm::Metadata* interleave_md[] = {
-            llvm::MDString::get(*context, "llvm.loop.interleave.count"),
-            llvm::ConstantAsMetadata::get(
-                llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 4))};
-        llvm::MDNode* interleave_node =
-            llvm::MDNode::get(*context, interleave_md);
-
-        llvm::SmallVector<llvm::Metadata*, 4> loop_md_elems;
-        loop_md_elems.push_back(nullptr); // to be replaced with self reference
-        loop_md_elems.push_back(enable_vec_node);
-        loop_md_elems.push_back(interleave_node);
-        llvm::MDNode* loop_id =
-            llvm::MDNode::getDistinct(*context, loop_md_elems);
+        llvm::MDNode* loop_id = llvm::MDNode::getDistinct(*context, {});
         loop_id->replaceOperandWith(0, loop_id);
 
         llvm::BranchInst* loop_br =
@@ -1742,12 +1718,12 @@ class Compiler {
                     rpn_stack.push_back(y_fp);
                     break;
                 case TokenType::CONSTANT_WIDTH:
-                    rpn_stack.push_back(
-                        builder.CreateSIToFP(width_arg, float_ty));
+                    rpn_stack.push_back(builder.CreateSIToFP(
+                        builder.getInt32(width), float_ty));
                     break;
                 case TokenType::CONSTANT_HEIGHT:
-                    rpn_stack.push_back(
-                        builder.CreateSIToFP(height_arg, float_ty));
+                    rpn_stack.push_back(builder.CreateSIToFP(
+                        builder.getInt32(height), float_ty));
                     break;
                 case TokenType::CONSTANT_N:
                     rpn_stack.push_back(builder.CreateLoad(
@@ -2317,12 +2293,10 @@ class Compiler {
 
     llvm::Value* generate_pixel_load(int clip_idx, llvm::Value* x,
                                      llvm::Value* y, bool mirror) {
-        const VSVideoInfo* vinfo = vi[clip_idx];
-        llvm::Value* clip_width = builder.getInt32(vinfo->width);
-        llvm::Value* clip_height = builder.getInt32(vinfo->height);
-
-        llvm::Value* final_x = get_final_coord(x, clip_width, mirror);
-        llvm::Value* final_y = get_final_coord(y, clip_height, mirror);
+        llvm::Value* final_x =
+            get_final_coord(x, builder.getInt32(width), mirror);
+        llvm::Value* final_y =
+            get_final_coord(y, builder.getInt32(height), mirror);
 
         int vs_clip_idx = clip_idx + 1; // 0 is dst
         llvm::Value* base_ptr = preloaded_base_ptrs[vs_clip_idx];
@@ -2406,7 +2380,7 @@ struct ExprData {
     int num_inputs;
 
     PlaneOp plane_op[3] = {};
-    std::vector<Token> tokens[3];
+    std::string expr_strs[3];
     CompiledFunction compiled[3];
     bool mirror_boundary;
     std::string dump_ir_path;
@@ -2418,9 +2392,11 @@ struct ExprData {
 std::string
 generate_cache_key(const std::string& expr, const VSVideoInfo* vo,
                    const std::vector<const VSVideoInfo*>& vi, bool mirror,
-                   const std::map<std::pair<int, std::string>, int>& prop_map) {
+                   const std::map<std::pair<int, std::string>, int>& prop_map,
+                   int plane_width, int plane_height) {
     std::string result =
-        std::format("expr={}|mirror={}|out={}", expr, mirror, vo->format->id);
+        std::format("expr={}|mirror={}|out={}|w={}|h={}", expr, mirror,
+                    vo->format->id, plane_width, plane_height);
 
     for (size_t i = 0; i < vi.size(); ++i) {
         result += std::format("|in{}={}", i, vi[i]->format->id);
@@ -2516,11 +2492,43 @@ const VSFrameRef* VS_CC exprGetFrame(int n, int activationReason,
                     strides[i + 1] = vsapi->getStride(src_frames[i], plane);
                 }
 
-                int width = vsapi->getFrameWidth(dst_frame, plane);
-                int height = vsapi->getFrameHeight(dst_frame, plane);
+                if (!d->compiled[plane].func_ptr) {
+                    int width = vsapi->getFrameWidth(dst_frame, plane);
+                    int height = vsapi->getFrameHeight(dst_frame, plane);
+
+                    std::vector<const VSVideoInfo*> vi(d->num_inputs);
+                    for (int i = 0; i < d->num_inputs; ++i) {
+                        vi[i] = vsapi->getVideoInfo(d->nodes[i]);
+                    }
+
+                    const std::string key = generate_cache_key(
+                        d->expr_strs[plane], &d->vi, vi, d->mirror_boundary,
+                        d->prop_map, width, height);
+
+                    std::lock_guard<std::mutex> lock(cache_mutex);
+                    if (!jit_cache.count(key)) {
+                        vsapi->logMessage(
+                            mtDebug,
+                            std::format("JIT compiling expression for plane {} "
+                                        "({}x{}): {}",
+                                        plane, width, height,
+                                        d->expr_strs[plane])
+                                .c_str());
+                        size_t key_hash = std::hash<std::string>{}(key);
+                        std::string func_name =
+                            std::format("process_plane_{}_{}", plane, key_hash);
+
+                        Compiler compiler(
+                            tokenize(d->expr_strs[plane], d->num_inputs),
+                            &d->vi, vi, width, height, d->mirror_boundary,
+                            d->dump_ir_path, d->prop_map, func_name);
+                        jit_cache[key] = compiler.compile();
+                    }
+                    d->compiled[plane] = jit_cache.at(key);
+                }
 
                 d->compiled[plane].func_ptr(rwptrs.data(), strides.data(),
-                                            props.data(), width, height);
+                                            props.data());
             }
         }
 
@@ -2616,9 +2624,10 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
                 continue;
             }
             d->plane_op[i] = PO_PROCESS;
-            d->tokens[i] = tokenize(expr_strs[i], d->num_inputs);
+            d->expr_strs[i] = expr_strs[i];
+            auto tokens = tokenize(d->expr_strs[i], d->num_inputs);
 
-            for (const auto& token : d->tokens[i]) {
+            for (const auto& token : tokens) {
                 if (token.type == TokenType::PROP_ACCESS) {
                     const auto& payload =
                         std::get<TokenPayload_PropAccess>(token.payload);
@@ -2639,35 +2648,6 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
         const char* dump_path = vsapi->propGetData(in, "dump_ir", 0, &err);
         if (!err && dump_path) {
             d->dump_ir_path = dump_path;
-        }
-
-        for (int i = 0; i < d->vi.format->numPlanes; ++i) {
-            if (d->plane_op[i] != PO_PROCESS)
-                continue;
-
-            std::string key = generate_cache_key(
-                expr_strs[i], &d->vi, vi, d->mirror_boundary, d->prop_map);
-
-            std::lock_guard<std::mutex> lock(cache_mutex);
-            if (jit_cache.count(key)) {
-                d->compiled[i] = jit_cache.at(key);
-            } else {
-                vsapi->logMessage(
-                    mtDebug,
-                    std::format("JIT compiling expression for plane {}: {}", i,
-                                expr_strs[i])
-                        .c_str());
-                // Generate unique function name per compiled expression
-                size_t key_hash = std::hash<std::string>{}(key);
-                std::string func_name =
-                    std::format("process_plane_{}_{}", i, key_hash);
-
-                Compiler compiler(std::move(d->tokens[i]), &d->vi, vi,
-                                  d->mirror_boundary, d->dump_ir_path,
-                                  d->prop_map, func_name);
-                d->compiled[i] = compiler.compile();
-                jit_cache[key] = d->compiled[i];
-            }
         }
 
     } catch (const std::exception& e) {
