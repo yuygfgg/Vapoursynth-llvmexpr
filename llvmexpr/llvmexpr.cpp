@@ -41,7 +41,9 @@
 #include "VapourSynth.h"
 
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/ExecutionEngine/Orc/LLJIT.h"
+#include "llvm/Frontend/Driver/CodeGenOptions.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Intrinsics.h"
@@ -555,6 +557,10 @@ class OrcJit {
         return lljit->getDataLayout();
     }
 
+    const llvm::Triple& getTargetTriple() const {
+        return lljit->getTargetTriple();
+    }
+
     void addModule(std::unique_ptr<llvm::Module> M,
                    std::unique_ptr<llvm::LLVMContext> Ctx) {
         llvm::cantFail(lljit->addIRModule(
@@ -758,6 +764,13 @@ class Compiler {
             llvm::FunctionAnalysisManager FAM;
             llvm::CGSCCAnalysisManager CGAM;
             llvm::ModuleAnalysisManager MAM;
+
+#ifdef USE_LIBMVEC
+            auto TLII = std::unique_ptr<llvm::TargetLibraryInfoImpl>(
+                llvm::driver::createTLII(jit.getTargetTriple(), llvm::driver::VectorLibrary::LIBMVEC));
+            FAM.registerPass(
+                [&TLII] { return llvm::TargetLibraryAnalysis(*TLII); });
+#endif
 
             llvm::PassBuilder PB;
             PB.registerModuleAnalyses(MAM);
@@ -2695,7 +2708,8 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
             d->dump_ir_path = dump_path;
         }
 
-        d->opt_level = static_cast<int>(vsapi->propGetInt(in, "opt_level", 0, &err));
+        d->opt_level =
+            static_cast<int>(vsapi->propGetInt(in, "opt_level", 0, &err));
         if (err) {
             d->opt_level = 5;
         }

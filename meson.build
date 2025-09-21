@@ -66,6 +66,11 @@ if static_llvm
   endif
 endif
 
+cpp_args = []
+if get_option('use-libmvec')
+  cpp_args += '-DUSE_LIBMVEC'
+endif
+
 if static_llvm and host_machine.system() == 'windows'
   link_args += '-static'
 endif
@@ -76,6 +81,7 @@ sources = [
 
 shared_module('llvmexpr', sources,
   dependencies: dependencies,
+  cpp_args: cpp_args,
   link_args: link_args,
   install: true,
   install_dir: install_dir,

@@ -1,1 +1,2 @@
 option('static-llvm', type: 'boolean', value: false, description: 'Link LLVM statically')
+option('use-libmvec', type: 'boolean', value: false, description: 'Use libmvec to accelerate math functions')
