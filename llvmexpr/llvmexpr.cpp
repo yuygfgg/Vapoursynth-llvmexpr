@@ -767,7 +767,8 @@ class Compiler {
 
 #ifdef USE_LIBMVEC
             auto TLII = std::unique_ptr<llvm::TargetLibraryInfoImpl>(
-                llvm::driver::createTLII(jit.getTargetTriple(), llvm::driver::VectorLibrary::LIBMVEC));
+                llvm::driver::createTLII(jit.getTargetTriple(),
+                                         llvm::driver::VectorLibrary::LIBMVEC));
             FAM.registerPass(
                 [&TLII] { return llvm::TargetLibraryAnalysis(*TLII); });
 #endif
@@ -1152,8 +1153,13 @@ class Compiler {
         llvm::Value* x_cond =
             builder.CreateICmpSLT(x_val, builder.getInt32(width), "x.cond");
 
+        // TODO: Find a way to override the cost model to force vectorization (similar to `#pragma omp simd`)
+        // Currently, only HUGE expressions get vectorized when interleaving is enabled, resulting in suboptimal performance for smaller expressions.
+        // Disabling interleaving would significantly hurt performance for many non-vectorizable expressions, far outweighing the vectorization benefits.
+
+        // TODO: Implement approximate math functions to help the optimizer vectorize smaller expressions.
+
         // Add loop metadata to hint vectorization/interleaving
-        // TODO: Figure out why vectorization doesn't work when interleaving is enabled
         llvm::Metadata* enable_vec[] = {
             llvm::MDString::get(*context, "llvm.loop.vectorize.enable"),
             llvm::ConstantAsMetadata::get(
