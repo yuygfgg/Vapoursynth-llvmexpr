@@ -5,6 +5,7 @@
 .vscode/*
 build/*
 *.ll
+*.s
 */__pycache__/*
 tmp.py
 exprutils.egg-info/*

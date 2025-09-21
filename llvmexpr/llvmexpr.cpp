@@ -598,6 +598,7 @@ class Compiler {
     std::string func_name;
     bool uses_x = false;
     bool uses_y = false;
+    int opt_level;
 
     std::unique_ptr<llvm::LLVMContext> context;
     std::unique_ptr<llvm::Module> module;
@@ -651,11 +652,12 @@ class Compiler {
              const std::vector<const VSVideoInfo*>& in_vi, int width_in,
              int height_in, bool mirror, std::string dump_path,
              const std::map<std::pair<int, std::string>, int>& p_map,
-             std::string function_name)
+             std::string function_name, int opt_level_in)
         : tokens(std::move(tokens_in)), vo(out_vi), vi(in_vi),
           num_inputs(in_vi.size()), width(width_in), height(height_in),
           mirror_boundary(mirror), dump_ir_path(std::move(dump_path)),
           prop_map(p_map), func_name(std::move(function_name)),
+          opt_level(opt_level_in),
           context(std::make_unique<llvm::LLVMContext>()),
           module(std::make_unique<llvm::Module>("ExprJITModule", *context)),
           builder(*context) {
@@ -765,12 +767,17 @@ class Compiler {
             PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
             llvm::ModulePassManager MPM;
-            // Running O3 optimization for 5 times gives over 15% performance improvement in some cases
-            constexpr const char* PIPELINE = "default<O3>,default<O3>,default<O3>,default<O3>,default<O3>";
+            std::string pipeline;
+            if (opt_level > 0) {
+                pipeline = "default<O3>";
+                for (int i = 1; i < opt_level; ++i) {
+                    pipeline += ",default<O3>";
+                }
+            }
             // TODO: Figure out how to enable polly optimization, and if that helps
-            if (auto Err = PB.parsePassPipeline(MPM, PIPELINE)) {
+            if (auto Err = PB.parsePassPipeline(MPM, pipeline)) {
                 llvm::errs()
-                    << "Failed to parse '" << PIPELINE
+                    << "Failed to parse '" << pipeline
                     << "' pipeline: " << llvm::toString(std::move(Err)) << "\n";
                 throw std::runtime_error(
                     "Failed to create default optimization pipeline.");
@@ -2420,6 +2427,7 @@ struct ExprData {
     CompiledFunction compiled[3];
     bool mirror_boundary;
     std::string dump_ir_path;
+    int opt_level;
 
     std::vector<std::pair<int, std::string>> required_props;
     std::map<std::pair<int, std::string>, int> prop_map;
@@ -2557,7 +2565,8 @@ const VSFrameRef* VS_CC exprGetFrame(int n, int activationReason,
                         Compiler compiler(
                             tokenize(d->expr_strs[plane], d->num_inputs),
                             &d->vi, vi, width, height, d->mirror_boundary,
-                            d->dump_ir_path, d->prop_map, func_name);
+                            d->dump_ir_path, d->prop_map, func_name,
+                            d->opt_level);
                         jit_cache[key] = compiler.compile();
                     }
                     d->compiled[plane] = jit_cache.at(key);
@@ -2686,6 +2695,14 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
             d->dump_ir_path = dump_path;
         }
 
+        d->opt_level = static_cast<int>(vsapi->propGetInt(in, "opt_level", 0, &err));
+        if (err) {
+            d->opt_level = 5;
+        }
+        if (d->opt_level <= 0) {
+            throw std::runtime_error("opt_level must be greater than 0.");
+        }
+
     } catch (const std::exception& e) {
         for (auto* node : d->nodes) {
             if (node)
@@ -2709,6 +2726,6 @@ VapourSynthPluginInit(VSConfigPlugin configFunc,
                plugin);
     registerFunc("Expr",
                  "clips:clip[];expr:data[];format:int:opt;boundary:int:opt;"
-                 "dump_ir:data:opt;",
+                 "dump_ir:data:opt;opt_level:int:opt;",
                  exprCreate, nullptr, plugin);
 }

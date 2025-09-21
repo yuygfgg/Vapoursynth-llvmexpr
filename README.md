@@ -14,7 +14,7 @@ This is the core engine of the project. It is a VapourSynth filter that accepts 
 
 **Function Signature:**
 ```
-llvmexpr.Expr(clip[] clips, string[] expr[, int format, int boundary=0, string dump_ir=""])
+llvmexpr.Expr(clip[] clips, string[] expr[, int format, int boundary=0, string dump_ir="", int opt_level=5])
 ```
 
 ### 2. `exprutils` (Python Utility Library)
