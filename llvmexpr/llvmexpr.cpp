@@ -754,7 +754,7 @@ class Compiler {
             PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
             llvm::ModulePassManager MPM;
-            // Run O3 optimization for 5 times gives over 15% performance improvement in some cases
+            // Running O3 optimization for 5 times gives over 15% performance improvement in some cases
             constexpr const char* PIPELINE = "default<O3>,default<O3>,default<O3>,default<O3>,default<O3>";
             // TODO: Figure out how to enable polly optimization, and if that helps
             if (auto Err = PB.parsePassPipeline(
