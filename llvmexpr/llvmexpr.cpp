@@ -729,10 +729,21 @@ class Compiler {
                 "LLVM module verification failed (pre-opt).");
         }
 
-        // Dump pre-optimization IR
+        std::string plane_specific_dump_path;
         if (!dump_ir_path.empty()) {
+            plane_specific_dump_path = dump_ir_path;
+            size_t dot_pos = plane_specific_dump_path.rfind('.');
+            if (dot_pos != std::string::npos) {
+                plane_specific_dump_path.insert(dot_pos, "." + func_name);
+            } else {
+                plane_specific_dump_path += "." + func_name;
+            }
+        }
+
+        // Dump pre-optimization IR
+        if (!plane_specific_dump_path.empty()) {
             std::error_code EC;
-            std::string pre_path = dump_ir_path + ".pre.ll";
+            std::string pre_path = plane_specific_dump_path + ".pre.ll";
             llvm::raw_fd_ostream dest_pre(pre_path, EC, llvm::sys::fs::OF_None);
             if (!EC) {
                 module->print(dest_pre, nullptr);
@@ -757,10 +768,10 @@ class Compiler {
             // Running O3 optimization for 5 times gives over 15% performance improvement in some cases
             constexpr const char* PIPELINE = "default<O3>,default<O3>,default<O3>,default<O3>,default<O3>";
             // TODO: Figure out how to enable polly optimization, and if that helps
-            if (auto Err = PB.parsePassPipeline(
-                    MPM, PIPELINE)) {
-                llvm::errs() << "Failed to parse '" << PIPELINE << "' pipeline: "
-                             << llvm::toString(std::move(Err)) << "\n";
+            if (auto Err = PB.parsePassPipeline(MPM, PIPELINE)) {
+                llvm::errs()
+                    << "Failed to parse '" << PIPELINE
+                    << "' pipeline: " << llvm::toString(std::move(Err)) << "\n";
                 throw std::runtime_error(
                     "Failed to create default optimization pipeline.");
             }
@@ -772,13 +783,14 @@ class Compiler {
             throw std::runtime_error("LLVM module verification failed.");
         }
 
-        if (!dump_ir_path.empty()) {
+        if (!plane_specific_dump_path.empty()) {
             std::error_code EC;
-            llvm::raw_fd_ostream dest(dump_ir_path, EC, llvm::sys::fs::OF_None);
+            llvm::raw_fd_ostream dest(plane_specific_dump_path, EC,
+                                      llvm::sys::fs::OF_None);
             if (EC) {
                 throw std::runtime_error(
                     "Could not open file: " + EC.message() +
-                    " for writing IR to " + dump_ir_path);
+                    " for writing IR to " + plane_specific_dump_path);
             } else {
                 module->print(dest, nullptr);
                 dest.flush();
