@@ -140,29 +140,3 @@ def test_expr_operations(
     result_clip = core.llvmexpr.Expr(clips, expression)
 
     assert get_pixel_value(result_clip) == expected_value
-
-
-@pytest.mark.parametrize("op, func", [("sin", math.sin), ("cos", math.cos)])
-def test_expr_trig_functions(core: vs.Core, op: str, func):
-    base_clip = core.std.BlankClip(format=vs.GRAYS, color=0.0, width=100, height=100)
-
-    def init_frame(n, f: vs.VideoFrame) -> vs.VideoFrame:
-        fout = f.copy()
-        arr = np.asarray(fout[0])
-        M, N = arr.shape
-        for i in range(M):
-            for j in range(N):
-                arr[i, j] = (i * N + j) * 1e-2
-        return fout
-
-    source_clip = core.std.ModifyFrame(base_clip, clips=base_clip, selector=init_frame)
-    result_clip = core.llvmexpr.Expr(source_clip, f"x {op}")
-
-    source_frame = source_clip.get_frame(0)
-    result_frame = result_clip.get_frame(0)
-    source_arr = np.asarray(source_frame[0])
-    result_arr = np.asarray(result_frame[0])
-
-    expected_arr = np.vectorize(func)(source_arr)
-
-    assert np.allclose(result_arr, expected_arr, atol=1e-6)

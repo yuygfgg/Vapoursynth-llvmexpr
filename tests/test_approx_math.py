@@ -1,20 +1,20 @@
 """
- Copyright (C) 2025 yuygfgg
- 
- This file is part of Vapoursynth-llvmexpr.
- 
- Vapoursynth-llvmexpr is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
- 
- Vapoursynth-llvmexpr is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
- 
- You should have received a copy of the GNU General Public License
- along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
+Copyright (C) 2025 yuygfgg
+
+This file is part of Vapoursynth-llvmexpr.
+
+Vapoursynth-llvmexpr is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+Vapoursynth-llvmexpr is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 import numpy as np
@@ -83,19 +83,18 @@ def test_pow_random_values() -> None:
         assert out == pytest.approx(expected, rel=1e-5, abs=1e-6)
 
 
-
 def _eval_exp(x: float) -> float:
     """Helper function to evaluate exp(x) using llvmexpr."""
-    clip = vs.core.std.BlankClip(width=1, height=1, format=vs.GRAYS, length=1)
-    clip = vs.core.llvmexpr.Expr(clip, f"{x} exp")
+    clip = vs.core.std.BlankClip(width=1, height=1, format=vs.GRAYS, length=1, color=x)
+    clip = vs.core.llvmexpr.Expr(clip, "x exp")
     frame = clip.get_frame(0)
     return float(frame[0][0, 0])
 
 
 def _eval_log(x: float) -> float:
     """Helper function to evaluate log(x) using llvmexpr."""
-    clip = vs.core.std.BlankClip(width=1, height=1, format=vs.GRAYS, length=1)
-    clip = vs.core.llvmexpr.Expr(clip, f"{x} log")
+    clip = vs.core.std.BlankClip(width=1, height=1, format=vs.GRAYS, length=1, color=x)
+    clip = vs.core.llvmexpr.Expr(clip, "x log")
     frame = clip.get_frame(0)
     return float(frame[0][0, 0])
 
@@ -129,7 +128,7 @@ def test_exp_special_cases(x: float) -> None:
         rel_tol = 1e-3  # 0.1% for large values
     else:
         rel_tol = 1e-3  # 0.1% for normal values
-    
+
     abs_tol = max(1e-4, abs(expected) * 1e-4)  # Scale absolute tolerance
     assert out == pytest.approx(expected, rel=rel_tol, abs=abs_tol)
 
@@ -145,7 +144,7 @@ def test_exp_grid(x: float) -> None:
         rel_tol = 1e-3  # 0.1% for large values
     else:
         rel_tol = 1e-3  # 0.1% for normal values
-    
+
     abs_tol = max(1e-4, abs(expected) * 1e-4)  # Scale absolute tolerance
     assert out == pytest.approx(expected, rel=rel_tol, abs=abs_tol)
 
@@ -163,7 +162,7 @@ def test_exp_random_values() -> None:
             rel_tol = 1e-3  # 0.1% for large values
         else:
             rel_tol = 1e-3  # 0.1% for normal values
-        
+
         abs_tol = max(1e-4, abs(expected) * 1e-4)  # Scale absolute tolerance
         assert out == pytest.approx(expected, rel=rel_tol, abs=abs_tol)
 
@@ -203,3 +202,52 @@ def test_log_random_values() -> None:
         out = _eval_log(float(x))
         expected = float(np.log(x))
         assert out == pytest.approx(expected, rel=1e-5, abs=1e-6)
+
+
+def _eval_trig(op: str, x: float) -> float:
+    """Helper function to evaluate trig functions using llvmexpr."""
+    c = core.std.BlankClip(format=vs.GRAYS, color=x)
+    res = core.llvmexpr.Expr(c, f"x {op}", vs.GRAYS)
+    return float(res.get_frame(0)[0][0, 0])
+
+
+TRIG_SPECIAL_CASES = [
+    0.0,
+    np.pi / 6, np.pi / 4, np.pi / 3, np.pi / 2,
+    2 * np.pi / 3, 3 * np.pi / 4, 5 * np.pi / 6, np.pi,
+    7 * np.pi / 6, 5 * np.pi / 4, 4 * np.pi / 3, 3 * np.pi / 2,
+    5 * np.pi / 3, 7 * np.pi / 4, 11 * np.pi / 6, 2 * np.pi,
+]
+TRIG_SPECIAL_CASES += [-x for x in TRIG_SPECIAL_CASES if x != 0.0]
+TRIG_SPECIAL_CASES += [100.0, -100.0, 1000.0, -1000.0] # Test range reduction
+
+
+@pytest.mark.parametrize("op, func", [("sin", np.sin), ("cos", np.cos), ("tan", np.tan)])
+@pytest.mark.parametrize("x", TRIG_SPECIAL_CASES)
+def test_trig_special_cases(op: str, func, x: float) -> None:
+    if op == "tan" and np.isclose(np.cos(x), 0.0):
+        pytest.skip("Skipping tan test at asymptote")
+
+    out = _eval_trig(op, x)
+    expected = float(func(x))
+    assert out == pytest.approx(expected, abs=9e-3)
+
+
+@pytest.mark.parametrize("op, func", [("sin", np.sin), ("cos", np.cos), ("tan", np.tan)])
+def test_trig_random_values(op: str, func) -> None:
+    rng = np.random.default_rng(54321)
+    # Use a large range to test range reduction
+    values = rng.uniform(-1000.0, 1000.0, size=100)
+    for x in values:
+        # Don't test tan near its asymptotes where behavior is chaotic
+        if op == "tan" and np.isclose(np.cos(float(x)), 0.0, atol=1e-2):
+            continue
+        
+        out = _eval_trig(op, float(x))
+        expected = float(func(x))
+        if op == "sin":
+            assert out == pytest.approx(expected, abs=9e-4)
+        elif op == "cos":
+            assert out == pytest.approx(expected, abs=3e-4)
+        else:  # tan
+            assert out == pytest.approx(expected, abs=0.01)

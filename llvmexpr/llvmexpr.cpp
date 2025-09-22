@@ -2052,15 +2052,36 @@ class Compiler {
                     break;
                 }
                 case TokenType::SIN: {
+#ifdef USE_APPROXIMATE_MATH
+                    auto a = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    rpn_stack.push_back(FastMath::createFastApproximateSin(
+                        builder, *context, a));
+#else
                     applyUnaryIntrinsic(llvm::Intrinsic::sin);
+#endif
                     break;
                 }
                 case TokenType::COS: {
+#ifdef USE_APPROXIMATE_MATH
+                    auto a = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    rpn_stack.push_back(FastMath::createFastApproximateCos(
+                        builder, *context, a));
+#else
                     applyUnaryIntrinsic(llvm::Intrinsic::cos);
+#endif
                     break;
                 }
                 case TokenType::TAN: {
+#ifdef USE_APPROXIMATE_MATH
+                    auto a = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    rpn_stack.push_back(FastMath::createFastApproximateTan(
+                        builder, *context, a));
+#else
                     applyUnaryIntrinsic(llvm::Intrinsic::tan);
+#endif
                     break;
                 }
                 case TokenType::ASIN: {
