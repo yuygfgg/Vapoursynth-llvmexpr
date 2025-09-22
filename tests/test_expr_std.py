@@ -25,7 +25,6 @@ You should have received a copy of the GNU General Public License
 along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-import math
 import pytest
 import vapoursynth as vs
 import numpy as np

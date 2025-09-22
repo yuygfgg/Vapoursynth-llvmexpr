@@ -59,8 +59,8 @@
 #include "llvm/TargetParser/Host.h"
 #include "llvm/TargetParser/Triple.h"
 
-#include "optimal_sorting_networks.hpp"
 #include "fastmath.hpp"
+#include "optimal_sorting_networks.hpp"
 
 constexpr unsigned ALIGNMENT = 32; // Vapoursynth should guarantee this
 
@@ -606,6 +606,7 @@ class Compiler {
     bool uses_x = false;
     bool uses_y = false;
     int opt_level;
+    bool approx_math;
 
     std::unique_ptr<llvm::LLVMContext> context;
     std::unique_ptr<llvm::Module> module;
@@ -659,12 +660,12 @@ class Compiler {
              const std::vector<const VSVideoInfo*>& in_vi, int width_in,
              int height_in, bool mirror, std::string dump_path,
              const std::map<std::pair<int, std::string>, int>& p_map,
-             std::string function_name, int opt_level_in)
+             std::string function_name, int opt_level_in, bool approx_math_in)
         : tokens(std::move(tokens_in)), vo(out_vi), vi(in_vi),
           num_inputs(in_vi.size()), width(width_in), height(height_in),
           mirror_boundary(mirror), dump_ir_path(std::move(dump_path)),
           prop_map(p_map), func_name(std::move(function_name)),
-          opt_level(opt_level_in),
+          opt_level(opt_level_in), approx_math(approx_math_in),
           context(std::make_unique<llvm::LLVMContext>()),
           module(std::make_unique<llvm::Module>("ExprJITModule", *context)),
           builder(*context) {
@@ -1146,7 +1147,6 @@ class Compiler {
         llvm::Value* x_cond =
             builder.CreateICmpSLT(x_val, builder.getInt32(width), "x.cond");
 
-        
         // TODO: Implement approximate math functions.
 
         // Get SIMD width based on CPU features
@@ -1915,16 +1915,16 @@ class Compiler {
                     break;
                 }
                 case TokenType::POW: {
-#ifdef USE_APPROXIMATE_MATH
-                    auto a = rpn_stack.back();
-                    rpn_stack.pop_back();
-                    auto b = rpn_stack.back();
-                    rpn_stack.pop_back();
-                    rpn_stack.push_back(FastMath::createFastApproximatePow(
-                        builder, *context, b, a));
-#else
-                    applyBinaryIntrinsic(llvm::Intrinsic::pow);
-#endif
+                    if (approx_math) {
+                        auto b = rpn_stack.back();
+                        rpn_stack.pop_back();
+                        auto a = rpn_stack.back();
+                        rpn_stack.pop_back();
+                        rpn_stack.push_back(FastMath::createFastApproximatePow(
+                            builder, *context, a, b));
+                    } else {
+                        applyBinaryIntrinsic(llvm::Intrinsic::pow);
+                    }
                     break;
                 }
                 case TokenType::ATAN2: {
@@ -2010,25 +2010,25 @@ class Compiler {
                     break;
                 }
                 case TokenType::EXP: {
-#ifdef USE_APPROXIMATE_MATH
-                    auto a = rpn_stack.back();
-                    rpn_stack.pop_back();
-                    rpn_stack.push_back(FastMath::createFastApproximateExp(
-                        builder, *context, a));
-#else
-                    applyUnaryIntrinsic(llvm::Intrinsic::exp);
-#endif
+                    if (approx_math) {
+                        auto a = rpn_stack.back();
+                        rpn_stack.pop_back();
+                        rpn_stack.push_back(FastMath::createFastApproximateExp(
+                            builder, *context, a));
+                    } else {
+                        applyUnaryIntrinsic(llvm::Intrinsic::exp);
+                    }
                     break;
                 }
                 case TokenType::LOG: {
-#ifdef USE_APPROXIMATE_MATH
-                    auto a = rpn_stack.back();
-                    rpn_stack.pop_back();
-                    rpn_stack.push_back(FastMath::createFastApproximateLog(
-                        builder, *context, a));
-#else
-                    applyUnaryIntrinsic(llvm::Intrinsic::log);
-#endif
+                    if (approx_math) {
+                        auto a = rpn_stack.back();
+                        rpn_stack.pop_back();
+                        rpn_stack.push_back(FastMath::createFastApproximateLog(
+                            builder, *context, a));
+                    } else {
+                        applyUnaryIntrinsic(llvm::Intrinsic::log);
+                    }
                     break;
                 }
                 case TokenType::ABS: {
@@ -2052,36 +2052,36 @@ class Compiler {
                     break;
                 }
                 case TokenType::SIN: {
-#ifdef USE_APPROXIMATE_MATH
-                    auto a = rpn_stack.back();
-                    rpn_stack.pop_back();
-                    rpn_stack.push_back(FastMath::createFastApproximateSin(
-                        builder, *context, a));
-#else
-                    applyUnaryIntrinsic(llvm::Intrinsic::sin);
-#endif
+                    if (approx_math) {
+                        auto a = rpn_stack.back();
+                        rpn_stack.pop_back();
+                        rpn_stack.push_back(FastMath::createFastApproximateSin(
+                            builder, *context, a));
+                    } else {
+                        applyUnaryIntrinsic(llvm::Intrinsic::sin);
+                    }
                     break;
                 }
                 case TokenType::COS: {
-#ifdef USE_APPROXIMATE_MATH
-                    auto a = rpn_stack.back();
-                    rpn_stack.pop_back();
-                    rpn_stack.push_back(FastMath::createFastApproximateCos(
-                        builder, *context, a));
-#else
-                    applyUnaryIntrinsic(llvm::Intrinsic::cos);
-#endif
+                    if (approx_math) {
+                        auto a = rpn_stack.back();
+                        rpn_stack.pop_back();
+                        rpn_stack.push_back(FastMath::createFastApproximateCos(
+                            builder, *context, a));
+                    } else {
+                        applyUnaryIntrinsic(llvm::Intrinsic::cos);
+                    }
                     break;
                 }
                 case TokenType::TAN: {
-#ifdef USE_APPROXIMATE_MATH
-                    auto a = rpn_stack.back();
-                    rpn_stack.pop_back();
-                    rpn_stack.push_back(FastMath::createFastApproximateTan(
-                        builder, *context, a));
-#else
-                    applyUnaryIntrinsic(llvm::Intrinsic::tan);
-#endif
+                    if (approx_math) {
+                        auto a = rpn_stack.back();
+                        rpn_stack.pop_back();
+                        rpn_stack.push_back(FastMath::createFastApproximateTan(
+                            builder, *context, a));
+                    } else {
+                        applyUnaryIntrinsic(llvm::Intrinsic::tan);
+                    }
                     break;
                 }
                 case TokenType::ASIN: {
@@ -2499,6 +2499,7 @@ struct ExprData {
     bool mirror_boundary;
     std::string dump_ir_path;
     int opt_level;
+    bool approx_math;
 
     std::vector<std::pair<int, std::string>> required_props;
     std::map<std::pair<int, std::string>, int> prop_map;
@@ -2637,7 +2638,7 @@ const VSFrameRef* VS_CC exprGetFrame(int n, int activationReason,
                             tokenize(d->expr_strs[plane], d->num_inputs),
                             &d->vi, vi, width, height, d->mirror_boundary,
                             d->dump_ir_path, d->prop_map, func_name,
-                            d->opt_level);
+                            d->opt_level, d->approx_math);
                         jit_cache[key] = compiler.compile();
                     }
                     d->compiled[plane] = jit_cache.at(key);
@@ -2766,14 +2767,22 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
             d->dump_ir_path = dump_path;
         }
 
-        d->opt_level =
-            static_cast<int>(vsapi->propGetInt(in, "opt_level", 0, &err));
+        d->opt_level = vsapi->propGetInt(in, "opt_level", 0, &err);
         if (err) {
             d->opt_level = 5;
         }
         if (d->opt_level <= 0) {
             throw std::runtime_error("opt_level must be greater than 0.");
         }
+
+        int approx_math = vsapi->propGetInt(in, "approx_math", 0, &err);
+        if (err) {
+            approx_math = 1;
+        }
+        d->approx_math = (approx_math != 0);
+        // TODO: Figure out when we should disable approximate math.
+        // It is known that approx math may lead to binary bloat and cause severe performance degradation for large exprs.
+        // Good news is that these exprs typically run faster with llvmexpr when approx math is disabled, than akarin.Expr.
 
     } catch (const std::exception& e) {
         for (auto* node : d->nodes) {
@@ -2798,6 +2807,6 @@ VapourSynthPluginInit(VSConfigPlugin configFunc,
                plugin);
     registerFunc("Expr",
                  "clips:clip[];expr:data[];format:int:opt;boundary:int:opt;"
-                 "dump_ir:data:opt;opt_level:int:opt;",
+                 "dump_ir:data:opt;opt_level:int:opt;approx_math:int:opt;",
                  exprCreate, nullptr, plugin);
 }
