@@ -60,6 +60,7 @@
 #include "llvm/TargetParser/Triple.h"
 
 #include "optimal_sorting_networks.hpp"
+#include "fastmath.hpp"
 
 constexpr unsigned ALIGNMENT = 32; // Vapoursynth should guarantee this
 
@@ -1914,7 +1915,16 @@ class Compiler {
                     break;
                 }
                 case TokenType::POW: {
+#ifdef USE_APPROXIMATE_MATH
+                    auto a = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    auto b = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    rpn_stack.push_back(FastMath::createFastApproximatePow(
+                        builder, *context, b, a));
+#else
                     applyBinaryIntrinsic(llvm::Intrinsic::pow);
+#endif
                     break;
                 }
                 case TokenType::ATAN2: {
@@ -2000,11 +2010,25 @@ class Compiler {
                     break;
                 }
                 case TokenType::EXP: {
+#ifdef USE_APPROXIMATE_MATH
+                    auto a = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    rpn_stack.push_back(FastMath::createFastApproximateExp(
+                        builder, *context, a));
+#else
                     applyUnaryIntrinsic(llvm::Intrinsic::exp);
+#endif
                     break;
                 }
                 case TokenType::LOG: {
+#ifdef USE_APPROXIMATE_MATH
+                    auto a = rpn_stack.back();
+                    rpn_stack.pop_back();
+                    rpn_stack.push_back(FastMath::createFastApproximateLog(
+                        builder, *context, a));
+#else
                     applyUnaryIntrinsic(llvm::Intrinsic::log);
+#endif
                     break;
                 }
                 case TokenType::ABS: {

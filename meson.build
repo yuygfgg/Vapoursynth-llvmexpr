@@ -71,6 +71,11 @@ if static_llvm and host_machine.system() == 'windows'
   link_args += '-static'
 endif
 
+cpp_args = []
+if get_option('use-approximate-math')
+  cpp_args += '-DUSE_APPROXIMATE_MATH'
+endif
+
 sources = [
   'llvmexpr/llvmexpr.cpp'
 ]
@@ -78,6 +83,7 @@ sources = [
 shared_module('llvmexpr', sources,
   dependencies: dependencies,
   link_args: link_args,
+  cpp_args: cpp_args,
   install: true,
   install_dir: install_dir,
   gnu_symbol_visibility: 'hidden'

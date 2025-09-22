@@ -1,1 +1,2 @@
 option('static-llvm', type: 'boolean', value: false, description: 'Link LLVM statically')
+option('use-approximate-math', type: 'boolean', value: true, description: 'Use approximate math')
