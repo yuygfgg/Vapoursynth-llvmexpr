@@ -359,28 +359,30 @@ inline llvm::Value* createFastApproximatePow(llvm::IRBuilder<>& builder,
     return final_result;
 }
 
-
 inline llvm::Value* createFastApproximateSinCos_(llvm::IRBuilder<>& builder,
                                                  llvm::LLVMContext& context,
-                                                 llvm::Value* x_,
-                                                 bool issin) {
+                                                 llvm::Value* x_, bool issin) {
     auto* float_ty = llvm::Type::getFloatTy(context);
     auto* int32_ty = llvm::Type::getInt32Ty(context);
 
     // Constants from the minimax polynomial approximation
-    auto* float_invpi = llvm::ConstantFP::get(float_ty, 0.31830988618f); // 1.0f / pi
+    auto* float_invpi =
+        llvm::ConstantFP::get(float_ty, 0.31830988618f); // 1.0f / pi
     auto* float_pi1 = llvm::ConstantFP::get(float_ty, 3.140625f);
     auto* float_pi2 = llvm::ConstantFP::get(float_ty, 0.0009670257568359375f);
     auto* float_pi3 = llvm::ConstantFP::get(float_ty, 1.984187252998352e-07f);
     auto* float_pi4 = llvm::ConstantFP::get(float_ty, 1.273533813134432e-11f);
     auto* float_sinC3 = llvm::ConstantFP::get(float_ty, -0.1666666567325592f);
     auto* float_sinC5 = llvm::ConstantFP::get(float_ty, 0.00833307858556509f);
-    auto* float_sinC7 = llvm::ConstantFP::get(float_ty, -0.00019807418575510383f);
-    auto* float_sinC9 = llvm::ConstantFP::get(float_ty, 2.6019030363451748e-06f);
+    auto* float_sinC7 =
+        llvm::ConstantFP::get(float_ty, -0.00019807418575510383f);
+    auto* float_sinC9 =
+        llvm::ConstantFP::get(float_ty, 2.6019030363451748e-06f);
     auto* float_cosC2 = llvm::ConstantFP::get(float_ty, -0.4999999701976776f);
     auto* float_cosC4 = llvm::ConstantFP::get(float_ty, 0.04166652262210846f);
     auto* float_cosC6 = llvm::ConstantFP::get(float_ty, -0.001388676579343155f);
-    auto* float_cosC8 = llvm::ConstantFP::get(float_ty, 2.4390448881604243e-05f);
+    auto* float_cosC8 =
+        llvm::ConstantFP::get(float_ty, 2.4390448881604243e-05f);
     auto* one_float = llvm::ConstantFP::get(float_ty, 1.0f);
 
     auto* signmask = llvm::ConstantInt::get(int32_ty, 0x80000000);
@@ -398,14 +400,16 @@ inline llvm::Value* createFastApproximateSinCos_(llvm::IRBuilder<>& builder,
 
     // t1 = Abs(x)
     auto* fabs_intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
-        builder.GetInsertBlock()->getModule(), llvm::Intrinsic::fabs, {float_ty});
+        builder.GetInsertBlock()->getModule(), llvm::Intrinsic::fabs,
+        {float_ty});
     llvm::Value* t1 = builder.CreateCall(fabs_intrinsic, {x});
 
     // Range reduction to [-pi/2, pi/2]
     llvm::Value* t2 = builder.CreateFMul(t1, float_invpi);
 
     auto* round_intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
-        builder.GetInsertBlock()->getModule(), llvm::Intrinsic::round, {float_ty});
+        builder.GetInsertBlock()->getModule(), llvm::Intrinsic::round,
+        {float_ty});
     llvm::Value* t2_rounded = builder.CreateCall(round_intrinsic, {t2});
     llvm::Value* t2i = builder.CreateFPToSI(t2_rounded, int32_ty);
 
@@ -417,18 +421,24 @@ inline llvm::Value* createFastApproximateSinCos_(llvm::IRBuilder<>& builder,
 
     // Reconstruct the value in the [-pi/2, pi/2] range using extended precision pi
     auto* fma_intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
-        builder.GetInsertBlock()->getModule(), llvm::Intrinsic::fma, {float_ty});
-    
-    t1 = builder.CreateCall(fma_intrinsic, {t2, builder.CreateFNeg(float_pi1), t1});
-    t1 = builder.CreateCall(fma_intrinsic, {t2, builder.CreateFNeg(float_pi2), t1});
-    t1 = builder.CreateCall(fma_intrinsic, {t2, builder.CreateFNeg(float_pi3), t1});
-    t1 = builder.CreateCall(fma_intrinsic, {t2, builder.CreateFNeg(float_pi4), t1});
+        builder.GetInsertBlock()->getModule(), llvm::Intrinsic::fma,
+        {float_ty});
+
+    t1 = builder.CreateCall(fma_intrinsic,
+                            {t2, builder.CreateFNeg(float_pi1), t1});
+    t1 = builder.CreateCall(fma_intrinsic,
+                            {t2, builder.CreateFNeg(float_pi2), t1});
+    t1 = builder.CreateCall(fma_intrinsic,
+                            {t2, builder.CreateFNeg(float_pi3), t1});
+    t1 = builder.CreateCall(fma_intrinsic,
+                            {t2, builder.CreateFNeg(float_pi4), t1});
 
     if (issin) {
         // Minimax polynomial for sin(x)
         // compute X + X * X^2 * (C3 + X^2 * (C5 + X^2 * (C7 + X^2 * C9)))
         t2 = builder.CreateFMul(t1, t1); // x^2
-        llvm::Value* t3 = builder.CreateCall(fma_intrinsic, {t2, float_sinC9, float_sinC7});
+        llvm::Value* t3 =
+            builder.CreateCall(fma_intrinsic, {t2, float_sinC9, float_sinC7});
         t3 = builder.CreateCall(fma_intrinsic, {t3, t2, float_sinC5});
         t3 = builder.CreateCall(fma_intrinsic, {t3, t2, float_sinC3});
         t3 = builder.CreateFMul(t3, t2);
@@ -438,7 +448,8 @@ inline llvm::Value* createFastApproximateSinCos_(llvm::IRBuilder<>& builder,
         // Minimax polynomial for cos(x)
         // compute 1 + X^2 * (C2 + X^2 * (C4 + X^2 * (C6 + X^2 * C8)))
         t2 = builder.CreateFMul(t1, t1); // x^2
-        llvm::Value* t3 = builder.CreateCall(fma_intrinsic, {t2, float_cosC8, float_cosC6});
+        llvm::Value* t3 =
+            builder.CreateCall(fma_intrinsic, {t2, float_cosC8, float_cosC6});
         t3 = builder.CreateCall(fma_intrinsic, {t3, t2, float_cosC4});
         t3 = builder.CreateCall(fma_intrinsic, {t3, t2, float_cosC2});
         t1 = builder.CreateCall(fma_intrinsic, {t3, t2, one_float});
@@ -455,19 +466,23 @@ inline llvm::Value* createFastApproximateSin(llvm::IRBuilder<>& builder,
                                              llvm::Value* x) {
     auto* float_ty = x->getType();
     auto* zero = llvm::ConstantFP::get(float_ty, 0.0);
-    auto* nan_val = llvm::ConstantFP::get(float_ty, std::numeric_limits<float>::quiet_NaN());
+    auto* nan_val = llvm::ConstantFP::get(
+        float_ty, std::numeric_limits<float>::quiet_NaN());
 
     // Main calculation
-    llvm::Value* result = createFastApproximateSinCos_(builder, context, x, true);
+    llvm::Value* result =
+        createFastApproximateSinCos_(builder, context, x, true);
 
     // Special cases
     auto* is_zero = builder.CreateFCmpOEQ(x, zero);
     auto* is_nan = builder.CreateFCmpUNO(x, x); // NaN check
     auto* is_inf = builder.CreateFCmpOEQ(
         builder.CreateCall(llvm::Intrinsic::getOrInsertDeclaration(
-            builder.GetInsertBlock()->getModule(), llvm::Intrinsic::fabs, {float_ty}), {x}),
-        llvm::ConstantFP::get(float_ty, std::numeric_limits<float>::infinity())
-    );
+                               builder.GetInsertBlock()->getModule(),
+                               llvm::Intrinsic::fabs, {float_ty}),
+                           {x}),
+        llvm::ConstantFP::get(float_ty,
+                              std::numeric_limits<float>::infinity()));
 
     // sin(0) = 0
     result = builder.CreateSelect(is_zero, zero, result);
@@ -485,19 +500,23 @@ inline llvm::Value* createFastApproximateCos(llvm::IRBuilder<>& builder,
     auto* float_ty = x->getType();
     auto* zero = llvm::ConstantFP::get(float_ty, 0.0);
     auto* one = llvm::ConstantFP::get(float_ty, 1.0);
-    auto* nan_val = llvm::ConstantFP::get(float_ty, std::numeric_limits<float>::quiet_NaN());
+    auto* nan_val = llvm::ConstantFP::get(
+        float_ty, std::numeric_limits<float>::quiet_NaN());
 
     // Main calculation
-    llvm::Value* result = createFastApproximateSinCos_(builder, context, x, false);
+    llvm::Value* result =
+        createFastApproximateSinCos_(builder, context, x, false);
 
     // Special cases
     auto* is_zero = builder.CreateFCmpOEQ(x, zero);
     auto* is_nan = builder.CreateFCmpUNO(x, x); // NaN check
     auto* is_inf = builder.CreateFCmpOEQ(
         builder.CreateCall(llvm::Intrinsic::getOrInsertDeclaration(
-            builder.GetInsertBlock()->getModule(), llvm::Intrinsic::fabs, {float_ty}), {x}),
-        llvm::ConstantFP::get(float_ty, std::numeric_limits<float>::infinity())
-    );
+                               builder.GetInsertBlock()->getModule(),
+                               llvm::Intrinsic::fabs, {float_ty}),
+                           {x}),
+        llvm::ConstantFP::get(float_ty,
+                              std::numeric_limits<float>::infinity()));
 
     // cos(0) = 1
     result = builder.CreateSelect(is_zero, one, result);
@@ -514,7 +533,8 @@ inline llvm::Value* createFastApproximateTan(llvm::IRBuilder<>& builder,
                                              llvm::Value* x) {
     auto* float_ty = x->getType();
     auto* zero = llvm::ConstantFP::get(float_ty, 0.0);
-    auto* nan_val = llvm::ConstantFP::get(float_ty, std::numeric_limits<float>::quiet_NaN());
+    auto* nan_val = llvm::ConstantFP::get(
+        float_ty, std::numeric_limits<float>::quiet_NaN());
 
     // tan(x) = sin(x) / cos(x)
     // Special values like 0, inf, nan are handled correctly by the sin/cos functions
@@ -522,16 +542,18 @@ inline llvm::Value* createFastApproximateTan(llvm::IRBuilder<>& builder,
     llvm::Value* sin_x = createFastApproximateSin(builder, context, x);
     llvm::Value* cos_x = createFastApproximateCos(builder, context, x);
     llvm::Value* result = builder.CreateFDiv(sin_x, cos_x);
-    
+
     // Explicitly handle special inputs for tan to ensure correctness,
     // though much is inherited from sin/cos.
     auto* is_zero = builder.CreateFCmpOEQ(x, zero);
     auto* is_nan = builder.CreateFCmpUNO(x, x);
     auto* is_inf = builder.CreateFCmpOEQ(
         builder.CreateCall(llvm::Intrinsic::getOrInsertDeclaration(
-            builder.GetInsertBlock()->getModule(), llvm::Intrinsic::fabs, {float_ty}), {x}),
-        llvm::ConstantFP::get(float_ty, std::numeric_limits<float>::infinity())
-    );
+                               builder.GetInsertBlock()->getModule(),
+                               llvm::Intrinsic::fabs, {float_ty}),
+                           {x}),
+        llvm::ConstantFP::get(float_ty,
+                              std::numeric_limits<float>::infinity()));
 
     result = builder.CreateSelect(is_zero, zero, result);
     result = builder.CreateSelect(is_inf, nan_val, result);

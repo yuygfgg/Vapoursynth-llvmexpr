@@ -213,16 +213,30 @@ def _eval_trig(op: str, x: float) -> float:
 
 TRIG_SPECIAL_CASES = [
     0.0,
-    np.pi / 6, np.pi / 4, np.pi / 3, np.pi / 2,
-    2 * np.pi / 3, 3 * np.pi / 4, 5 * np.pi / 6, np.pi,
-    7 * np.pi / 6, 5 * np.pi / 4, 4 * np.pi / 3, 3 * np.pi / 2,
-    5 * np.pi / 3, 7 * np.pi / 4, 11 * np.pi / 6, 2 * np.pi,
+    np.pi / 6,
+    np.pi / 4,
+    np.pi / 3,
+    np.pi / 2,
+    2 * np.pi / 3,
+    3 * np.pi / 4,
+    5 * np.pi / 6,
+    np.pi,
+    7 * np.pi / 6,
+    5 * np.pi / 4,
+    4 * np.pi / 3,
+    3 * np.pi / 2,
+    5 * np.pi / 3,
+    7 * np.pi / 4,
+    11 * np.pi / 6,
+    2 * np.pi,
 ]
 TRIG_SPECIAL_CASES += [-x for x in TRIG_SPECIAL_CASES if x != 0.0]
-TRIG_SPECIAL_CASES += [100.0, -100.0, 1000.0, -1000.0] # Test range reduction
+TRIG_SPECIAL_CASES += [100.0, -100.0, 1000.0, -1000.0]  # Test range reduction
 
 
-@pytest.mark.parametrize("op, func", [("sin", np.sin), ("cos", np.cos), ("tan", np.tan)])
+@pytest.mark.parametrize(
+    "op, func", [("sin", np.sin), ("cos", np.cos), ("tan", np.tan)]
+)
 @pytest.mark.parametrize("x", TRIG_SPECIAL_CASES)
 def test_trig_special_cases(op: str, func, x: float) -> None:
     if op == "tan" and np.isclose(np.cos(x), 0.0):
@@ -233,7 +247,9 @@ def test_trig_special_cases(op: str, func, x: float) -> None:
     assert out == pytest.approx(expected, abs=9e-3)
 
 
-@pytest.mark.parametrize("op, func", [("sin", np.sin), ("cos", np.cos), ("tan", np.tan)])
+@pytest.mark.parametrize(
+    "op, func", [("sin", np.sin), ("cos", np.cos), ("tan", np.tan)]
+)
 def test_trig_random_values(op: str, func) -> None:
     rng = np.random.default_rng(54321)
     # Use a large range to test range reduction
@@ -242,7 +258,7 @@ def test_trig_random_values(op: str, func) -> None:
         # Don't test tan near its asymptotes where behavior is chaotic
         if op == "tan" and np.isclose(np.cos(float(x)), 0.0, atol=1e-2):
             continue
-        
+
         out = _eval_trig(op, float(x))
         expected = float(func(x))
         if op == "sin":
