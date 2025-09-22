@@ -765,14 +765,6 @@ class Compiler {
             llvm::CGSCCAnalysisManager CGAM;
             llvm::ModuleAnalysisManager MAM;
 
-#ifdef USE_LIBMVEC
-            auto TLII = std::unique_ptr<llvm::TargetLibraryInfoImpl>(
-                llvm::driver::createTLII(jit.getTargetTriple(),
-                                         llvm::driver::VectorLibrary::LIBMVEC));
-            FAM.registerPass(
-                [&TLII] { return llvm::TargetLibraryAnalysis(*TLII); });
-#endif
-
             llvm::PassBuilder PB;
             PB.registerModuleAnalyses(MAM);
             PB.registerFunctionAnalyses(FAM);
