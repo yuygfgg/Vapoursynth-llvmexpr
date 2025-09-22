@@ -1153,13 +1153,28 @@ class Compiler {
         llvm::Value* x_cond =
             builder.CreateICmpSLT(x_val, builder.getInt32(width), "x.cond");
 
-        // TODO: Find a way to override the cost model to force vectorization (similar to `#pragma omp simd`)
-        // Currently, only HUGE expressions get vectorized when interleaving is enabled, resulting in suboptimal performance for smaller expressions.
-        // Disabling interleaving would significantly hurt performance for many non-vectorizable expressions, far outweighing the vectorization benefits.
+        
+        // TODO: Implement approximate math functions.
 
-        // TODO: Implement approximate math functions to help the optimizer vectorize smaller expressions.
+        // Get SIMD width based on CPU features
+        llvm::StringMap<bool> host_features = llvm::sys::getHostCPUFeatures();
+        unsigned simd_width = 4;
+        if (!host_features.empty()) {
+            // TODO: Are there any other simd instructions we should check for?
+            if (host_features["avx512f"]) {
+                simd_width = 16;
+            } else if (host_features["avx2"]) {
+                simd_width = 8;
+            }
+        }
 
-        // Add loop metadata to hint vectorization/interleaving
+        llvm::Metadata* vec_width_md[] = {
+            llvm::MDString::get(*context, "llvm.loop.vectorize.width"),
+            llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(
+                llvm::Type::getInt32Ty(*context), simd_width))};
+        llvm::MDNode* vec_width_node =
+            llvm::MDNode::get(*context, vec_width_md);
+
         llvm::Metadata* enable_vec[] = {
             llvm::MDString::get(*context, "llvm.loop.vectorize.enable"),
             llvm::ConstantAsMetadata::get(
@@ -1173,9 +1188,10 @@ class Compiler {
         llvm::MDNode* interleave_node =
             llvm::MDNode::get(*context, interleave_md);
 
-        llvm::SmallVector<llvm::Metadata*, 4> loop_md_elems;
+        llvm::SmallVector<llvm::Metadata*, 5> loop_md_elems;
         loop_md_elems.push_back(nullptr); // to be replaced with self reference
         loop_md_elems.push_back(enable_vec_node);
+        loop_md_elems.push_back(vec_width_node);
         loop_md_elems.push_back(interleave_node);
         llvm::MDNode* loop_id =
             llvm::MDNode::getDistinct(*context, loop_md_elems);
