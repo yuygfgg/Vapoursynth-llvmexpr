@@ -22,7 +22,7 @@ jobs:
           - name: Windows x64
             os: windows-latest
             libc: ''
-            artifact_name: llvmexpr-windows-x64-static-llvm20
+            artifact_name: llvmexpr-windows-x64-static-llvm21
             library_name: libllvmexpr.dll
 
     steps:
@@ -68,13 +68,13 @@ jobs:
           llvm-config --version
           pkg-config --version
 
-      - name: Check LLVM version (>= 20) (Windows)
+      - name: Check LLVM version (>= 21) (Windows)
         shell: msys2 {0}
         run: |
           set -e
           ver=$(llvm-config --version | cut -d. -f1)
-          if [ "$ver" -lt 20 ]; then
-            echo "LLVM >= 20 is required, found: $(llvm-config --version)" >&2
+          if [ "$ver" -lt 21 ]; then
+            echo "LLVM >= 21 is required, found: $(llvm-config --version)" >&2
             exit 1
           fi
 
@@ -137,22 +137,22 @@ jobs:
           - name: Linux x64-glibc
             os: ubuntu-latest
             libc: glibc
-            artifact_name: llvmexpr-linux-x64-glibc-static-llvm20
+            artifact_name: llvmexpr-linux-x64-glibc-static-llvm21
             library_name: libllvmexpr.so
           - name: Linux x64-musl
             os: ubuntu-latest
             libc: musl
-            artifact_name: llvmexpr-linux-x64-musl-static-llvm20
+            artifact_name: llvmexpr-linux-x64-musl-static-llvm21
             library_name: libllvmexpr.so
           - name: macOS arm64
             os: macos-14
             libc: ''
-            artifact_name: llvmexpr-macos-arm64-static-llvm20
+            artifact_name: llvmexpr-macos-arm64-static-llvm21
             library_name: libllvmexpr.dylib
           - name: Windows x64
             os: windows-latest
             libc: ''
-            artifact_name: llvmexpr-windows-x64-static-llvm20
+            artifact_name: llvmexpr-windows-x64-static-llvm21
             library_name: libllvmexpr.dll
 
     steps:
@@ -266,19 +266,19 @@ jobs:
           Cflags: -I${includedir}
           EOF
           echo "PKG_CONFIG_PATH=$HOME/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
-      - name: Install LLVM 20 (Linux)
+      - name: Install LLVM 21 (Linux)
         if: runner.os == 'Linux'
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
-          sudo ./llvm.sh 20
+          sudo ./llvm.sh 21
 
       # Set environment variables
       - name: Set environment variables (Linux)
         if: runner.os == 'Linux'
         run: |
-          echo "/usr/lib/llvm-20/bin" >> $GITHUB_PATH
-          echo "LLVM_CONFIG=/usr/lib/llvm-20/bin/llvm-config" >> $GITHUB_ENV
+          echo "/usr/lib/llvm-21/bin" >> $GITHUB_PATH
+          echo "LLVM_CONFIG=/usr/lib/llvm-21/bin/llvm-config" >> $GITHUB_ENV
       - name: Set environment variables (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -370,24 +370,24 @@ jobs:
           llvm-config --version
           pkg-config --version
 
-      - name: Check LLVM version (>= 20) (Windows)
+      - name: Check LLVM version (>= 21) (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
           set -e
           ver=$(llvm-config --version | cut -d. -f1)
-          if [ "$ver" -lt 20 ]; then
-            echo "LLVM >= 20 is required, found: $(llvm-config --version)" >&2
+          if [ "$ver" -lt 21 ]; then
+            echo "LLVM >= 21 is required, found: $(llvm-config --version)" >&2
             exit 1
           fi
-      - name: Check LLVM version (>= 20) (Unix)
+      - name: Check LLVM version (>= 21) (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
           set -e
           ver=$(llvm-config --version | cut -d. -f1)
-          if [ "$ver" -lt 20 ]; then
-            echo "LLVM >= 20 is required, found: $(llvm-config --version)" >&2
+          if [ "$ver" -lt 21 ]; then
+            echo "LLVM >= 21 is required, found: $(llvm-config --version)" >&2
             exit 1
           fi
 
