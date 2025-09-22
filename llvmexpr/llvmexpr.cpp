@@ -2405,13 +2405,12 @@ class Compiler {
 
             llvm::Value* rounded_f =
                 createUnaryIntrinsicCall(llvm::Intrinsic::roundeven, clamped_f);
-            final_val = builder.CreateFPToUI(rounded_f, builder.getInt32Ty());
 
             llvm::Type* store_type =
                 bpp == 1
                     ? builder.getInt8Ty()
                     : (bpp == 2 ? builder.getInt16Ty() : builder.getInt32Ty());
-            final_val = builder.CreateTruncOrBitCast(final_val, store_type);
+            final_val = builder.CreateFPToUI(rounded_f, store_type);
             llvm::StoreInst* si = builder.CreateStore(final_val, pixel_addr);
             setMemoryInstAttrs(si, static_cast<unsigned>(pixel_align), dst_idx);
         } else { // stFloat
