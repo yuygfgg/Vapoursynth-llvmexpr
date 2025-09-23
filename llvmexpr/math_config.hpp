@@ -30,5 +30,6 @@ using SupportedVectorWidths = std::integer_sequence<int, 4, 8, 16>;
 #else
 using SupportedVectorWidths = std::integer_sequence<int, 4>;
 #endif
+// TODO: Figure out if other architectures have >4 wide vector support.
 
 #endif // LLVMEXPR_MATH_CONFIG_HPP

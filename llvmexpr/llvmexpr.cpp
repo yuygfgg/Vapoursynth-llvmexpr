@@ -18,6 +18,7 @@
  */
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdint>
 #include <format>
@@ -44,6 +45,8 @@
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/ExecutionEngine/Orc/LLJIT.h"
 #include "llvm/Frontend/Driver/CodeGenOptions.h"
+#include "llvm/IR/DiagnosticInfo.h"
+#include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Intrinsics.h"
@@ -192,23 +195,56 @@ struct Token {
         payload;
 };
 
-bool is_expression_vectorizable(const std::vector<Token>& tokens) {
-    // TODO: CLIP_ABS and EXIT_NO_WRITE might be vectorized.
-    // Figure out a better way to do this.
-    for (const auto& token : tokens) {
-        switch (token.type) {
-        case TokenType::EXIT_NO_WRITE:
-        case TokenType::STORE_ABS:
-        case TokenType::LABEL_DEF:
-        case TokenType::JUMP:
-        case TokenType::CLIP_ABS:
-            return false;
-        default:
-            break;
+class VectorizationDiagnosticHandler {
+  public:
+    VectorizationDiagnosticHandler()
+        : vectorization_failed_(false), original_handler_(nullptr),
+          original_context_(nullptr) {}
+
+    void
+    setOriginalHandler(llvm::DiagnosticHandler::DiagnosticHandlerTy handler,
+                       void* context) {
+        original_handler_ = handler;
+        original_context_ = context;
+    }
+
+    void handleDiagnostic(const llvm::DiagnosticInfo& DI) {
+        bool should_suppress = false;
+
+        if (DI.getSeverity() == llvm::DS_Remark ||
+            DI.getSeverity() == llvm::DS_Warning) {
+            std::string msg;
+            llvm::raw_string_ostream stream(msg);
+            llvm::DiagnosticPrinterRawOStream printer(stream);
+            DI.print(printer);
+
+            if (msg.find("loop not vectorized") != std::string::npos) {
+                vectorization_failed_.store(true);
+                should_suppress = true;
+            }
+        }
+
+        // Call original handler for all diagnostics except "loop not vectorized"
+        if (!should_suppress && original_handler_) {
+            original_handler_(&DI, original_context_);
         }
     }
-    return true;
-}
+
+    bool hasVectorizationFailed() const { return vectorization_failed_.load(); }
+
+    void reset() { vectorization_failed_.store(false); }
+
+    static void diagnosticHandlerCallback(const llvm::DiagnosticInfo* DI,
+                                          void* Context) {
+        static_cast<VectorizationDiagnosticHandler*>(Context)->handleDiagnostic(
+            *DI);
+    }
+
+  private:
+    std::atomic<bool> vectorization_failed_;
+    llvm::DiagnosticHandler::DiagnosticHandlerTy original_handler_;
+    void* original_context_;
+};
 
 namespace {
 const std::regex re_rel_bracket{
@@ -671,6 +707,7 @@ class Compiler {
     std::unique_ptr<llvm::Module> module;
     llvm::IRBuilder<> builder;
     MathLibraryManager mathManager_;
+    VectorizationDiagnosticHandler diagnostic_handler;
 
     llvm::Function* func;
     llvm::Value* rwptrs_arg;
@@ -740,6 +777,13 @@ class Compiler {
     }
 
     CompiledFunction compile() {
+        if (approx_math == 2) {
+            return compile_with_approx_math(1);
+        }
+        return compile_with_approx_math(approx_math);
+    }
+
+    CompiledFunction compile_with_approx_math(int actual_approx_math) {
         bool needs_nans = false;
         for (const auto& token : tokens) {
             if (token.type ==
@@ -753,6 +797,12 @@ class Compiler {
 
         OrcJit& jit = needs_nans ? global_jit_nan_safe : global_jit_fast;
 
+        diagnostic_handler.reset();
+
+        context->setDiagnosticHandlerCallBack(
+            VectorizationDiagnosticHandler::diagnosticHandlerCallback,
+            &diagnostic_handler);
+
         llvm::FastMathFlags FMF;
         FMF.setFast();
         FMF.setNoNaNs(!needs_nans);
@@ -762,6 +812,10 @@ class Compiler {
         collect_rel_y_accesses();
 
         define_function_signature();
+
+        // Store the original approx_math value and update it for this compilation
+        int original_approx_math = approx_math;
+        approx_math = actual_approx_math;
 
         {
             llvm::AttrBuilder FuncAttrs(func->getContext());
@@ -872,15 +926,31 @@ class Compiler {
             }
         }
 
+        if (diagnostic_handler.hasVectorizationFailed() &&
+            original_approx_math == 2 && actual_approx_math == 1) {
+            approx_math = original_approx_math;
+            Compiler fallback_compiler(std::vector<Token>(tokens), vo, vi,
+                                       width, height, mirror_boundary,
+                                       dump_ir_path, prop_map, func_name,
+                                       opt_level, approx_math);
+            return fallback_compiler.compile_with_approx_math(0);
+        }
+
+        CompiledFunction compiled;
+
         jit.addModule(std::move(module), std::move(context));
         void* func_addr = jit.getFunctionAddress(func_name);
 
         if (!func_addr) {
+            // Restore original approx_math value before throwing
+            approx_math = original_approx_math;
             throw std::runtime_error("Failed to get JIT'd function address.");
         }
 
-        CompiledFunction compiled;
         compiled.func_ptr = reinterpret_cast<ProcessProc>(func_addr);
+
+        // Restore original approx_math value
+        approx_math = original_approx_math;
         return compiled;
     }
 
@@ -1670,7 +1740,8 @@ class Compiler {
         if (approx_math == 1) {
             use_approx_math = true;
         } else if (approx_math == 2) {
-            use_approx_math = is_expression_vectorizable(tokens);
+            // In auto mode, always try approx math first
+            use_approx_math = true;
         }
 
         if (tokens.empty()) {
