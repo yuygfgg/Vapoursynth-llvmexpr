@@ -2,7 +2,7 @@
 
 A [VapourSynth](https://www.vapoursynth.com/) filter for evaluating complex, per-pixel mathematical or logical expressions. It utilizes an LLVM-based JIT (Just-In-Time) compiler to translate expressions into native code for better performance.
 
-`llvmexpr.Expr` is fully compatible with the syntax of `akarin.Expr`, with additional extensions. While being a bit slower (llvmexpr with LLVM21 is ~15% slower than akarin with LLVM15), `llvmexpr` is Turing-complete and might be used in more scenarios.
+`llvmexpr.Expr` is fully compatible with the syntax of `akarin.Expr`, with additional extensions. Compared to `akarin`, `llvmexpr` is faster, more accurate and Turing-complete.
 
 ## Core Components
 
