@@ -59,7 +59,7 @@
 #include "llvm/TargetParser/Host.h"
 #include "llvm/TargetParser/Triple.h"
 
-#include "fastmath.hpp"
+#include "math_library.hpp"
 #include "optimal_sorting_networks.hpp"
 
 constexpr unsigned ALIGNMENT = 32; // Vapoursynth should guarantee this
@@ -564,15 +564,56 @@ class OrcJit {
 
     void addModule(std::unique_ptr<llvm::Module> M,
                    std::unique_ptr<llvm::LLVMContext> Ctx) {
-        llvm::cantFail(lljit->addIRModule(
-            llvm::orc::ThreadSafeModule(std::move(M), std::move(Ctx))));
+        std::vector<llvm::Function*> functions_to_remove;
+        for (auto& F : *M) {
+            if (!F.isDeclaration()) {
+                std::string func_name = F.getName().str();
+
+                if (func_name.find("process_plane_") != 0) {
+                    if (func_name.find("fast_") == 0 ||
+                        func_name.find("_v4") != std::string::npos ||
+                        func_name.find("_v8") != std::string::npos ||
+                        func_name.find("_v16") != std::string::npos) {
+
+                        // Try a test lookup to see if symbol exists
+                        auto test_sym = lljit->lookup(func_name);
+                        if (test_sym) {
+                            // Symbol already exists, mark for removal
+                            functions_to_remove.push_back(&F);
+                            // llvm::errs() << "Removing duplicate function: " << func_name << "\n";
+                            continue;
+                        }
+                        // If test lookup failed, the symbol doesn't exist, so we can add it
+                        llvm::consumeError(test_sym.takeError());
+                    }
+                }
+
+                // llvm::errs() << "Adding function: " << func_name << "\n";
+            }
+        }
+
+        // Remove duplicate functions from the module
+        for (auto* F : functions_to_remove) {
+            F->eraseFromParent();
+        }
+
+        auto TSM = llvm::orc::ThreadSafeModule(std::move(M), std::move(Ctx));
+        auto Err = lljit->addIRModule(std::move(TSM));
+        if (Err) {
+            llvm::errs() << "Failed to add IR module: "
+                         << llvm::toString(std::move(Err)) << "\n";
+            throw std::runtime_error("Failed to add IR module to JIT");
+        }
+
+        // llvm::errs() << "Module added successfully\n";
     }
 
     void* getFunctionAddress(const std::string& name) {
+        // Try to lookup the symbol
         auto sym = lljit->lookup(name);
         if (!sym) {
-            llvm::errs() << "Failed to find symbol: "
-                         << llvm::toString(sym.takeError()) << "\n";
+            llvm::errs() << "Failed to find symbol '" << name
+                         << "': " << llvm::toString(sym.takeError()) << "\n";
             return nullptr;
         }
         return sym->toPtr<void*>();
@@ -611,6 +652,7 @@ class Compiler {
     std::unique_ptr<llvm::LLVMContext> context;
     std::unique_ptr<llvm::Module> module;
     llvm::IRBuilder<> builder;
+    MathLibraryManager mathManager_;
 
     llvm::Function* func;
     llvm::Value* rwptrs_arg;
@@ -668,7 +710,7 @@ class Compiler {
           opt_level(opt_level_in), approx_math(approx_math_in),
           context(std::make_unique<llvm::LLVMContext>()),
           module(std::make_unique<llvm::Module>("ExprJITModule", *context)),
-          builder(*context) {
+          builder(*context), mathManager_(module.get(), *context) {
         for (const auto& token : tokens) {
             if (token.type == TokenType::CONSTANT_X)
                 uses_x = true;
@@ -885,6 +927,7 @@ class Compiler {
 
         func = llvm::Function::Create(func_ty, llvm::Function::ExternalLinkage,
                                       func_name, module.get());
+        func->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
 
         auto args = func->arg_begin();
         rwptrs_arg = &*args++;
@@ -1915,16 +1958,7 @@ class Compiler {
                     break;
                 }
                 case TokenType::POW: {
-                    if (approx_math) {
-                        auto b = rpn_stack.back();
-                        rpn_stack.pop_back();
-                        auto a = rpn_stack.back();
-                        rpn_stack.pop_back();
-                        rpn_stack.push_back(FastMath::createFastApproximatePow(
-                            builder, *context, a, b));
-                    } else {
-                        applyBinaryIntrinsic(llvm::Intrinsic::pow);
-                    }
+                    applyBinaryIntrinsic(llvm::Intrinsic::pow);
                     break;
                 }
                 case TokenType::ATAN2: {
@@ -2013,8 +2047,9 @@ class Compiler {
                     if (approx_math) {
                         auto a = rpn_stack.back();
                         rpn_stack.pop_back();
-                        rpn_stack.push_back(FastMath::createFastApproximateExp(
-                            builder, *context, a));
+                        llvm::Function* expFunc =
+                            mathManager_.getScalarFunction(MathOp::Exp);
+                        rpn_stack.push_back(builder.CreateCall(expFunc, {a}));
                     } else {
                         applyUnaryIntrinsic(llvm::Intrinsic::exp);
                     }
@@ -2024,8 +2059,9 @@ class Compiler {
                     if (approx_math) {
                         auto a = rpn_stack.back();
                         rpn_stack.pop_back();
-                        rpn_stack.push_back(FastMath::createFastApproximateLog(
-                            builder, *context, a));
+                        llvm::Function* logFunc =
+                            mathManager_.getScalarFunction(MathOp::Log);
+                        rpn_stack.push_back(builder.CreateCall(logFunc, {a}));
                     } else {
                         applyUnaryIntrinsic(llvm::Intrinsic::log);
                     }
@@ -2055,8 +2091,9 @@ class Compiler {
                     if (approx_math) {
                         auto a = rpn_stack.back();
                         rpn_stack.pop_back();
-                        rpn_stack.push_back(FastMath::createFastApproximateSin(
-                            builder, *context, a));
+                        llvm::Function* sinFunc =
+                            mathManager_.getScalarFunction(MathOp::Sin);
+                        rpn_stack.push_back(builder.CreateCall(sinFunc, {a}));
                     } else {
                         applyUnaryIntrinsic(llvm::Intrinsic::sin);
                     }
@@ -2066,8 +2103,9 @@ class Compiler {
                     if (approx_math) {
                         auto a = rpn_stack.back();
                         rpn_stack.pop_back();
-                        rpn_stack.push_back(FastMath::createFastApproximateCos(
-                            builder, *context, a));
+                        llvm::Function* cosFunc =
+                            mathManager_.getScalarFunction(MathOp::Cos);
+                        rpn_stack.push_back(builder.CreateCall(cosFunc, {a}));
                     } else {
                         applyUnaryIntrinsic(llvm::Intrinsic::cos);
                     }
@@ -2077,8 +2115,9 @@ class Compiler {
                     if (approx_math) {
                         auto a = rpn_stack.back();
                         rpn_stack.pop_back();
-                        rpn_stack.push_back(FastMath::createFastApproximateTan(
-                            builder, *context, a));
+                        llvm::Function* tanFunc =
+                            mathManager_.getScalarFunction(MathOp::Tan);
+                        rpn_stack.push_back(builder.CreateCall(tanFunc, {a}));
                     } else {
                         applyUnaryIntrinsic(llvm::Intrinsic::tan);
                     }
@@ -2780,9 +2819,9 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
             approx_math = 1;
         }
         d->approx_math = (approx_math != 0);
-        // TODO: Figure out when we should disable approximate math.
-        // It is known that approx math may lead to binary bloat and cause severe performance degradation for large exprs.
-        // Good news is that these exprs typically run faster with llvmexpr when approx math is disabled, than akarin.Expr.
+        // TODO: Disable approximate math for unvectorizable exprs.
+        // i.e. exprs that use `^exit^` `@[]` `#my_label` `my_label#` and `srcN[]`
+        // Should we simply override approx_math to 0 for these exprs, or add a new flag?
 
     } catch (const std::exception& e) {
         for (auto* node : d->nodes) {

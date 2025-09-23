@@ -25,64 +25,6 @@ import vapoursynth as vs
 core = vs.core
 
 
-def _eval_pow(a: float, b: float) -> float:
-    c1 = core.std.BlankClip(format=vs.GRAYS, color=a)
-    c2 = core.std.BlankClip(format=vs.GRAYS, color=b)
-    res = core.llvmexpr.Expr([c1, c2], "x y pow", vs.GRAYS)
-    return float(res.get_frame(0)[0][0, 0])
-
-
-@pytest.mark.parametrize(
-    "a, b",
-    [
-        (1.0, -5.0),
-        (1.0, 0.0),
-        (1.0, 3.14159),
-        (2.0, 0.0),
-        (2.0, 1.0),
-        (0.0, 2.5),
-        (0.0, 1.0),
-        (0.0, 0.0),
-        (-2.0, 2.0),
-        (-2.0, 3.0),
-        (-2.0, -2.0),
-        (-2.0, -3.0),
-        (np.e, 2.0),
-        (10.0, -3.0),
-    ],
-)
-def test_pow_special_cases(a: float, b: float) -> None:
-    out = _eval_pow(a, b)
-    expected = float(np.power(a, b))
-    assert out == pytest.approx(expected, rel=1e-5, abs=1e-6)
-
-
-@pytest.mark.parametrize("a", np.linspace(1e-3, 100.0, num=9))
-@pytest.mark.parametrize("b", [-3.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 2.5, 3.0])
-def test_pow_nonnegative_base_grid(a: float, b: float) -> None:
-    out = _eval_pow(a, b)
-    expected = float(np.power(a, b))
-    assert out == pytest.approx(expected, rel=1e-5, abs=1e-6)
-
-
-@pytest.mark.parametrize("a", [-0.1, -0.5, -1.0, -2.0, -10.0])
-@pytest.mark.parametrize("b", [-5, -3, -2, -1, 0, 1, 2, 3, 4, 5])
-def test_pow_negative_base_integer_exponent(a: float, b: int) -> None:
-    out = _eval_pow(a, float(b))
-    expected = float(np.power(a, b))
-    assert out == pytest.approx(expected, rel=1e-5, abs=1e-6)
-
-
-def test_pow_random_values() -> None:
-    rng = np.random.default_rng(12345)
-    bases = rng.uniform(1e-6, 1000.0, size=50)
-    exps = rng.uniform(-4.0, 4.0, size=50)
-    for a, b in zip(bases, exps):
-        out = _eval_pow(float(a), float(b))
-        expected = float(np.power(a, b))
-        assert out == pytest.approx(expected, rel=1e-5, abs=1e-6)
-
-
 def _eval_exp(x: float) -> float:
     """Helper function to evaluate exp(x) using llvmexpr."""
     clip = vs.core.std.BlankClip(width=1, height=1, format=vs.GRAYS, length=1, color=x)
