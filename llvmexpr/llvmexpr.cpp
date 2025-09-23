@@ -1278,8 +1278,6 @@ class Compiler {
         llvm::Value* x_cond =
             builder.CreateICmpSLT(x_val, builder.getInt32(width), "x.cond");
 
-        // TODO: Implement approximate math functions.
-
         // Get SIMD width based on CPU features
         llvm::StringMap<bool> host_features = llvm::sys::getHostCPUFeatures();
         unsigned simd_width = 4;
