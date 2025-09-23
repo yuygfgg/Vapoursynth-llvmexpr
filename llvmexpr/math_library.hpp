@@ -50,8 +50,6 @@ class MathLibraryManager {
             return generator.getOrCreateExp();
         if constexpr (op == MathOp::Log)
             return generator.getOrCreateLog();
-        // if constexpr (op == MathOp::Pow)
-            // return generator.getOrCreatePow();
         if constexpr (op == MathOp::Sin)
             return generator.getOrCreateSin();
         if constexpr (op == MathOp::Cos)
@@ -80,38 +78,32 @@ class MathLibraryManager {
 
                         // ISA identifier based on vector width
                         if constexpr (Widths == 4) {
-                            #ifdef __SSE__
+#ifdef __SSE__
                             abi_string += "b"; // SSE
-                            #elif defined(__ARM_NEON__)
+#elif defined(__ARM_NEON__)
                             abi_string += "n"; // NEON
-                            #endif
+#endif
                         } else if constexpr (Widths == 8) {
-                            #ifdef __AVX2__
+#ifdef __AVX2__
                             abi_string += "d"; // AVX2
-                            #endif
+#endif
                         } else if constexpr (Widths == 16) {
-                            #ifdef __AVX512F__
+#ifdef __AVX512F__
                             abi_string += "e"; // AVX-512
-                            #endif
+#endif
                         }
 
                         abi_string += "N"; // No mask
 
                         abi_string += std::to_string(Widths);
-                        
-                        // Parameters
-                        // if constexpr (op == MathOp::Pow) {
-                            // abi_string += "vv";
-                        // } else {
-                            abi_string += "v";
-                        // }
+
+                        abi_string += "v";
 
                         abi_string += "_";
                         abi_string += scalarFunc->getName().str();
                         abi_string += "(";
                         abi_string += vecFunc->getName().str();
                         abi_string += ")";
-
 
                         // Add the vector function ABI variant attribute to scalar function
                         scalarFunc->addFnAttr(llvm::Attribute::get(
