@@ -14,8 +14,22 @@ This is the core engine of the project. It is a VapourSynth filter that accepts 
 
 **Function Signature:**
 ```
-llvmexpr.Expr(clip[] clips, string[] expr[, int format, int boundary=0, string dump_ir="", int opt_level=5, bint approx_math=True])
+llvmexpr.Expr(clip[] clips, string[] expr[, int format, int boundary=0, string dump_ir="", int opt_level=5, int approx_math=2])
 ```
+
+**Parameters:**
+- `clips`: Input video clips
+- `expr`: Expression strings in postfix notation (one per plane)
+- `format`: Output format (optional)
+- `boundary`: Boundary handling mode (0=clamp, 1=mirror)
+- `dump_ir`: Path to dump LLVM IR for debugging (optional)
+- `opt_level`: Optimization level ($\gt 0$, default: 5)
+- `approx_math`: Approximate math mode (default: 2)
+  - `0`: Disabled - use precise LLVM intrinsics for all math operations
+  - `1`: Enabled - use fast approximate implementations for exp, log, sin, cos, tan
+  - `2`: Auto - automatically enable approximate math only for vectorizable expressions (recommended)
+    
+    The auto mode intelligently determines whether to use approximate math based on the expression content. It disables approximate math for expressions containing non-vectorizable operations like `^exit^`, `@[]`, `#label`, `label#`, or `srcN[]`.
 
 ### 2. `exprutils` (Python Utility Library)
 

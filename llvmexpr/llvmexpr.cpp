@@ -192,6 +192,24 @@ struct Token {
         payload;
 };
 
+bool is_expression_vectorizable(const std::vector<Token>& tokens) {
+    // TODO: CLIP_ABS and EXIT_NO_WRITE might be vectorized.
+    // Figure out a better way to do this.
+    for (const auto& token : tokens) {
+        switch (token.type) {
+        case TokenType::EXIT_NO_WRITE:
+        case TokenType::STORE_ABS:
+        case TokenType::LABEL_DEF:
+        case TokenType::JUMP:
+        case TokenType::CLIP_ABS:
+            return false;
+        default:
+            break;
+        }
+    }
+    return true;
+}
+
 namespace {
 const std::regex re_rel_bracket{
     R"(^(?:src(\d+)|([x-za-w]))\[\s*(-?\d+)\s*,\s*(-?\d+)\s*\](?::([cm]))?$)"};
@@ -647,7 +665,7 @@ class Compiler {
     bool uses_x = false;
     bool uses_y = false;
     int opt_level;
-    bool approx_math;
+    int approx_math;
 
     std::unique_ptr<llvm::LLVMContext> context;
     std::unique_ptr<llvm::Module> module;
@@ -702,7 +720,7 @@ class Compiler {
              const std::vector<const VSVideoInfo*>& in_vi, int width_in,
              int height_in, bool mirror, std::string dump_path,
              const std::map<std::pair<int, std::string>, int>& p_map,
-             std::string function_name, int opt_level_in, bool approx_math_in)
+             std::string function_name, int opt_level_in, int approx_math_in)
         : tokens(std::move(tokens_in)), vo(out_vi), vi(in_vi),
           num_inputs(in_vi.size()), width(width_in), height(height_in),
           mirror_boundary(mirror), dump_ir_path(std::move(dump_path)),
@@ -1648,6 +1666,13 @@ class Compiler {
         llvm::Type* i32_ty = builder.getInt32Ty();
         llvm::Function* parent_func = builder.GetInsertBlock()->getParent();
 
+        bool use_approx_math = false;
+        if (approx_math == 1) {
+            use_approx_math = true;
+        } else if (approx_math == 2) {
+            use_approx_math = is_expression_vectorizable(tokens);
+        }
+
         if (tokens.empty()) {
             generate_pixel_store(llvm::ConstantFP::get(float_ty, 0.0), x, y);
             return;
@@ -2044,7 +2069,7 @@ class Compiler {
                     break;
                 }
                 case TokenType::EXP: {
-                    if (approx_math) {
+                    if (use_approx_math) {
                         auto a = rpn_stack.back();
                         rpn_stack.pop_back();
                         llvm::Function* expFunc =
@@ -2056,7 +2081,7 @@ class Compiler {
                     break;
                 }
                 case TokenType::LOG: {
-                    if (approx_math) {
+                    if (use_approx_math) {
                         auto a = rpn_stack.back();
                         rpn_stack.pop_back();
                         llvm::Function* logFunc =
@@ -2088,7 +2113,7 @@ class Compiler {
                     break;
                 }
                 case TokenType::SIN: {
-                    if (approx_math) {
+                    if (use_approx_math) {
                         auto a = rpn_stack.back();
                         rpn_stack.pop_back();
                         llvm::Function* sinFunc =
@@ -2100,7 +2125,7 @@ class Compiler {
                     break;
                 }
                 case TokenType::COS: {
-                    if (approx_math) {
+                    if (use_approx_math) {
                         auto a = rpn_stack.back();
                         rpn_stack.pop_back();
                         llvm::Function* cosFunc =
@@ -2112,7 +2137,7 @@ class Compiler {
                     break;
                 }
                 case TokenType::TAN: {
-                    if (approx_math) {
+                    if (use_approx_math) {
                         auto a = rpn_stack.back();
                         rpn_stack.pop_back();
                         llvm::Function* tanFunc =
@@ -2538,7 +2563,7 @@ struct ExprData {
     bool mirror_boundary;
     std::string dump_ir_path;
     int opt_level;
-    bool approx_math;
+    int approx_math;
 
     std::vector<std::pair<int, std::string>> required_props;
     std::map<std::pair<int, std::string>, int> prop_map;
@@ -2814,14 +2839,14 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
             throw std::runtime_error("opt_level must be greater than 0.");
         }
 
-        int approx_math = vsapi->propGetInt(in, "approx_math", 0, &err);
+        d->approx_math = vsapi->propGetInt(in, "approx_math", 0, &err);
         if (err) {
-            approx_math = 1;
+            d->approx_math = 2; // Default to auto mode
         }
-        d->approx_math = (approx_math != 0);
-        // TODO: Disable approximate math for unvectorizable exprs.
-        // i.e. exprs that use `^exit^` `@[]` `#my_label` `my_label#` and `srcN[]`
-        // Should we simply override approx_math to 0 for these exprs, or add a new flag?
+        if (d->approx_math < 0 || d->approx_math > 2) {
+            throw std::runtime_error(
+                "approx_math must be 0 (disabled), 1 (enabled), or 2 (auto).");
+        }
 
     } catch (const std::exception& e) {
         for (auto* node : d->nodes) {
