@@ -20,7 +20,6 @@
 #ifndef LLVMEXPR_MATH_FUNCTIONS_HPP
 #define LLVMEXPR_MATH_FUNCTIONS_HPP
 
-#include <limits>
 #include <map>
 #include <string>
 #include <utility>
@@ -51,7 +50,6 @@ template <int VectorWidth> class MathFunctionGenerator {
 
     llvm::Function* getOrCreateExp();
     llvm::Function* getOrCreateLog();
-    llvm::Function* getOrCreatePow();
     llvm::Function* getOrCreateSin();
     llvm::Function* getOrCreateCos();
     llvm::Function* getOrCreateTan();
@@ -281,20 +279,14 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateLog() {
     auto* zero = getConstant(0.0f);
     auto* one = getConstant(1.0f);
     auto* neg_half = getConstant(-0.5f);
-    auto* neg_inf = getConstant(-std::numeric_limits<float>::infinity());
-    auto* pos_inf = getConstant(std::numeric_limits<float>::infinity());
-    auto* nan_val = getConstant(std::numeric_limits<float>::quiet_NaN());
+
     auto* const_0x7f = getInt32Constant(0x7f);
     auto* const_23 = getInt32Constant(23);
 
     llvm::Value* x = x_;
 
     // Special case masks
-    auto* is_zero = builder_.CreateFCmpOEQ(x, zero);
-    auto* is_negative = builder_.CreateFCmpOLT(x, zero);
     auto* is_one = builder_.CreateFCmpOEQ(x, one);
-    auto* is_inf = builder_.CreateFCmpOEQ(x, pos_inf);
-    auto* is_nan = builder_.CreateFCmpUNO(x, x); // NaN check
 
     // x = max(x, min_norm_pos as float)
     auto* min_norm_pos_float =
@@ -370,11 +362,7 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateLog() {
     x = builder_.CreateCall(fma_intrinsic, {emm0, log_q2, x});
 
     // Handle special cases
-    x = builder_.CreateSelect(is_zero, neg_inf, x);
-    x = builder_.CreateSelect(is_negative, nan_val, x);
     x = builder_.CreateSelect(is_one, zero, x);
-    x = builder_.CreateSelect(is_inf, pos_inf, x);
-    x = builder_.CreateSelect(is_nan, nan_val, x);
 
     builder_.CreateRet(x);
 
@@ -387,138 +375,6 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateLog() {
     }
 
     return func;
-}
-
-// Helper function for sin/cos implementation
-template <int VectorWidth>
-llvm::Value* createFastApproximateSinCos_(
-    MathFunctionGenerator<VectorWidth>& /* generator */,
-    llvm::IRBuilder<>& builder, llvm::LLVMContext& context, llvm::Value* x_,
-    bool issin) {
-    auto getFloatType = [&]() -> llvm::Type* {
-        auto* ty = llvm::Type::getFloatTy(context);
-        if (VectorWidth == 1) {
-            return ty;
-        } else {
-            return llvm::VectorType::get(ty, VectorWidth, false);
-        }
-    };
-
-    auto getInt32Type = [&]() -> llvm::Type* {
-        auto* ty = llvm::Type::getInt32Ty(context);
-        if (VectorWidth == 1) {
-            return ty;
-        } else {
-            return llvm::VectorType::get(ty, VectorWidth, false);
-        }
-    };
-
-    auto getConstant = [&](double val) {
-        auto* scalarConst =
-            llvm::ConstantFP::get(llvm::Type::getFloatTy(context), val);
-        return (VectorWidth == 1)
-                   ? (llvm::Value*)scalarConst
-                   : builder.CreateVectorSplat(VectorWidth, scalarConst);
-    };
-
-    auto getInt32Constant = [&](int32_t val) {
-        auto* scalarConst =
-            llvm::ConstantInt::get(llvm::Type::getInt32Ty(context), val);
-        return (VectorWidth == 1)
-                   ? (llvm::Value*)scalarConst
-                   : builder.CreateVectorSplat(VectorWidth, scalarConst);
-    };
-
-    auto* float_ty = getFloatType();
-    auto* int32_ty = getInt32Type();
-
-    auto* float_invpi = getConstant(0.31830988618f); // 1.0f / pi
-    auto* float_pi1 = getConstant(3.140625f);
-    auto* float_pi2 = getConstant(0.0009670257568359375f);
-    auto* float_pi3 = getConstant(1.984187252998352e-07f);
-    auto* float_pi4 = getConstant(1.273533813134432e-11f);
-    auto* float_sinC3 = getConstant(-0.1666666567325592f);
-    auto* float_sinC5 = getConstant(0.00833307858556509f);
-    auto* float_sinC7 = getConstant(-0.00019807418575510383f);
-    auto* float_sinC9 = getConstant(2.6019030363451748e-06f);
-    auto* float_cosC2 = getConstant(-0.4999999701976776f);
-    auto* float_cosC4 = getConstant(0.04166652262210846f);
-    auto* float_cosC6 = getConstant(-0.001388676579343155f);
-    auto* float_cosC8 = getConstant(2.4390448881604243e-05f);
-    auto* one_float = getConstant(1.0f);
-
-    auto* signmask = getInt32Constant(0x80000000);
-
-    llvm::Value* x = x_;
-
-    // sign = issin ? (x as int) & 0x80000000 : 0;
-    llvm::Value* sign;
-    if (issin) {
-        sign = builder.CreateBitCast(x, int32_ty);
-        sign = builder.CreateAnd(sign, signmask);
-    } else {
-        sign = getInt32Constant(0);
-    }
-
-    // t1 = Abs(x)
-    auto* fabs_intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
-        builder.GetInsertBlock()->getModule(), llvm::Intrinsic::fabs,
-        {float_ty});
-    llvm::Value* t1 = builder.CreateCall(fabs_intrinsic, {x});
-
-    // Range reduction to [-pi/2, pi/2]
-    llvm::Value* t2 = builder.CreateFMul(t1, float_invpi);
-
-    auto* round_intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
-        builder.GetInsertBlock()->getModule(), llvm::Intrinsic::round,
-        {float_ty});
-    llvm::Value* t2_rounded = builder.CreateCall(round_intrinsic, {t2});
-    llvm::Value* t2i = builder.CreateFPToSI(t2_rounded, int32_ty);
-
-    // sign ^= (t2i << 31); // Flip sign based on quadrant
-    llvm::Value* t4 = builder.CreateShl(t2i, 31);
-    sign = builder.CreateXor(sign, t4);
-
-    t2 = builder.CreateSIToFP(t2i, float_ty);
-
-    // Reconstruct the value in the [-pi/2, pi/2] range using extended precision pi
-    auto* fma_intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
-        builder.GetInsertBlock()->getModule(), llvm::Intrinsic::fma,
-        {float_ty});
-
-    t1 = builder.CreateCall(fma_intrinsic,
-                            {t2, builder.CreateFNeg(float_pi1), t1});
-    t1 = builder.CreateCall(fma_intrinsic,
-                            {t2, builder.CreateFNeg(float_pi2), t1});
-    t1 = builder.CreateCall(fma_intrinsic,
-                            {t2, builder.CreateFNeg(float_pi3), t1});
-    t1 = builder.CreateCall(fma_intrinsic,
-                            {t2, builder.CreateFNeg(float_pi4), t1});
-
-    if (issin) {
-        // Minimax polynomial for sin(x)
-        t2 = builder.CreateFMul(t1, t1); // x^2
-        llvm::Value* t3 =
-            builder.CreateCall(fma_intrinsic, {t2, float_sinC9, float_sinC7});
-        t3 = builder.CreateCall(fma_intrinsic, {t3, t2, float_sinC5});
-        t3 = builder.CreateCall(fma_intrinsic, {t3, t2, float_sinC3});
-        t3 = builder.CreateFMul(t3, t2);
-        t3 = builder.CreateFMul(t3, t1);
-        t1 = builder.CreateFAdd(t1, t3);
-    } else {
-        // Minimax polynomial for cos(x)
-        t2 = builder.CreateFMul(t1, t1); // x^2
-        llvm::Value* t3 =
-            builder.CreateCall(fma_intrinsic, {t2, float_cosC8, float_cosC6});
-        t3 = builder.CreateCall(fma_intrinsic, {t3, t2, float_cosC4});
-        t3 = builder.CreateCall(fma_intrinsic, {t3, t2, float_cosC2});
-        t1 = builder.CreateCall(fma_intrinsic, {t3, t2, one_float});
-    }
-
-    // Apply final sign
-    llvm::Value* t1_as_int = builder.CreateBitCast(t1, int32_ty);
-    llvm::Value* result_as_int = builder.CreateXor(sign, t1_as_int);
-    return builder.CreateBitCast(result_as_int, float_ty);
 }
 
 template <int VectorWidth>
@@ -542,25 +398,74 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateSin() {
     auto* x = func->getArg(0);
     x->setName("x");
 
-    auto* zero = getConstant(0.0);
-    auto* nan_val = getConstant(std::numeric_limits<float>::quiet_NaN());
+    auto* int32_ty = getInt32Type();
 
-    llvm::Value* result =
-        createFastApproximateSinCos_(*this, builder_, context_, x, true);
+    auto* float_invpi = getConstant(0.31830988618f); // 1.0f / pi
+    auto* float_pi1 = getConstant(3.140625f);
+    auto* float_pi2 = getConstant(0.0009670257568359375f);
+    auto* float_pi3 = getConstant(1.984187252998352e-07f);
+    auto* float_pi4 = getConstant(1.273533813134432e-11f);
+    auto* float_sinC3 = getConstant(-0.1666666567325592f);
+    auto* float_sinC5 = getConstant(0.00833307858556509f);
+    auto* float_sinC7 = getConstant(-0.00019807418575510383f);
+    auto* float_sinC9 = getConstant(2.6019030363451748e-06f);
+
+    auto* signmask = getInt32Constant(0x80000000);
+
+    // sign = (x as int) & 0x80000000;
+    llvm::Value* sign = builder_.CreateBitCast(x, int32_ty);
+    sign = builder_.CreateAnd(sign, signmask);
+
+    // t1 = Abs(x)
+    llvm::Value* t1 = createIntrinsicCall(llvm::Intrinsic::fabs, {x});
+
+    // Range reduction to [-pi/2, pi/2]
+    llvm::Value* t2 = builder_.CreateFMul(t1, float_invpi);
+
+    llvm::Value* t2_rounded = createIntrinsicCall(llvm::Intrinsic::round, {t2});
+    llvm::Value* t2i = builder_.CreateFPToSI(t2_rounded, int32_ty);
+
+    // sign ^= (t2i << 31); // Flip sign based on quadrant
+    llvm::Value* t4 = builder_.CreateShl(t2i, 31);
+    sign = builder_.CreateXor(sign, t4);
+
+    t2 = builder_.CreateSIToFP(t2i, float_ty);
+
+    // Reconstruct the value in the [-pi/2, pi/2] range using extended precision pi
+    auto* fma_intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
+        module_, llvm::Intrinsic::fma, {float_ty});
+
+    t1 = builder_.CreateCall(fma_intrinsic,
+                             {t2, builder_.CreateFNeg(float_pi1), t1});
+    t1 = builder_.CreateCall(fma_intrinsic,
+                             {t2, builder_.CreateFNeg(float_pi2), t1});
+    t1 = builder_.CreateCall(fma_intrinsic,
+                             {t2, builder_.CreateFNeg(float_pi3), t1});
+    t1 = builder_.CreateCall(fma_intrinsic,
+                             {t2, builder_.CreateFNeg(float_pi4), t1});
+
+    // Minimax polynomial for sin(x)
+    t2 = builder_.CreateFMul(t1, t1); // x^2
+    llvm::Value* t3 =
+        builder_.CreateCall(fma_intrinsic, {t2, float_sinC9, float_sinC7});
+    t3 = builder_.CreateCall(fma_intrinsic, {t3, t2, float_sinC5});
+    t3 = builder_.CreateCall(fma_intrinsic, {t3, t2, float_sinC3});
+    t3 = builder_.CreateFMul(t3, t2);
+    t3 = builder_.CreateFMul(t3, t1);
+    t1 = builder_.CreateFAdd(t1, t3);
+
+    // Apply final sign
+    llvm::Value* t1_as_int = builder_.CreateBitCast(t1, int32_ty);
+    llvm::Value* result_as_int = builder_.CreateXor(sign, t1_as_int);
+    llvm::Value* result = builder_.CreateBitCast(result_as_int, float_ty);
+
+    auto* zero = getConstant(0.0);
 
     // Special cases
     auto* is_zero = builder_.CreateFCmpOEQ(x, zero);
-    auto* is_nan = builder_.CreateFCmpUNO(x, x); // NaN check
-    auto* is_inf = builder_.CreateFCmpOEQ(
-        createIntrinsicCall(llvm::Intrinsic::fabs, {x}),
-        getConstant(std::numeric_limits<float>::infinity()));
 
     // sin(0) = 0
     result = builder_.CreateSelect(is_zero, zero, result);
-    // sin(+-inf) = nan
-    result = builder_.CreateSelect(is_inf, nan_val, result);
-    // sin(nan) = nan
-    result = builder_.CreateSelect(is_nan, nan_val, result);
 
     builder_.CreateRet(result);
 
@@ -595,26 +500,71 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateCos() {
     auto* x = func->getArg(0);
     x->setName("x");
 
+    auto* int32_ty = getInt32Type();
+
+    auto* float_invpi = getConstant(0.31830988618f); // 1.0f / pi
+    auto* float_pi1 = getConstant(3.140625f);
+    auto* float_pi2 = getConstant(0.0009670257568359375f);
+    auto* float_pi3 = getConstant(1.984187252998352e-07f);
+    auto* float_pi4 = getConstant(1.273533813134432e-11f);
+    auto* float_cosC2 = getConstant(-0.4999999701976776f);
+    auto* float_cosC4 = getConstant(0.04166652262210846f);
+    auto* float_cosC6 = getConstant(-0.001388676579343155f);
+    auto* float_cosC8 = getConstant(2.4390448881604243e-05f);
+    auto* one_float = getConstant(1.0f);
+
+    // sign = 0;
+    llvm::Value* sign = getInt32Constant(0);
+
+    // t1 = Abs(x)
+    llvm::Value* t1 = createIntrinsicCall(llvm::Intrinsic::fabs, {x});
+
+    // Range reduction to [-pi/2, pi/2]
+    llvm::Value* t2 = builder_.CreateFMul(t1, float_invpi);
+
+    llvm::Value* t2_rounded = createIntrinsicCall(llvm::Intrinsic::round, {t2});
+    llvm::Value* t2i = builder_.CreateFPToSI(t2_rounded, int32_ty);
+
+    // sign ^= (t2i << 31); // Flip sign based on quadrant
+    llvm::Value* t4 = builder_.CreateShl(t2i, 31);
+    sign = builder_.CreateXor(sign, t4);
+
+    t2 = builder_.CreateSIToFP(t2i, float_ty);
+
+    // Reconstruct the value in the [-pi/2, pi/2] range using extended precision pi
+    auto* fma_intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
+        module_, llvm::Intrinsic::fma, {float_ty});
+
+    t1 = builder_.CreateCall(fma_intrinsic,
+                             {t2, builder_.CreateFNeg(float_pi1), t1});
+    t1 = builder_.CreateCall(fma_intrinsic,
+                             {t2, builder_.CreateFNeg(float_pi2), t1});
+    t1 = builder_.CreateCall(fma_intrinsic,
+                             {t2, builder_.CreateFNeg(float_pi3), t1});
+    t1 = builder_.CreateCall(fma_intrinsic,
+                             {t2, builder_.CreateFNeg(float_pi4), t1});
+
+    // Minimax polynomial for cos(x)
+    t2 = builder_.CreateFMul(t1, t1); // x^2
+    llvm::Value* t3 =
+        builder_.CreateCall(fma_intrinsic, {t2, float_cosC8, float_cosC6});
+    t3 = builder_.CreateCall(fma_intrinsic, {t3, t2, float_cosC4});
+    t3 = builder_.CreateCall(fma_intrinsic, {t3, t2, float_cosC2});
+    t1 = builder_.CreateCall(fma_intrinsic, {t3, t2, one_float});
+
+    // Apply final sign
+    llvm::Value* t1_as_int = builder_.CreateBitCast(t1, int32_ty);
+    llvm::Value* result_as_int = builder_.CreateXor(sign, t1_as_int);
+    llvm::Value* result = builder_.CreateBitCast(result_as_int, float_ty);
+
     auto* zero = getConstant(0.0);
     auto* one = getConstant(1.0);
-    auto* nan_val = getConstant(std::numeric_limits<float>::quiet_NaN());
-
-    llvm::Value* result =
-        createFastApproximateSinCos_(*this, builder_, context_, x, false);
 
     // Special cases
     auto* is_zero = builder_.CreateFCmpOEQ(x, zero);
-    auto* is_nan = builder_.CreateFCmpUNO(x, x); // NaN check
-    auto* is_inf = builder_.CreateFCmpOEQ(
-        createIntrinsicCall(llvm::Intrinsic::fabs, {x}),
-        getConstant(std::numeric_limits<float>::infinity()));
 
     // cos(0) = 1
     result = builder_.CreateSelect(is_zero, one, result);
-    // cos(+-inf) = nan
-    result = builder_.CreateSelect(is_inf, nan_val, result);
-    // cos(nan) = nan
-    result = builder_.CreateSelect(is_nan, nan_val, result);
 
     builder_.CreateRet(result);
 
@@ -650,7 +600,6 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateTan() {
     x->setName("x");
 
     auto* zero = getConstant(0.0);
-    auto* nan_val = getConstant(std::numeric_limits<float>::quiet_NaN());
 
     // tan(x) = sin(x) / cos(x)
     llvm::Function* sinFunc = this->getOrCreateSin();
@@ -662,14 +611,8 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateTan() {
 
     // Special cases
     auto* is_zero = builder_.CreateFCmpOEQ(x, zero);
-    auto* is_nan = builder_.CreateFCmpUNO(x, x);
-    auto* is_inf = builder_.CreateFCmpOEQ(
-        createIntrinsicCall(llvm::Intrinsic::fabs, {x}),
-        getConstant(std::numeric_limits<float>::infinity()));
 
     result = builder_.CreateSelect(is_zero, zero, result);
-    result = builder_.CreateSelect(is_inf, nan_val, result);
-    result = builder_.CreateSelect(is_nan, nan_val, result);
 
     builder_.CreateRet(result);
 
@@ -683,7 +626,6 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateTan() {
     return func;
 }
 
-// From math_library.hpp
 class MathLibraryManager {
   public:
     MathLibraryManager(llvm::Module* module, llvm::LLVMContext& context)

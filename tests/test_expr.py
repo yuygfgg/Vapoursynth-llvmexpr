@@ -95,13 +95,13 @@ def test_exp(input_format: int, input_value: int, expr: str, expected: float) ->
 @pytest.mark.parametrize(
     "input_format, input_value, expr, expected",
     [
-        (vs.GRAY8, 0, "0 log", float("-inf")),
+        (vs.GRAY8, 0, "0 log", -87.3365478515625),
         (
             vs.GRAY8,
             0,
             "x log",
-            float("-inf"),
-        ),  # differs from std.Expr's -87.3365478515625
+            -87.3365478515625,
+        ),
         (vs.GRAY8, 1, "x log", 0),
         (vs.GRAYS, 7.38905, "x log", 2),
     ],
@@ -315,28 +315,22 @@ boundary_test_cases = [
     pytest.param("x[-1,-1]", None, 0, 0, 0.0, id="clamp_default_topleft"),
     pytest.param("x[1,1]", None, 3, 3, 15.0, id="clamp_default_bottomright"),
     pytest.param("x[-2,0]", None, 1, 1, 4.0, id="clamp_default_rel"),
-
     # Explicit clamp with boundary parameter
     pytest.param("x[-1,-1]", 0, 0, 0, 0.0, id="clamp_param_topleft"),
     pytest.param("x[1,1]", 0, 3, 3, 15.0, id="clamp_param_bottomright"),
-
     # Explicit clamp with :c suffix
     pytest.param("x[-1,-1]:c", None, 0, 0, 0.0, id="clamp_suffix_topleft"),
     pytest.param("x[1,1]:c", None, 3, 3, 15.0, id="clamp_suffix_bottomright"),
-
     # Mirror with boundary parameter
     pytest.param("x[-1,-1]", 1, 0, 0, 5.0, id="mirror_param_topleft"),
     pytest.param("x[1,1]", 1, 3, 3, 10.0, id="mirror_param_bottomright"),
     pytest.param("x[-2,0]", 1, 1, 1, 5.0, id="mirror_param_rel"),
-
     # Mirror with :m suffix
     pytest.param("x[-1,-1]:m", None, 0, 0, 5.0, id="mirror_suffix_topleft"),
     pytest.param("x[1,1]:m", None, 3, 3, 10.0, id="mirror_suffix_bottomright"),
-
     # Override behavior
     pytest.param("x[-1,-1]:m", 0, 0, 0, 5.0, id="override_clamp_with_mirror"),
     pytest.param("x[-1,-1]:c", 1, 0, 0, 0.0, id="override_mirror_with_clamp"),
-    
     # More mirror tests
     pytest.param("x[4,4]", 1, 0, 0, 10.0, id="mirror_param_far_coord1"),
     pytest.param("x[5,5]", 1, 0, 0, 5.0, id="mirror_param_far_coord2"),
@@ -345,12 +339,19 @@ boundary_test_cases = [
 
 
 @pytest.mark.parametrize("expr, boundary, x, y, expected", boundary_test_cases)
-def test_boundary_conditions(ramp_clip: vs.VideoNode, expr: str, boundary: int | None, x: int, y: int, expected: float) -> None:
+def test_boundary_conditions(
+    ramp_clip: vs.VideoNode,
+    expr: str,
+    boundary: int | None,
+    x: int,
+    y: int,
+    expected: float,
+) -> None:
     if boundary:
         res = core.llvmexpr.Expr(ramp_clip, expr, boundary=boundary)
     else:
         res = core.llvmexpr.Expr(ramp_clip, expr)
-    
+
     frame = res.get_frame(0)
     assert frame[0][y, x] == pytest.approx(expected)
 
@@ -362,18 +363,15 @@ abs_boundary_test_cases = [
     pytest.param("4 4 x[]", None, 15.0, id="abs_default_clamp_bottomright"),
     # Default clamp should ignore boundary=1 (mirror)
     pytest.param("-1 -1 x[]", 1, 0.0, id="abs_default_clamp_overrides_mirror_param"),
-
     # Explicit clamp :c
     pytest.param("-1 -1 x[]:c", None, 0.0, id="abs_explicit_clamp_topleft"),
     # Explicit clamp should ignore boundary=1 (mirror)
     pytest.param("-1 -1 x[]:c", 1, 0.0, id="abs_explicit_clamp_overrides_mirror_param"),
-
     # Explicit mirror :m
     pytest.param("-1 -1 x[]:m", None, 5.0, id="abs_explicit_mirror_topleft"),
     pytest.param("4 4 x[]:m", None, 10.0, id="abs_explicit_mirror_bottomright"),
     # Explicit mirror should ignore boundary=0 (clamp)
     pytest.param("-1 -1 x[]:m", 0, 5.0, id="abs_explicit_mirror_overrides_clamp_param"),
-
     # Use boundary param :b
     pytest.param("-1 -1 x[]:b", 0, 0.0, id="abs_b_uses_clamp_param"),
     pytest.param("-1 -1 x[]:b", 1, 5.0, id="abs_b_uses_mirror_param"),
@@ -383,17 +381,19 @@ abs_boundary_test_cases = [
 
 
 @pytest.mark.parametrize("expr, boundary, expected", abs_boundary_test_cases)
-def test_abs_boundary_conditions(ramp_clip: vs.VideoNode, expr: str, boundary: int | None, expected: float) -> None:
+def test_abs_boundary_conditions(
+    ramp_clip: vs.VideoNode, expr: str, boundary: int | None, expected: float
+) -> None:
     if boundary is not None:
         res = core.llvmexpr.Expr(ramp_clip, expr, boundary=boundary)
     else:
         res = core.llvmexpr.Expr(ramp_clip, expr)
-    
+
     # We test at a single pixel, since the coordinates are absolute
     frame = res.get_frame(0)
     assert frame[0][0, 0] == pytest.approx(expected)
-    
-    
+
+
 def test_non_integer_coordinate_rounding() -> None:
     c = core.std.BlankClip(format=vs.GRAYS, color=0.0, width=4, height=2)
     c = core.llvmexpr.Expr(c, "X")
