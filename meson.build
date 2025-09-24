@@ -21,7 +21,7 @@ project('llvmexpr', 'cpp', 'c',
   default_options: ['buildtype=release', 'warning_level=2', 'b_lto=true', 'b_ndebug=if-release', 'cpp_std=c++23'],
   license: 'GPL-3.0-or-later',
   meson_version: '>=0.51.0',
-  version: '1.9'
+  version: '1.10'
 )
 
 cxx = meson.get_compiler('cpp')
