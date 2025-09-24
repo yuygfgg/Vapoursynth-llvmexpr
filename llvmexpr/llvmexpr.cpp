@@ -62,7 +62,7 @@
 #include "llvm/TargetParser/Host.h"
 #include "llvm/TargetParser/Triple.h"
 
-#include "math_library.hpp"
+#include "math_functions.hpp"
 #include "optimal_sorting_networks.hpp"
 
 constexpr unsigned ALIGNMENT = 32; // Vapoursynth should guarantee this

@@ -17,8 +17,13 @@
  * along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef LLVMEXPR_MATH_COMPILER_HPP
-#define LLVMEXPR_MATH_COMPILER_HPP
+#ifndef LLVMEXPR_MATH_FUNCTIONS_HPP
+#define LLVMEXPR_MATH_FUNCTIONS_HPP
+
+#include <limits>
+#include <map>
+#include <string>
+#include <utility>
 
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Function.h"
@@ -29,9 +34,16 @@
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Value.h"
 #include "llvm/IR/Verifier.h"
-#include <limits>
 
-// VectorWidth=1 represents scalar
+enum class MathOp { Exp, Log, Sin, Cos, Tan };
+
+#ifdef __x86_64__
+using SupportedVectorWidths = std::integer_sequence<int, 4, 8, 16>;
+#else
+using SupportedVectorWidths = std::integer_sequence<int, 4>;
+#endif
+// TODO: Figure out if other architectures have >4 wide vector support.
+
 template <int VectorWidth> class MathFunctionGenerator {
   public:
     MathFunctionGenerator(llvm::Module* module, llvm::LLVMContext& context)
@@ -49,7 +61,6 @@ template <int VectorWidth> class MathFunctionGenerator {
     llvm::LLVMContext& context_;
     llvm::IRBuilder<> builder_;
 
-    // Helper functions for type and constant generation
     llvm::Type* getFloatType() {
         auto* ty = llvm::Type::getFloatTy(context_);
         if (VectorWidth == 1) {
@@ -84,7 +95,6 @@ template <int VectorWidth> class MathFunctionGenerator {
                    : builder_.CreateVectorSplat(VectorWidth, scalarConst);
     }
 
-    // Helper function to get function name with vector width suffix
     std::string getFunctionName(const std::string& base_name) {
         if (VectorWidth == 1) {
             return base_name;
@@ -93,7 +103,6 @@ template <int VectorWidth> class MathFunctionGenerator {
         }
     }
 
-    // Helper function for creating intrinsic calls that work with both scalar and vector types
     llvm::Value* createIntrinsicCall(llvm::Intrinsic::ID intrinsic_id,
                                      llvm::ArrayRef<llvm::Value*> args) {
         auto* intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
@@ -102,34 +111,27 @@ template <int VectorWidth> class MathFunctionGenerator {
     }
 };
 
-// Implementation of template methods
-
 template <int VectorWidth>
 llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateExp() {
     std::string func_name = getFunctionName("fast_exp");
 
-    // Check if function already exists
     if (auto* existing_func = module_->getFunction(func_name)) {
         return existing_func;
     }
 
     auto last_ip = builder_.saveIP();
 
-    // Create function type
     auto* float_ty = getFloatType();
     auto* func_ty = llvm::FunctionType::get(float_ty, {float_ty}, false);
     auto* func = llvm::Function::Create(
         func_ty, llvm::Function::ExternalLinkage, func_name, module_);
 
-    // Create basic block and set up builder
     auto* entry_bb = llvm::BasicBlock::Create(context_, "entry", func);
     builder_.SetInsertPoint(entry_bb);
 
-    // Get function argument
     auto* x_ = func->getArg(0);
     x_->setName("x");
 
-    // Constants for exp approximation
     auto* exp_hi = getConstant(88.3762626647949f);
     auto* exp_lo = getConstant(-88.3762626647949f);
     auto* log2e = getConstant(1.44269504088896341f);
@@ -232,7 +234,6 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateExp() {
 
     builder_.restoreIP(last_ip);
 
-    // Verify the function
     if (llvm::verifyFunction(*func, &llvm::errs())) {
         func->eraseFromParent();
         return nullptr;
@@ -245,28 +246,23 @@ template <int VectorWidth>
 llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateLog() {
     std::string func_name = getFunctionName("fast_log");
 
-    // Check if function already exists
     if (auto* existing_func = module_->getFunction(func_name)) {
         return existing_func;
     }
 
     auto last_ip = builder_.saveIP();
 
-    // Create function type
     auto* float_ty = getFloatType();
     auto* func_ty = llvm::FunctionType::get(float_ty, {float_ty}, false);
     auto* func = llvm::Function::Create(
         func_ty, llvm::Function::ExternalLinkage, func_name, module_);
 
-    // Create basic block and set up builder
     auto* entry_bb = llvm::BasicBlock::Create(context_, "entry", func);
     builder_.SetInsertPoint(entry_bb);
 
-    // Get function argument
     auto* x_ = func->getArg(0);
     x_->setName("x");
 
-    // Constants for log approximation
     auto* min_norm_pos = getInt32Constant(0x00800000);
     auto* inv_mant_mask = getInt32Constant(~0x7F800000);
     auto* float_half = getConstant(0.5f);
@@ -353,7 +349,7 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateLog() {
     // z = x * x
     auto* z = builder_.CreateFMul(x, x);
 
-    // Polynomial approximation using FMA
+    // Polynomial approximation
     auto* fma_intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
         module_, llvm::Intrinsic::fma, getFloatType());
 
@@ -436,7 +432,6 @@ llvm::Value* createFastApproximateSinCos_(
     auto* float_ty = getFloatType();
     auto* int32_ty = getInt32Type();
 
-    // Constants from the minimax polynomial approximation
     auto* float_invpi = getConstant(0.31830988618f); // 1.0f / pi
     auto* float_pi1 = getConstant(3.140625f);
     auto* float_pi2 = getConstant(0.0009670257568359375f);
@@ -530,31 +525,26 @@ template <int VectorWidth>
 llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateSin() {
     std::string func_name = getFunctionName("fast_sin");
 
-    // Check if function already exists
     if (auto* existing_func = module_->getFunction(func_name)) {
         return existing_func;
     }
 
     auto last_ip = builder_.saveIP();
 
-    // Create function type
     auto* float_ty = getFloatType();
     auto* func_ty = llvm::FunctionType::get(float_ty, {float_ty}, false);
     auto* func = llvm::Function::Create(
         func_ty, llvm::Function::ExternalLinkage, func_name, module_);
 
-    // Create basic block and set up builder
     auto* entry_bb = llvm::BasicBlock::Create(context_, "entry", func);
     builder_.SetInsertPoint(entry_bb);
 
-    // Get function argument
     auto* x = func->getArg(0);
     x->setName("x");
 
     auto* zero = getConstant(0.0);
     auto* nan_val = getConstant(std::numeric_limits<float>::quiet_NaN());
 
-    // Main calculation
     llvm::Value* result =
         createFastApproximateSinCos_(*this, builder_, context_, x, true);
 
@@ -576,7 +566,6 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateSin() {
 
     builder_.restoreIP(last_ip);
 
-    // Verify the function
     if (llvm::verifyFunction(*func, &llvm::errs())) {
         func->eraseFromParent();
         return nullptr;
@@ -589,24 +578,20 @@ template <int VectorWidth>
 llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateCos() {
     std::string func_name = getFunctionName("fast_cos");
 
-    // Check if function already exists
     if (auto* existing_func = module_->getFunction(func_name)) {
         return existing_func;
     }
 
     auto last_ip = builder_.saveIP();
 
-    // Create function type
     auto* float_ty = getFloatType();
     auto* func_ty = llvm::FunctionType::get(float_ty, {float_ty}, false);
     auto* func = llvm::Function::Create(
         func_ty, llvm::Function::ExternalLinkage, func_name, module_);
 
-    // Create basic block and set up builder
     auto* entry_bb = llvm::BasicBlock::Create(context_, "entry", func);
     builder_.SetInsertPoint(entry_bb);
 
-    // Get function argument
     auto* x = func->getArg(0);
     x->setName("x");
 
@@ -614,7 +599,6 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateCos() {
     auto* one = getConstant(1.0);
     auto* nan_val = getConstant(std::numeric_limits<float>::quiet_NaN());
 
-    // Main calculation
     llvm::Value* result =
         createFastApproximateSinCos_(*this, builder_, context_, x, false);
 
@@ -636,7 +620,6 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateCos() {
 
     builder_.restoreIP(last_ip);
 
-    // Verify the function
     if (llvm::verifyFunction(*func, &llvm::errs())) {
         func->eraseFromParent();
         return nullptr;
@@ -649,24 +632,20 @@ template <int VectorWidth>
 llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateTan() {
     std::string func_name = getFunctionName("fast_tan");
 
-    // Check if function already exists
     if (auto* existing_func = module_->getFunction(func_name)) {
         return existing_func;
     }
 
     auto last_ip = builder_.saveIP();
 
-    // Create function type
     auto* float_ty = getFloatType();
     auto* func_ty = llvm::FunctionType::get(float_ty, {float_ty}, false);
     auto* func = llvm::Function::Create(
         func_ty, llvm::Function::ExternalLinkage, func_name, module_);
 
-    // Create basic block and set up builder
     auto* entry_bb = llvm::BasicBlock::Create(context_, "entry", func);
     builder_.SetInsertPoint(entry_bb);
 
-    // Get function argument
     auto* x = func->getArg(0);
     x->setName("x");
 
@@ -681,7 +660,7 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateTan() {
     llvm::Value* cos_x = builder_.CreateCall(cosFunc, {x});
     llvm::Value* result = builder_.CreateFDiv(sin_x, cos_x);
 
-    // Handle special cases
+    // Special cases
     auto* is_zero = builder_.CreateFCmpOEQ(x, zero);
     auto* is_nan = builder_.CreateFCmpUNO(x, x);
     auto* is_inf = builder_.CreateFCmpOEQ(
@@ -696,7 +675,6 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateTan() {
 
     builder_.restoreIP(last_ip);
 
-    // Verify the function
     if (llvm::verifyFunction(*func, &llvm::errs())) {
         func->eraseFromParent();
         return nullptr;
@@ -705,4 +683,116 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateTan() {
     return func;
 }
 
-#endif // LLVMEXPR_MATH_COMPILER_HPP
+// From math_library.hpp
+class MathLibraryManager {
+  public:
+    MathLibraryManager(llvm::Module* module, llvm::LLVMContext& context)
+        : module_(module), context_(context) {}
+
+    llvm::Function* getScalarFunction(MathOp op) {
+        if (auto it = scalarFuncCache_.find(op); it != scalarFuncCache_.end()) {
+            return it->second;
+        }
+        return generateAndCache(op);
+    }
+
+  private:
+    llvm::Module* module_;
+    llvm::LLVMContext& context_;
+    std::map<MathOp, llvm::Function*> scalarFuncCache_;
+
+    // Template dispatch: Map MathOp enum to concrete generator methods
+    template <MathOp op, int VectorWidth> llvm::Function* dispatchGeneration() {
+        MathFunctionGenerator<VectorWidth> generator(module_, context_);
+        if constexpr (op == MathOp::Exp)
+            return generator.getOrCreateExp();
+        if constexpr (op == MathOp::Log)
+            return generator.getOrCreateLog();
+        if constexpr (op == MathOp::Sin)
+            return generator.getOrCreateSin();
+        if constexpr (op == MathOp::Cos)
+            return generator.getOrCreateCos();
+        if constexpr (op == MathOp::Tan)
+            return generator.getOrCreateTan();
+        return nullptr;
+    }
+
+    template <MathOp op> llvm::Function* generateAndCacheImpl() {
+        llvm::Function* scalarFunc = dispatchGeneration<op, 1>();
+        if (!scalarFunc) {
+            return nullptr;
+        }
+
+        auto link_vectors = [&]<int... Widths>(
+                                std::integer_sequence<int, Widths...>) {
+            (
+                [&] {
+                    // Generate vector function for each width and link it to scalar version
+                    llvm::Function* vecFunc = dispatchGeneration<op, Widths>();
+                    if (vecFunc) {
+                        // Vector function ABI variant attribute
+                        std::string abi_string = "_ZGV";
+
+                        // ISA identifier based on vector width
+                        if constexpr (Widths == 4) {
+#ifdef __SSE__
+                            abi_string += "b"; // SSE
+#elif defined(__ARM_NEON__)
+                            abi_string += "n"; // NEON
+#endif
+                        } else if constexpr (Widths == 8) {
+#ifdef __AVX2__
+                            abi_string += "d"; // AVX2
+#endif
+                        } else if constexpr (Widths == 16) {
+#ifdef __AVX512F__
+                            abi_string += "e"; // AVX-512
+#endif
+                        }
+
+                        abi_string += "N"; // No mask
+
+                        abi_string += std::to_string(Widths);
+
+                        abi_string += "v";
+
+                        abi_string += "_";
+                        abi_string += scalarFunc->getName().str();
+                        abi_string += "(";
+                        abi_string += vecFunc->getName().str();
+                        abi_string += ")";
+
+                        // Add the vector function ABI variant attribute to scalar function
+                        scalarFunc->addFnAttr(llvm::Attribute::get(
+                            context_, "vector-function-abi-variant",
+                            abi_string));
+                    }
+                }(),
+                ...);
+        };
+
+        // Start iteration
+        link_vectors(SupportedVectorWidths{});
+
+        scalarFuncCache_[op] = scalarFunc;
+        return scalarFunc;
+    }
+
+    llvm::Function* generateAndCache(MathOp op) {
+        switch (op) {
+        case MathOp::Exp:
+            return generateAndCacheImpl<MathOp::Exp>();
+        case MathOp::Log:
+            return generateAndCacheImpl<MathOp::Log>();
+        case MathOp::Sin:
+            return generateAndCacheImpl<MathOp::Sin>();
+        case MathOp::Cos:
+            return generateAndCacheImpl<MathOp::Cos>();
+        case MathOp::Tan:
+            return generateAndCacheImpl<MathOp::Tan>();
+        }
+        return nullptr;
+    }
+};
+
+#endif // LLVMEXPR_MATH_FUNCTIONS_HPP

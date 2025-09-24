@@ -28,7 +28,7 @@ core = vs.core
 def _eval_exp(x: float) -> float:
     """Helper function to evaluate exp(x) using llvmexpr."""
     clip = vs.core.std.BlankClip(width=1, height=1, format=vs.GRAYS, length=1, color=x)
-    clip = vs.core.llvmexpr.Expr(clip, "x exp")
+    clip = vs.core.llvmexpr.Expr(clip, "x exp", approx_math=1)
     frame = clip.get_frame(0)
     return float(frame[0][0, 0])
 
@@ -36,7 +36,7 @@ def _eval_exp(x: float) -> float:
 def _eval_log(x: float) -> float:
     """Helper function to evaluate log(x) using llvmexpr."""
     clip = vs.core.std.BlankClip(width=1, height=1, format=vs.GRAYS, length=1, color=x)
-    clip = vs.core.llvmexpr.Expr(clip, "x log")
+    clip = vs.core.llvmexpr.Expr(clip, "x log", approx_math=1)
     frame = clip.get_frame(0)
     return float(frame[0][0, 0])
 
@@ -149,7 +149,7 @@ def test_log_random_values() -> None:
 def _eval_trig(op: str, x: float) -> float:
     """Helper function to evaluate trig functions using llvmexpr."""
     c = core.std.BlankClip(format=vs.GRAYS, color=x)
-    res = core.llvmexpr.Expr(c, f"x {op}", vs.GRAYS)
+    res = core.llvmexpr.Expr(c, f"x {op}", vs.GRAYS, approx_math=1)
     return float(res.get_frame(0)[0][0, 0])
 
 
@@ -194,7 +194,6 @@ def test_trig_special_cases(op: str, func, x: float) -> None:
 )
 def test_trig_random_values(op: str, func) -> None:
     rng = np.random.default_rng(54321)
-    # Use a large range to test range reduction
     values = rng.uniform(-1000.0, 1000.0, size=100)
     for x in values:
         # Don't test tan near its asymptotes where behavior is chaotic
