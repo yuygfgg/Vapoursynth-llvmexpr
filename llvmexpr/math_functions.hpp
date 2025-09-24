@@ -155,27 +155,16 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateExp() {
     x = createIntrinsicCall(llvm::Intrinsic::maxnum, {x, exp_lo});
 
     // fx = log2e * x + 0.5
-    auto* fx = builder_.CreateFMul(log2e, x);
-    fx = builder_.CreateFAdd(fx, half);
+    auto* fx = createIntrinsicCall(llvm::Intrinsic::fma, {log2e, x, half});
 
     // emm0 = round(fx)
-    auto* etmp = createIntrinsicCall(llvm::Intrinsic::round, {fx});
+    auto* etmp = createIntrinsicCall(llvm::Intrinsic::nearbyint, {fx});
 
     // mask = (etmp > fx) ? 1.0f : 0.0f (as float bits)
     auto* cmp_gt = builder_.CreateFCmpOGT(etmp, fx);
-    llvm::Value* one_int;
-    if constexpr (VectorWidth == 1) {
-        one_int = builder_.CreateBitCast(one, getInt32Type());
-    } else {
-        // For vectors, we need to create a vector of integer ones
-        auto* scalarOne =
-            llvm::ConstantFP::get(llvm::Type::getFloatTy(context_), 1.0f);
-        auto* scalarOneInt =
-            builder_.CreateBitCast(scalarOne, llvm::Type::getInt32Ty(context_));
-        one_int = builder_.CreateVectorSplat(VectorWidth, scalarOneInt);
-    }
-    auto* zero_int = getInt32Constant(0);
-    auto* mask_int = builder_.CreateSelect(cmp_gt, one_int, zero_int);
+    auto* ext_cmp = builder_.CreateSExt(cmp_gt, getInt32Type());
+    auto* one_int = builder_.CreateBitCast(one, getInt32Type());
+    auto* mask_int = builder_.CreateAnd(ext_cmp, one_int);
     auto* mask = builder_.CreateBitCast(mask_int, getFloatType());
 
     // fx = etmp - mask
@@ -196,26 +185,20 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateExp() {
     llvm::Value* y = exp_p0;
 
     // Polynomial evaluation: y = y * x + exp_p1, etc.
-    y = builder_.CreateFMul(y, x);
-    y = builder_.CreateFAdd(y, exp_p1);
-    y = builder_.CreateFMul(y, x);
-    y = builder_.CreateFAdd(y, exp_p2);
-    y = builder_.CreateFMul(y, x);
-    y = builder_.CreateFAdd(y, exp_p3);
-    y = builder_.CreateFMul(y, x);
-    y = builder_.CreateFAdd(y, exp_p4);
-    y = builder_.CreateFMul(y, x);
-    y = builder_.CreateFAdd(y, exp_p5);
+    y = createIntrinsicCall(llvm::Intrinsic::fma, {y, x, exp_p1});
+    y = createIntrinsicCall(llvm::Intrinsic::fma, {y, x, exp_p2});
+    y = createIntrinsicCall(llvm::Intrinsic::fma, {y, x, exp_p3});
+    y = createIntrinsicCall(llvm::Intrinsic::fma, {y, x, exp_p4});
+    y = createIntrinsicCall(llvm::Intrinsic::fma, {y, x, exp_p5});
 
     // y = y * z + x
-    y = builder_.CreateFMul(y, z);
-    y = builder_.CreateFAdd(y, x);
+    y = createIntrinsicCall(llvm::Intrinsic::fma, {y, z, x});
 
     // y = y + 1.0
     y = builder_.CreateFAdd(y, one);
 
     // emm0 = round(fx) as int
-    auto* emm0_float = createIntrinsicCall(llvm::Intrinsic::round, {fx});
+    auto* emm0_float = createIntrinsicCall(llvm::Intrinsic::nearbyint, {fx});
     auto* emm0 = builder_.CreateFPToSI(emm0_float, getInt32Type());
 
     // emm0 = emm0 + 0x7f
@@ -276,7 +259,6 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateLog() {
     auto* log_p8 = getConstant(3.3333331174E-1f);
     auto* log_q2 = getConstant(0.693359375f);
     auto* log_q1 = getConstant(-2.12194440e-4f);
-    auto* zero = getConstant(0.0f);
     auto* one = getConstant(1.0f);
     auto* neg_half = getConstant(-0.5f);
 
@@ -324,13 +306,18 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateLog() {
     auto* mask = builder_.CreateFCmpOLT(x, sqrt_1_2);
 
     // etmp = mask ? x : 0.0f
-    auto* etmp = builder_.CreateSelect(mask, x, zero);
+    auto* ext_mask = builder_.CreateSExt(mask, getInt32Type());
+    x_as_int = builder_.CreateBitCast(x, getInt32Type());
+    auto* etmp_as_int = builder_.CreateAnd(ext_mask, x_as_int);
+    auto* etmp = builder_.CreateBitCast(etmp_as_int, getFloatType());
 
     // x = x - 1.0f
     x = builder_.CreateFSub(x, one);
 
     // maskf = mask ? 1.0f : 0.0f
-    auto* maskf = builder_.CreateSelect(mask, one, zero);
+    auto* one_as_int = builder_.CreateBitCast(one, getInt32Type());
+    auto* maskf_as_int = builder_.CreateAnd(ext_mask, one_as_int);
+    auto* maskf = builder_.CreateBitCast(maskf_as_int, getFloatType());
 
     // emm0 = emm0 - maskf
     emm0 = builder_.CreateFSub(emm0, maskf);
@@ -362,7 +349,11 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateLog() {
     x = builder_.CreateCall(fma_intrinsic, {emm0, log_q2, x});
 
     // Handle special cases
-    x = builder_.CreateSelect(is_one, zero, x);
+    x_as_int = builder_.CreateBitCast(x, getInt32Type());
+    auto* ext_is_one = builder_.CreateSExt(is_one, getInt32Type());
+    auto* not_ext_is_one = builder_.CreateNot(ext_is_one);
+    auto* result_as_int = builder_.CreateAnd(not_ext_is_one, x_as_int);
+    x = builder_.CreateBitCast(result_as_int, getFloatType());
 
     builder_.CreateRet(x);
 
@@ -422,7 +413,7 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateSin() {
     // Range reduction to [-pi/2, pi/2]
     llvm::Value* t2 = builder_.CreateFMul(t1, float_invpi);
 
-    llvm::Value* t2_rounded = createIntrinsicCall(llvm::Intrinsic::round, {t2});
+    llvm::Value* t2_rounded = createIntrinsicCall(llvm::Intrinsic::nearbyint, {t2});
     llvm::Value* t2i = builder_.CreateFPToSI(t2_rounded, int32_ty);
 
     // sign ^= (t2i << 31); // Flip sign based on quadrant
@@ -514,7 +505,7 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateCos() {
     // Range reduction to [-pi/2, pi/2]
     llvm::Value* t2 = builder_.CreateFMul(t1, float_invpi);
 
-    llvm::Value* t2_rounded = createIntrinsicCall(llvm::Intrinsic::round, {t2});
+    llvm::Value* t2_rounded = createIntrinsicCall(llvm::Intrinsic::nearbyint, {t2});
     llvm::Value* t2i = builder_.CreateFPToSI(t2_rounded, int32_ty);
 
     // sign ^= (t2i << 31); // Flip sign based on quadrant
