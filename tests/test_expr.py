@@ -353,6 +353,46 @@ def test_boundary_conditions(ramp_clip: vs.VideoNode, expr: str, boundary: int |
     
     frame = res.get_frame(0)
     assert frame[0][y, x] == pytest.approx(expected)
+
+
+# Tests for absolute pixel access boundary conditions
+abs_boundary_test_cases = [
+    # Default is clamp
+    pytest.param("-1 -1 x[]", None, 0.0, id="abs_default_clamp_topleft"),
+    pytest.param("4 4 x[]", None, 15.0, id="abs_default_clamp_bottomright"),
+    # Default clamp should ignore boundary=1 (mirror)
+    pytest.param("-1 -1 x[]", 1, 0.0, id="abs_default_clamp_overrides_mirror_param"),
+
+    # Explicit clamp :c
+    pytest.param("-1 -1 x[]:c", None, 0.0, id="abs_explicit_clamp_topleft"),
+    # Explicit clamp should ignore boundary=1 (mirror)
+    pytest.param("-1 -1 x[]:c", 1, 0.0, id="abs_explicit_clamp_overrides_mirror_param"),
+
+    # Explicit mirror :m
+    pytest.param("-1 -1 x[]:m", None, 5.0, id="abs_explicit_mirror_topleft"),
+    pytest.param("4 4 x[]:m", None, 10.0, id="abs_explicit_mirror_bottomright"),
+    # Explicit mirror should ignore boundary=0 (clamp)
+    pytest.param("-1 -1 x[]:m", 0, 5.0, id="abs_explicit_mirror_overrides_clamp_param"),
+
+    # Use boundary param :b
+    pytest.param("-1 -1 x[]:b", 0, 0.0, id="abs_b_uses_clamp_param"),
+    pytest.param("-1 -1 x[]:b", 1, 5.0, id="abs_b_uses_mirror_param"),
+    pytest.param("4 4 x[]:b", 0, 15.0, id="abs_b_uses_clamp_param_br"),
+    pytest.param("4 4 x[]:b", 1, 10.0, id="abs_b_uses_mirror_param_br"),
+]
+
+
+@pytest.mark.parametrize("expr, boundary, expected", abs_boundary_test_cases)
+def test_abs_boundary_conditions(ramp_clip: vs.VideoNode, expr: str, boundary: int | None, expected: float) -> None:
+    if boundary is not None:
+        res = core.llvmexpr.Expr(ramp_clip, expr, boundary=boundary)
+    else:
+        res = core.llvmexpr.Expr(ramp_clip, expr)
+    
+    # We test at a single pixel, since the coordinates are absolute
+    frame = res.get_frame(0)
+    assert frame[0][0, 0] == pytest.approx(expected)
+    
     
 def test_non_integer_coordinate_rounding() -> None:
     c = core.std.BlankClip(format=vs.GRAYS, color=0.0, width=4, height=2)

@@ -249,7 +249,7 @@ class VectorizationDiagnosticHandler {
 namespace {
 const std::regex re_rel_bracket{
     R"(^(?:src(\d+)|([x-za-w]))\[\s*(-?\d+)\s*,\s*(-?\d+)\s*\](?::([cm]))?$)"};
-const std::regex re_abs{R"(^(?:src(\d+)|([x-za-w]))\[\]$)"};
+const std::regex re_abs{R"(^(?:src(\d+)|([x-za-w]))\[\](?::([mcb]))?$)"};
 const std::regex re_cur{R"(^(?:src(\d+)|([x-za-w]))$)"};
 const std::regex re_prop{
     R"(^(?:src(\d+)|([x-za-w]))\.([a-zA-Z_][a-zA-Z0-9_]*)$)"};
@@ -472,8 +472,24 @@ std::vector<Token> tokenize(const std::string& expr, int num_inputs) {
             t.payload = data;
         } else if (std::regex_match(str_token, match, re_abs)) {
             t.type = TokenType::CLIP_ABS;
-            t.payload = TokenPayload_ClipAccess{
-                .clip_idx = parse_clip_idx_from_match(match)};
+            TokenPayload_ClipAccess data;
+            data.clip_idx = parse_clip_idx_from_match(match);
+            if (match[3].matched) {
+                char mode_char = match[3].str()[0];
+                if (mode_char == 'm') {
+                    data.has_mode = true;
+                    data.use_mirror = true;
+                } else if (mode_char == 'c') {
+                    data.has_mode = true;
+                    data.use_mirror = false;
+                } else if (mode_char == 'b') {
+                    data.has_mode = false;
+                }
+            } else { // No specifier, default to clamp
+                data.has_mode = true;
+                data.use_mirror = false;
+            }
+            t.payload = data;
         } else if (std::regex_match(str_token, match, re_cur)) {
             t.type = TokenType::CLIP_CUR;
             t.payload = TokenPayload_ClipAccess{
@@ -1995,8 +2011,15 @@ class Compiler {
                         {coord_x_f});
                     coord_x = builder.CreateFPToSI(coord_x, i32_ty);
 
+                    bool use_mirror_final;
+                    if (payload.has_mode) {
+                        use_mirror_final = payload.use_mirror;
+                    } else {
+                        use_mirror_final = mirror_boundary;
+                    }
+
                     rpn_stack.push_back(generate_pixel_load(
-                        payload.clip_idx, coord_x, coord_y, mirror_boundary));
+                        payload.clip_idx, coord_x, coord_y, use_mirror_final));
                     break;
                 }
                 case TokenType::CLIP_CUR: {

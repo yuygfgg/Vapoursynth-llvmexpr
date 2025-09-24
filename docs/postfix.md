@@ -191,20 +191,24 @@ The compiler performs a rigorous static analysis of the control flow. If it dete
 
 Access pixels from any clip at absolute or relative coordinates.
 
-- **Static Relative Access:** `clip[relX, relY]`
-  - Accesses a pixel relative to the current coordinate. `relX` and `relY` must be constants.
+- **Relative Access:** `clip[relX, relY]:[mode]`
+  - Accesses a pixel relative to the current coordinate. `relX` and `relY` must be integer constants.
   - **Example:** `y[-1, 0]` accesses the pixel to the immediate left in the second clip (`y`).
-  - **Boundary Suffixes:**
-    - `:c`: Clamped boundary (edge pixels are repeated). This is the default.
-    - `:m`: Mirrored boundary.
+  - **Boundary Suffixes:** If no suffix is provided, the edge behavior is determined by the filter's global `boundary` parameter.
+    - `:c`: Forces clamped boundary (edge pixels are repeated).
+    - `:m`: Forces mirrored boundary.
 
-- **Dynamic Absolute Access:** `absX absY clip[]`
-  - Accesses a pixel at an absolute coordinate, where `absX` and `absY` can be computed by expressions.
+- **Absolute Access:** `absX absY clip[]:[mode]`
+  - Accesses a pixel at an absolute coordinate. It pops `absY` then `absX` from the stack. These coordinates can be computed by expressions.
   - If the coordinates are not integers, they will be rounded half to even.
-  - **Warning:** Dynamic Absolute Access may not be vectorized by the JIT compiler if coordinates are computed at runtime, causing severe performance degradation.
-  - **Example:** `X 2 / Y x[]` reads the pixel at half the current X coordinate from the first clip.
+  - **Example:** `X 2 / Y x[]` reads the pixel at half the current X coordinate from the first clip, using the default clamp mode.
+  - **Boundary Suffixes:**
+    - `:c`: Forces clamped boundary. **This is the default if no suffix is specified.**
+    - `:m`: Forces mirrored boundary.
+    - `:b`: Uses the behavior from the filter's global `boundary` parameter.
+  - **Warning:** Absolute access may not be vectorized by the JIT compiler if coordinates are computed at runtime, which can cause severe performance degradation. Use relative access with constant offsets where possible.
 
-> Note: `X 2 + Y 3 - x[]` is equivalent to `x[2,-3]`.
+> Note: `X 2 + Y 3 - x[]:b` is roughly equivalent to `x[2,-3]` if the global `boundary` parameter is used for both.
 
 ##### **Frame Property Access**
 
