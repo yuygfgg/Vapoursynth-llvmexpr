@@ -459,14 +459,6 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateSin() {
     llvm::Value* result_as_int = builder_.CreateXor(sign, t1_as_int);
     llvm::Value* result = builder_.CreateBitCast(result_as_int, float_ty);
 
-    auto* zero = getConstant(0.0);
-
-    // Special cases
-    auto* is_zero = builder_.CreateFCmpOEQ(x, zero);
-
-    // sin(0) = 0
-    result = builder_.CreateSelect(is_zero, zero, result);
-
     builder_.CreateRet(result);
 
     builder_.restoreIP(last_ip);
@@ -557,15 +549,6 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateCos() {
     llvm::Value* result_as_int = builder_.CreateXor(sign, t1_as_int);
     llvm::Value* result = builder_.CreateBitCast(result_as_int, float_ty);
 
-    auto* zero = getConstant(0.0);
-    auto* one = getConstant(1.0);
-
-    // Special cases
-    auto* is_zero = builder_.CreateFCmpOEQ(x, zero);
-
-    // cos(0) = 1
-    result = builder_.CreateSelect(is_zero, one, result);
-
     builder_.CreateRet(result);
 
     builder_.restoreIP(last_ip);
@@ -599,8 +582,6 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateTan() {
     auto* x = func->getArg(0);
     x->setName("x");
 
-    auto* zero = getConstant(0.0);
-
     // tan(x) = sin(x) / cos(x)
     llvm::Function* sinFunc = this->getOrCreateSin();
     llvm::Function* cosFunc = this->getOrCreateCos();
@@ -608,11 +589,6 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateTan() {
     llvm::Value* sin_x = builder_.CreateCall(sinFunc, {x});
     llvm::Value* cos_x = builder_.CreateCall(cosFunc, {x});
     llvm::Value* result = builder_.CreateFDiv(sin_x, cos_x);
-
-    // Special cases
-    auto* is_zero = builder_.CreateFCmpOEQ(x, zero);
-
-    result = builder_.CreateSelect(is_zero, zero, result);
 
     builder_.CreateRet(result);
 
