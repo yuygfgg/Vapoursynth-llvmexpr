@@ -53,7 +53,7 @@ class AkarinExprBackend(ExprBackend):
 
 
 # Default number of frames for tests that don't specify a custom value
-DEFAULT_FRAME_COUNT = 50000
+DEFAULT_FRAME_COUNT = 10000
 
 # Test configuration: either a string (expression) or tuple (expression, frame_count)
 TEST_CASES: Dict[str, Union[str, Tuple[str, int]]] = {

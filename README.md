@@ -12,24 +12,24 @@ Benchmark on Apple M2 Pro with 32GB RAM.
 
 | Test Case | llvmexpr | akarin |
 |---|---|---|
-| simple arithmetic | 3284.50 FPS | 3031.98 FPS |
-| logical condition | 3119.43 FPS | 2930.45 FPS |
-| data range clamp | 3001.56 FPS | 2962.26 FPS |
-| complex math chain | 1196.58 FPS | 792.38 FPS |
-| trigonometry coords | 1432.86 FPS | FAILED (Error) |
-| power function | 3109.77 FPS | 2822.21 FPS |
-| stack dup | 3020.77 FPS | 2943.32 FPS |
-| named variables | 3142.06 FPS | 2966.46 FPS |
-| static relative access | 2369.70 FPS | 2924.86 FPS |
-| dynamic absolute access | 3049.50 FPS | 2734.79 FPS |
-| bitwise and | 3135.24 FPS | 2936.21 FPS |
-| gain | 1433.18 FPS | 1184.39 FPS |
-| power with loop | 3056.25 FPS | FAILED (Error) |
-| 3D rendering | 367.17 FPS | 188.70 FPS |
-| 3D rendering 2 (icosahedron) | 544.62 FPS | 320.48 FPS |
-| rotate clip | 211.35 FPS | 337.45 FPS |
-| 8x8 dct | 174.82 FPS | 180.24 FPS |
-| 8x8 idct | 185.22 FPS | 161.72 FPS |
+| simple arithmetic | 3346.11 FPS | 3192.03 FPS |
+| logical condition | 3201.96 FPS | 3095.45 FPS |
+| data range clamp | 3336.29 FPS | 3296.98 FPS |
+| complex math chain | 1367.20 FPS | 1271.05 FPS |
+| trigonometry coords | 1449.27 FPS | FAILED (Error) |
+| power function | 3276.86 FPS | 3184.17 FPS |
+| stack dup | 3116.86 FPS | 3192.57 FPS |
+| named variables | 3152.67 FPS | 3317.73 FPS |
+| static relative access | 2377.03 FPS | 3024.50 FPS |
+| dynamic absolute access | 2955.05 FPS | 3036.40 FPS |
+| bitwise and | 3295.08 FPS | 3096.99 FPS |
+| gain | 1465.71 FPS | 1731.89 FPS |
+| power with loop | 3181.33 FPS | FAILED (Error) |
+| 3D rendering | 373.50 FPS | 194.39 FPS |
+| 3D rendering 2 (icosahedron) | 556.56 FPS | 329.31 FPS |
+| rotate clip | 214.62 FPS | 348.76 FPS |
+| 8x8 dct | 179.82 FPS | 185.07 FPS |
+| 8x8 idct | 192.41 FPS | 166.62 FPS |
 
 ## Core Components
 
