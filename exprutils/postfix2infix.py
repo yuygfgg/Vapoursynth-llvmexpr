@@ -34,6 +34,7 @@ from .utils import (
     is_constant_postfix,
     ensure_akarin_clip_name,
 )
+import regex as re
 
 
 # inspired by mvf.postfix2infix
@@ -103,9 +104,11 @@ def postfix2infix(expr: str, check_mode: bool = False) -> str:
             i += 1
             continue
 
-        # Dynamic pixel access
-        if token.endswith("[]"):
-            clip_identifier = token[:-2]
+        # Dynamic absolute pixel access (with optional boundary suffix): srcN[] or srcN[]:b/m/c
+        m_abs = re.match(r"^(\w+)\[\](?::(b|m|c))?$", token)
+        if m_abs:
+            clip_identifier = m_abs.group(1)
+            boundary_suffix = m_abs.group(2)
             absY = pop()
             absX = pop()
 
@@ -116,7 +119,8 @@ def postfix2infix(expr: str, check_mode: bool = False) -> str:
 
             # Add $ prefix for clip identifiers
             clip_name = f"${clip_identifier}"
-            push(f"dyn({clip_name},{absX},{absY})")
+            suffix_text = f":{boundary_suffix}" if boundary_suffix else ""
+            push(f"dyn({clip_name},{absX},{absY}){suffix_text}")
             i += 1
             continue
 

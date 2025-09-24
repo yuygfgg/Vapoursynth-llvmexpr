@@ -645,7 +645,7 @@ _PROP_ACCESS_PATTERN = re.compile(r"^\$?(\w+)\.([a-zA-Z_]\w*)$")
 _PROP_ACCESS_GENERIC_PATTERN = re.compile(r"(\$?[a-zA-Z_]\w*)\.([a-zA-Z_]\w*)")
 _NTH_PATTERN = re.compile(r"^nth_(\d+)$")
 _M_LINE_PATTERN = re.compile(r"^([a-zA-Z_]\w*)\s*=\s*(.+)$")
-_M_STATIC_PATTERN = re.compile(r"^\$?(\w+)\[\s*(-?\d+)\s*,\s*(-?\d+)\s*\](\:\\w+)?$")
+_M_STATIC_PATTERN = re.compile(r"^\$?(\w+)\[\s*(-?\d+)\s*,\s*(-?\d+)\s*\](?::(?:m|c))?$")
 _FIND_DUPLICATE_FUNCTIONS_PATTERN = re.compile(r"\bfunction\s+(\w+)\s*\(.*?\)")
 _GLOBAL_MATCH_PATTERN = re.compile(r"<([a-zA-Z_]\w*)>")
 _ASSIGN_PATTERN = re.compile(r"(?<![<>!])=(?![=])")
@@ -918,6 +918,8 @@ def check_variable_usage(
     In function scope, if local_vars is provided, only local variables are checked.
     """
 
+    expr = re.sub(r":(?:b|m|c)\s*$", "", expr)
+
     # Scientific notation and hexadecimal notation handling
     expr = _SCIENTIFIC_E_PATTERN.sub(" ", expr)
     expr = _HEX_P_PATTERN.sub(" ", expr)
@@ -1026,9 +1028,24 @@ def convert_expr(
     )
     validate_static_relative_pixel_indices(expr, line_num, current_function)
 
-    func_call_full = match_full_function_call(expr)
+    boundary_suffix: Optional[str] = None
+    for s in ("b", "m", "c"):
+        if expr.endswith(f":{s}"):
+            boundary_suffix = s
+            expr_no_suffix = expr[: -2].rstrip()
+            break
+    else:
+        expr_no_suffix = expr
+
+    func_call_full = match_full_function_call(expr_no_suffix)
     if func_call_full:
         func_name, args_str = func_call_full
+        if boundary_suffix is not None and func_name != "dyn":
+            raise SyntaxError(
+                f"Only dyn(...) supports boundary suffix :b/:m/:c, not '{func_name}'.",
+                line_num,
+                current_function,
+            )
         if func_name not in functions and not is_builtin_function(func_name):
             raise SyntaxError(
                 f"Undefined function '{func_name}'", line_num, current_function
@@ -1126,7 +1143,8 @@ def convert_expr(
                 raise SyntaxError(
                     f"{args[0]} is not a source clip.", line_num, current_function
                 )
-            return f"{args_postfix[1]} {args_postfix[2]} {clip_arg.lstrip('$')}[]"
+            suffix_text = f":{boundary_suffix}" if boundary_suffix else ""
+            return f"{args_postfix[1]} {args_postfix[2]} {clip_arg.lstrip('$')}[]{suffix_text}"
 
         if func_name in ["min", "max", "atan2", "copysign"]:
             if len(args) != 2:

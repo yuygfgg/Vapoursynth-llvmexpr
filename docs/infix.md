@@ -247,18 +247,26 @@ Read a property from a clip's frame properties.
 
 Access a pixel from a source clip at a fixed, constant offset from the current coordinate (`X`, `Y`).
 
-- **Syntax:** `$clip[offsetX, offsetY]`
+- **Syntax:** `$clip[offsetX, offsetY]` or `$clip[offsetX, offsetY]:m` or `$clip[offsetX, offsetY]:c`
 - `$clip` must be a source clip constant.
 - `offsetX` and `offsetY` must be integer literals.
+- **Boundary Suffixes:**
+  - `:c`: Forces clamped boundary (edge pixels are repeated).
+  - `:m`: Forces mirrored boundary.
+  - If omitted, the filter's global boundary parameter is used.
 
 ### 8.3. Dynamic Absolute Pixel Access
 
 Access a pixel from a source clip at a dynamically calculated coordinate. This is achieved via the `dyn` built-in function.
 
-- **Syntax:** `dyn($clip, x_expr, y_expr)`
+- **Syntax:** `dyn($clip, x_expr, y_expr)` or `dyn($clip, x_expr, y_expr):b|:m|:c`
 - `$clip` must be a source clip constant.
 - `x_expr` and `y_expr` can be any valid expressions that evaluate to the desired coordinates. If the coordinates are not integers, they will be rounded half to even.
-- `dyn($src0, $X + 2, $Y + 3)` is equivalent to `$src0[2, 3]`.
+- `dyn($src0, $X + 2, $Y + 3):b` is equivalent to `$src0[2, 3]`.
+- **Boundary Suffixes:**
+  - `:b`: Use the filter's global boundary parameter.
+  - `:c`: Forces clamped boundary (default when omitted).
+  - `:m`: Forces mirrored boundary.
 
 ## 9. Control Flow (if/else/goto and Labels)
 

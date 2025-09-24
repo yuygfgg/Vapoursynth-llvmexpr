@@ -116,6 +116,7 @@ _DUP_PATTERN = re.compile(r"^dup(\d*)$")
 _SWAP_PATTERN = re.compile(r"^swap(\d*)$")
 _LABEL_DEF_PATTERN = re.compile(r"^#([a-zA-Z_]\w*)$")
 _COND_JUMP_PATTERN = re.compile(r"^([a-zA-Z_]\w*)#$")
+_ABS_ACCESS_SUFFIX_PATTERN = re.compile(r"^\w+\[\]\:(?:b|m|c)$")
 
 
 @lru_cache
@@ -288,7 +289,7 @@ def get_stack_effect(token: str) -> int:
     if token == "@[]":
         return -3
     if (
-        token.endswith("[]")
+        (token.endswith("[]") or _ABS_ACCESS_SUFFIX_PATTERN.match(token))
         and len(token) > 2
         and not _REL_STATIC_PATTERN_POSTFIX.match(token)
     ):
@@ -335,7 +336,7 @@ def get_op_arity(token: str) -> int:
     if token == "@[]":
         return 3
     if (
-        token.endswith("[]")
+        (token.endswith("[]") or _ABS_ACCESS_SUFFIX_PATTERN.match(token))
         and len(token) > 2
         and not _REL_STATIC_PATTERN_POSTFIX.match(token)
     ):
