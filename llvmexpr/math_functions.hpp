@@ -20,6 +20,7 @@
 #ifndef LLVMEXPR_MATH_FUNCTIONS_HPP
 #define LLVMEXPR_MATH_FUNCTIONS_HPP
 
+#include <functional>
 #include <map>
 #include <string>
 #include <utility>
@@ -111,633 +112,555 @@ template <int VectorWidth> class MathFunctionGenerator {
             module_, intrinsic_id, getFloatType());
         return builder_.CreateCall(intrinsic, args);
     }
+
+    llvm::Function* createUnaryFunction(
+        const std::string& base_name,
+        const std::function<llvm::Value*(llvm::Value*)>& body_generator) {
+        std::string func_name = getFunctionName(base_name);
+        if (auto* existing_func = module_->getFunction(func_name)) {
+            return existing_func;
+        }
+
+        auto last_ip = builder_.saveIP();
+
+        auto* float_ty = getFloatType();
+        auto* func_ty = llvm::FunctionType::get(float_ty, {float_ty}, false);
+        auto* func = llvm::Function::Create(
+            func_ty, llvm::Function::ExternalLinkage, func_name, module_);
+
+        auto* entry_bb = llvm::BasicBlock::Create(context_, "entry", func);
+        builder_.SetInsertPoint(entry_bb);
+
+        auto* arg = func->getArg(0);
+        arg->setName("x");
+
+        llvm::Value* result = body_generator(arg);
+
+        builder_.CreateRet(result);
+        builder_.restoreIP(last_ip);
+
+        if (llvm::verifyFunction(*func, &llvm::errs())) {
+            func->eraseFromParent();
+            return nullptr;
+        }
+
+        return func;
+    }
+
+    llvm::Function* createBinaryFunction(
+        const std::string& base_name,
+        const std::function<llvm::Value*(llvm::Value*, llvm::Value*)>&
+            body_generator) {
+        std::string func_name = getFunctionName(base_name);
+        if (auto* existing_func = module_->getFunction(func_name)) {
+            return existing_func;
+        }
+
+        auto last_ip = builder_.saveIP();
+
+        auto* float_ty = getFloatType();
+        auto* func_ty =
+            llvm::FunctionType::get(float_ty, {float_ty, float_ty}, false);
+        auto* func = llvm::Function::Create(
+            func_ty, llvm::Function::ExternalLinkage, func_name, module_);
+
+        auto* entry_bb = llvm::BasicBlock::Create(context_, "entry", func);
+        builder_.SetInsertPoint(entry_bb);
+
+        auto* arg1 = func->getArg(0);
+        arg1->setName("y");
+        auto* arg2 = func->getArg(1);
+        arg2->setName("x");
+
+        llvm::Value* result = body_generator(arg1, arg2);
+
+        builder_.CreateRet(result);
+        builder_.restoreIP(last_ip);
+
+        if (llvm::verifyFunction(*func, &llvm::errs())) {
+            func->eraseFromParent();
+            return nullptr;
+        }
+
+        return func;
+    }
 };
 
 template <int VectorWidth>
 llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateExp() {
-    std::string func_name = getFunctionName("fast_exp");
+    return createUnaryFunction(
+        "fast_exp", [this](llvm::Value* x) -> llvm::Value* {
+            auto* exp_hi = getConstant(88.3762626647949f);
+            auto* exp_lo = getConstant(-88.3762626647949f);
+            auto* log2e = getConstant(1.44269504088896341f);
+            auto* exp_p0 = getConstant(1.9875691500E-4f);
+            auto* exp_p1 = getConstant(1.3981999507E-3f);
+            auto* exp_p2 = getConstant(8.3334519073E-3f);
+            auto* exp_p3 = getConstant(4.1665795894E-2f);
+            auto* exp_p4 = getConstant(1.6666665459E-1f);
+            auto* exp_p5 = getConstant(5.0000001201E-1f);
+            auto* half = getConstant(0.5f);
+            auto* one = getConstant(1.0f);
+            auto* neg_exp_c1 = getConstant(-0.693359375f);
+            auto* neg_exp_c2 = getConstant(2.12194440e-4f);
+            auto* const_0x7f = getInt32Constant(0x7f);
+            auto* const_23 = getInt32Constant(23);
 
-    if (auto* existing_func = module_->getFunction(func_name)) {
-        return existing_func;
-    }
+            // x = min(x, exp_hi)
+            x = createIntrinsicCall(llvm::Intrinsic::minnum, {x, exp_hi});
 
-    auto last_ip = builder_.saveIP();
+            // x = max(x, exp_lo)
+            x = createIntrinsicCall(llvm::Intrinsic::maxnum, {x, exp_lo});
 
-    auto* float_ty = getFloatType();
-    auto* func_ty = llvm::FunctionType::get(float_ty, {float_ty}, false);
-    auto* func = llvm::Function::Create(
-        func_ty, llvm::Function::ExternalLinkage, func_name, module_);
+            // fx = log2e * x + 0.5
+            auto* fx =
+                createIntrinsicCall(llvm::Intrinsic::fma, {log2e, x, half});
 
-    auto* entry_bb = llvm::BasicBlock::Create(context_, "entry", func);
-    builder_.SetInsertPoint(entry_bb);
+            // emm0 = round(fx)
+            auto* etmp = createIntrinsicCall(llvm::Intrinsic::nearbyint, {fx});
 
-    auto* x_ = func->getArg(0);
-    x_->setName("x");
+            // mask = (etmp > fx) ? 1.0f : 0.0f (as float bits)
+            auto* cmp_gt = builder_.CreateFCmpOGT(etmp, fx);
+            auto* ext_cmp = builder_.CreateSExt(cmp_gt, getInt32Type());
+            auto* one_int = builder_.CreateBitCast(one, getInt32Type());
+            auto* mask_int = builder_.CreateAnd(ext_cmp, one_int);
+            auto* mask = builder_.CreateBitCast(mask_int, getFloatType());
 
-    auto* exp_hi = getConstant(88.3762626647949f);
-    auto* exp_lo = getConstant(-88.3762626647949f);
-    auto* log2e = getConstant(1.44269504088896341f);
-    auto* exp_p0 = getConstant(1.9875691500E-4f);
-    auto* exp_p1 = getConstant(1.3981999507E-3f);
-    auto* exp_p2 = getConstant(8.3334519073E-3f);
-    auto* exp_p3 = getConstant(4.1665795894E-2f);
-    auto* exp_p4 = getConstant(1.6666665459E-1f);
-    auto* exp_p5 = getConstant(5.0000001201E-1f);
-    auto* half = getConstant(0.5f);
-    auto* one = getConstant(1.0f);
-    auto* neg_exp_c1 = getConstant(-0.693359375f);
-    auto* neg_exp_c2 = getConstant(2.12194440e-4f);
-    auto* const_0x7f = getInt32Constant(0x7f);
-    auto* const_23 = getInt32Constant(23);
+            // fx = etmp - mask
+            fx = builder_.CreateFSub(etmp, mask);
 
-    llvm::Value* x = x_;
+            // x = x + fx * (-exp_c1)
+            auto* temp1 = builder_.CreateFMul(fx, neg_exp_c1);
+            x = builder_.CreateFAdd(x, temp1);
 
-    // x = min(x, exp_hi)
-    x = createIntrinsicCall(llvm::Intrinsic::minnum, {x, exp_hi});
+            // x = x + fx * (-exp_c2)
+            auto* temp2 = builder_.CreateFMul(fx, neg_exp_c2);
+            x = builder_.CreateFAdd(x, temp2);
 
-    // x = max(x, exp_lo)
-    x = createIntrinsicCall(llvm::Intrinsic::maxnum, {x, exp_lo});
+            // z = x * x
+            auto* z = builder_.CreateFMul(x, x);
 
-    // fx = log2e * x + 0.5
-    auto* fx = createIntrinsicCall(llvm::Intrinsic::fma, {log2e, x, half});
+            // y = exp_p0
+            llvm::Value* y = exp_p0;
 
-    // emm0 = round(fx)
-    auto* etmp = createIntrinsicCall(llvm::Intrinsic::nearbyint, {fx});
+            // Polynomial evaluation: y = y * x + exp_p1, etc.
+            y = createIntrinsicCall(llvm::Intrinsic::fma, {y, x, exp_p1});
+            y = createIntrinsicCall(llvm::Intrinsic::fma, {y, x, exp_p2});
+            y = createIntrinsicCall(llvm::Intrinsic::fma, {y, x, exp_p3});
+            y = createIntrinsicCall(llvm::Intrinsic::fma, {y, x, exp_p4});
+            y = createIntrinsicCall(llvm::Intrinsic::fma, {y, x, exp_p5});
 
-    // mask = (etmp > fx) ? 1.0f : 0.0f (as float bits)
-    auto* cmp_gt = builder_.CreateFCmpOGT(etmp, fx);
-    auto* ext_cmp = builder_.CreateSExt(cmp_gt, getInt32Type());
-    auto* one_int = builder_.CreateBitCast(one, getInt32Type());
-    auto* mask_int = builder_.CreateAnd(ext_cmp, one_int);
-    auto* mask = builder_.CreateBitCast(mask_int, getFloatType());
+            // y = y * z + x
+            y = createIntrinsicCall(llvm::Intrinsic::fma, {y, z, x});
 
-    // fx = etmp - mask
-    fx = builder_.CreateFSub(etmp, mask);
+            // y = y + 1.0
+            y = builder_.CreateFAdd(y, one);
 
-    // x = x + fx * (-exp_c1)
-    auto* temp1 = builder_.CreateFMul(fx, neg_exp_c1);
-    x = builder_.CreateFAdd(x, temp1);
+            // emm0 = round(fx) as int
+            auto* emm0_float =
+                createIntrinsicCall(llvm::Intrinsic::nearbyint, {fx});
+            auto* emm0 = builder_.CreateFPToSI(emm0_float, getInt32Type());
 
-    // x = x + fx * (-exp_c2)
-    auto* temp2 = builder_.CreateFMul(fx, neg_exp_c2);
-    x = builder_.CreateFAdd(x, temp2);
+            // emm0 = emm0 + 0x7f
+            emm0 = builder_.CreateAdd(emm0, const_0x7f);
 
-    // z = x * x
-    auto* z = builder_.CreateFMul(x, x);
+            // emm0 = emm0 << 23
+            emm0 = builder_.CreateShl(emm0, const_23);
 
-    // y = exp_p0
-    llvm::Value* y = exp_p0;
+            // x = y * (emm0 as float)
+            auto* emm0_as_float = builder_.CreateBitCast(emm0, getFloatType());
+            x = builder_.CreateFMul(y, emm0_as_float);
 
-    // Polynomial evaluation: y = y * x + exp_p1, etc.
-    y = createIntrinsicCall(llvm::Intrinsic::fma, {y, x, exp_p1});
-    y = createIntrinsicCall(llvm::Intrinsic::fma, {y, x, exp_p2});
-    y = createIntrinsicCall(llvm::Intrinsic::fma, {y, x, exp_p3});
-    y = createIntrinsicCall(llvm::Intrinsic::fma, {y, x, exp_p4});
-    y = createIntrinsicCall(llvm::Intrinsic::fma, {y, x, exp_p5});
-
-    // y = y * z + x
-    y = createIntrinsicCall(llvm::Intrinsic::fma, {y, z, x});
-
-    // y = y + 1.0
-    y = builder_.CreateFAdd(y, one);
-
-    // emm0 = round(fx) as int
-    auto* emm0_float = createIntrinsicCall(llvm::Intrinsic::nearbyint, {fx});
-    auto* emm0 = builder_.CreateFPToSI(emm0_float, getInt32Type());
-
-    // emm0 = emm0 + 0x7f
-    emm0 = builder_.CreateAdd(emm0, const_0x7f);
-
-    // emm0 = emm0 << 23
-    emm0 = builder_.CreateShl(emm0, const_23);
-
-    // x = y * (emm0 as float)
-    auto* emm0_as_float = builder_.CreateBitCast(emm0, getFloatType());
-    x = builder_.CreateFMul(y, emm0_as_float);
-
-    builder_.CreateRet(x);
-
-    builder_.restoreIP(last_ip);
-
-    if (llvm::verifyFunction(*func, &llvm::errs())) {
-        func->eraseFromParent();
-        return nullptr;
-    }
-
-    return func;
+            return x;
+        });
 }
 
 template <int VectorWidth>
 llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateLog() {
-    std::string func_name = getFunctionName("fast_log");
+    return createUnaryFunction(
+        "fast_log", [this](llvm::Value* x) -> llvm::Value* {
+            auto* min_norm_pos = getInt32Constant(0x00800000);
+            auto* inv_mant_mask = getInt32Constant(~0x7F800000);
+            auto* sqrt_1_2 = getConstant(0.707106781186547524f);
+            auto* log_p0 = getConstant(7.0376836292E-2f);
+            auto* log_p1 = getConstant(-1.1514610310E-1f);
+            auto* log_p2 = getConstant(1.1676998740E-1f);
+            auto* log_p3 = getConstant(-1.2420140846E-1f);
+            auto* log_p4 = getConstant(1.4249322787E-1f);
+            auto* log_p5 = getConstant(-1.6668057665E-1f);
+            auto* log_p6 = getConstant(2.0000714765E-1f);
+            auto* log_p7 = getConstant(-2.4999993993E-1f);
+            auto* log_p8 = getConstant(3.3333331174E-1f);
+            auto* log_q2 = getConstant(0.693359375f);
+            auto* log_q1 = getConstant(-2.12194440e-4f);
+            auto* one = getConstant(1.0f);
+            auto* neg_half = getConstant(-0.5f);
 
-    if (auto* existing_func = module_->getFunction(func_name)) {
-        return existing_func;
-    }
+            auto* const_0x7f = getInt32Constant(0x7f);
+            auto* const_23 = getInt32Constant(23);
 
-    auto last_ip = builder_.saveIP();
+            // Special case masks
+            auto* is_one = builder_.CreateFCmpOEQ(x, one);
 
-    auto* float_ty = getFloatType();
-    auto* func_ty = llvm::FunctionType::get(float_ty, {float_ty}, false);
-    auto* func = llvm::Function::Create(
-        func_ty, llvm::Function::ExternalLinkage, func_name, module_);
+            // x = max(x, min_norm_pos as float)
+            auto* min_norm_pos_float =
+                builder_.CreateBitCast(min_norm_pos, getFloatType());
+            x = createIntrinsicCall(llvm::Intrinsic::maxnum,
+                                    {x, min_norm_pos_float});
 
-    auto* entry_bb = llvm::BasicBlock::Create(context_, "entry", func);
-    builder_.SetInsertPoint(entry_bb);
+            // emm0i = (x as int) >> 23
+            auto* x_as_int = builder_.CreateBitCast(x, getInt32Type());
+            auto* emm0i = builder_.CreateLShr(x_as_int, const_23);
 
-    auto* x_ = func->getArg(0);
-    x_->setName("x");
+            // x = (x as int) & inv_mant_mask
+            auto* x_masked = builder_.CreateAnd(x_as_int, inv_mant_mask);
+            // x = x | (0.5f as int)
+            auto* half_as_int =
+                builder_.CreateBitCast(getConstant(0.5f), getInt32Type());
+            x_masked = builder_.CreateOr(x_masked, half_as_int);
+            x = builder_.CreateBitCast(x_masked, getFloatType());
 
-    auto* min_norm_pos = getInt32Constant(0x00800000);
-    auto* inv_mant_mask = getInt32Constant(~0x7F800000);
-    auto* float_half = getConstant(0.5f);
-    auto* sqrt_1_2 = getConstant(0.707106781186547524f);
-    auto* log_p0 = getConstant(7.0376836292E-2f);
-    auto* log_p1 = getConstant(-1.1514610310E-1f);
-    auto* log_p2 = getConstant(1.1676998740E-1f);
-    auto* log_p3 = getConstant(-1.2420140846E-1f);
-    auto* log_p4 = getConstant(1.4249322787E-1f);
-    auto* log_p5 = getConstant(-1.6668057665E-1f);
-    auto* log_p6 = getConstant(2.0000714765E-1f);
-    auto* log_p7 = getConstant(-2.4999993993E-1f);
-    auto* log_p8 = getConstant(3.3333331174E-1f);
-    auto* log_q2 = getConstant(0.693359375f);
-    auto* log_q1 = getConstant(-2.12194440e-4f);
-    auto* one = getConstant(1.0f);
-    auto* neg_half = getConstant(-0.5f);
+            // emm0i = emm0i - 0x7f
+            emm0i = builder_.CreateSub(emm0i, const_0x7f);
+            auto* emm0 = builder_.CreateSIToFP(emm0i, getFloatType());
 
-    auto* const_0x7f = getInt32Constant(0x7f);
-    auto* const_23 = getInt32Constant(23);
+            // emm0 = emm0 + 1.0f
+            emm0 = builder_.CreateFAdd(emm0, one);
 
-    llvm::Value* x = x_;
+            // mask = (x < sqrt_1_2)
+            auto* mask = builder_.CreateFCmpOLT(x, sqrt_1_2);
 
-    // Special case masks
-    auto* is_one = builder_.CreateFCmpOEQ(x, one);
+            // etmp = mask ? x : 0.0f
+            auto* ext_mask = builder_.CreateSExt(mask, getInt32Type());
+            x_as_int = builder_.CreateBitCast(x, getInt32Type());
+            auto* etmp_as_int = builder_.CreateAnd(ext_mask, x_as_int);
+            auto* etmp = builder_.CreateBitCast(etmp_as_int, getFloatType());
 
-    // x = max(x, min_norm_pos as float)
-    auto* min_norm_pos_float =
-        builder_.CreateBitCast(min_norm_pos, getFloatType());
-    x = createIntrinsicCall(llvm::Intrinsic::maxnum, {x, min_norm_pos_float});
+            // x = x - 1.0f
+            x = builder_.CreateFSub(x, one);
 
-    // emm0i = (x as int) >> 23
-    auto* x_as_int = builder_.CreateBitCast(x, getInt32Type());
-    auto* emm0i = builder_.CreateLShr(x_as_int, const_23);
+            // maskf = mask ? 1.0f : 0.0f
+            auto* one_as_int = builder_.CreateBitCast(one, getInt32Type());
+            auto* maskf_as_int = builder_.CreateAnd(ext_mask, one_as_int);
+            auto* maskf = builder_.CreateBitCast(maskf_as_int, getFloatType());
 
-    // x = (x as int) & inv_mant_mask
-    auto* x_masked = builder_.CreateAnd(x_as_int, inv_mant_mask);
-    // x = x | (0.5f as int)
-    llvm::Value* half_as_int;
-    if constexpr (VectorWidth == 1) {
-        half_as_int = builder_.CreateBitCast(float_half, getInt32Type());
-    } else {
-        auto* scalarHalf =
-            llvm::ConstantFP::get(llvm::Type::getFloatTy(context_), 0.5f);
-        auto* scalarHalfInt = builder_.CreateBitCast(
-            scalarHalf, llvm::Type::getInt32Ty(context_));
-        half_as_int = builder_.CreateVectorSplat(VectorWidth, scalarHalfInt);
-    }
-    x_masked = builder_.CreateOr(x_masked, half_as_int);
-    x = builder_.CreateBitCast(x_masked, getFloatType());
+            // emm0 = emm0 - maskf
+            emm0 = builder_.CreateFSub(emm0, maskf);
 
-    // emm0i = emm0i - 0x7f
-    emm0i = builder_.CreateSub(emm0i, const_0x7f);
-    auto* emm0 = builder_.CreateSIToFP(emm0i, getFloatType());
+            // x = x + etmp
+            x = builder_.CreateFAdd(x, etmp);
 
-    // emm0 = emm0 + 1.0f
-    emm0 = builder_.CreateFAdd(emm0, one);
+            // z = x * x
+            auto* z = builder_.CreateFMul(x, x);
 
-    // mask = (x < sqrt_1_2)
-    auto* mask = builder_.CreateFCmpOLT(x, sqrt_1_2);
+            // Polynomial approximation
+            auto* fma_intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
+                module_, llvm::Intrinsic::fma, getFloatType());
 
-    // etmp = mask ? x : 0.0f
-    auto* ext_mask = builder_.CreateSExt(mask, getInt32Type());
-    x_as_int = builder_.CreateBitCast(x, getInt32Type());
-    auto* etmp_as_int = builder_.CreateAnd(ext_mask, x_as_int);
-    auto* etmp = builder_.CreateBitCast(etmp_as_int, getFloatType());
+            llvm::Value* y = log_p0;
+            y = builder_.CreateCall(fma_intrinsic, {y, x, log_p1});
+            y = builder_.CreateCall(fma_intrinsic, {y, x, log_p2});
+            y = builder_.CreateCall(fma_intrinsic, {y, x, log_p3});
+            y = builder_.CreateCall(fma_intrinsic, {y, x, log_p4});
+            y = builder_.CreateCall(fma_intrinsic, {y, x, log_p5});
+            y = builder_.CreateCall(fma_intrinsic, {y, x, log_p6});
+            y = builder_.CreateCall(fma_intrinsic, {y, x, log_p7});
+            y = builder_.CreateCall(fma_intrinsic, {y, x, log_p8});
+            y = builder_.CreateFMul(y, x);
+            y = builder_.CreateFMul(y, z);
+            y = builder_.CreateCall(fma_intrinsic, {emm0, log_q1, y});
+            y = builder_.CreateCall(fma_intrinsic, {z, neg_half, y});
+            x = builder_.CreateFAdd(x, y);
+            x = builder_.CreateCall(fma_intrinsic, {emm0, log_q2, x});
 
-    // x = x - 1.0f
-    x = builder_.CreateFSub(x, one);
+            // Handle special cases
+            x_as_int = builder_.CreateBitCast(x, getInt32Type());
+            auto* ext_is_one = builder_.CreateSExt(is_one, getInt32Type());
+            auto* not_ext_is_one = builder_.CreateNot(ext_is_one);
+            auto* result_as_int = builder_.CreateAnd(not_ext_is_one, x_as_int);
+            x = builder_.CreateBitCast(result_as_int, getFloatType());
 
-    // maskf = mask ? 1.0f : 0.0f
-    auto* one_as_int = builder_.CreateBitCast(one, getInt32Type());
-    auto* maskf_as_int = builder_.CreateAnd(ext_mask, one_as_int);
-    auto* maskf = builder_.CreateBitCast(maskf_as_int, getFloatType());
-
-    // emm0 = emm0 - maskf
-    emm0 = builder_.CreateFSub(emm0, maskf);
-
-    // x = x + etmp
-    x = builder_.CreateFAdd(x, etmp);
-
-    // z = x * x
-    auto* z = builder_.CreateFMul(x, x);
-
-    // Polynomial approximation
-    auto* fma_intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
-        module_, llvm::Intrinsic::fma, getFloatType());
-
-    llvm::Value* y = log_p0;
-    y = builder_.CreateCall(fma_intrinsic, {y, x, log_p1});
-    y = builder_.CreateCall(fma_intrinsic, {y, x, log_p2});
-    y = builder_.CreateCall(fma_intrinsic, {y, x, log_p3});
-    y = builder_.CreateCall(fma_intrinsic, {y, x, log_p4});
-    y = builder_.CreateCall(fma_intrinsic, {y, x, log_p5});
-    y = builder_.CreateCall(fma_intrinsic, {y, x, log_p6});
-    y = builder_.CreateCall(fma_intrinsic, {y, x, log_p7});
-    y = builder_.CreateCall(fma_intrinsic, {y, x, log_p8});
-    y = builder_.CreateFMul(y, x);
-    y = builder_.CreateFMul(y, z);
-    y = builder_.CreateCall(fma_intrinsic, {emm0, log_q1, y});
-    y = builder_.CreateCall(fma_intrinsic, {z, neg_half, y});
-    x = builder_.CreateFAdd(x, y);
-    x = builder_.CreateCall(fma_intrinsic, {emm0, log_q2, x});
-
-    // Handle special cases
-    x_as_int = builder_.CreateBitCast(x, getInt32Type());
-    auto* ext_is_one = builder_.CreateSExt(is_one, getInt32Type());
-    auto* not_ext_is_one = builder_.CreateNot(ext_is_one);
-    auto* result_as_int = builder_.CreateAnd(not_ext_is_one, x_as_int);
-    x = builder_.CreateBitCast(result_as_int, getFloatType());
-
-    builder_.CreateRet(x);
-
-    builder_.restoreIP(last_ip);
-
-    // Verify the function
-    if (llvm::verifyFunction(*func, &llvm::errs())) {
-        func->eraseFromParent();
-        return nullptr;
-    }
-
-    return func;
+            return x;
+        });
 }
 
 template <int VectorWidth>
 llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateSin() {
-    std::string func_name = getFunctionName("fast_sin");
+    return createUnaryFunction(
+        "fast_sin", [this](llvm::Value* x) -> llvm::Value* {
+            auto* float_ty = getFloatType();
+            auto* int32_ty = getInt32Type();
 
-    if (auto* existing_func = module_->getFunction(func_name)) {
-        return existing_func;
-    }
+            auto* float_invpi = getConstant(0.31830988618f); // 1.0f / pi
+            auto* float_pi1 = getConstant(3.140625f);
+            auto* float_pi2 = getConstant(0.0009670257568359375f);
+            auto* float_pi3 = getConstant(1.984187252998352e-07f);
+            auto* float_pi4 = getConstant(1.273533813134432e-11f);
+            auto* float_sinC3 = getConstant(-0.1666666567325592f);
+            auto* float_sinC5 = getConstant(0.00833307858556509f);
+            auto* float_sinC7 = getConstant(-0.00019807418575510383f);
+            auto* float_sinC9 = getConstant(2.6019030363451748e-06f);
 
-    auto last_ip = builder_.saveIP();
+            auto* signmask = getInt32Constant(0x80000000);
 
-    auto* float_ty = getFloatType();
-    auto* func_ty = llvm::FunctionType::get(float_ty, {float_ty}, false);
-    auto* func = llvm::Function::Create(
-        func_ty, llvm::Function::ExternalLinkage, func_name, module_);
+            // sign = (x as int) & 0x80000000;
+            llvm::Value* sign = builder_.CreateBitCast(x, int32_ty);
+            sign = builder_.CreateAnd(sign, signmask);
 
-    auto* entry_bb = llvm::BasicBlock::Create(context_, "entry", func);
-    builder_.SetInsertPoint(entry_bb);
+            // t1 = Abs(x)
+            llvm::Value* t1 = createIntrinsicCall(llvm::Intrinsic::fabs, {x});
 
-    auto* x = func->getArg(0);
-    x->setName("x");
+            // Range reduction to [-pi/2, pi/2]
+            llvm::Value* t2 = builder_.CreateFMul(t1, float_invpi);
 
-    auto* int32_ty = getInt32Type();
+            llvm::Value* t2_rounded =
+                createIntrinsicCall(llvm::Intrinsic::nearbyint, {t2});
+            llvm::Value* t2i = builder_.CreateFPToSI(t2_rounded, int32_ty);
 
-    auto* float_invpi = getConstant(0.31830988618f); // 1.0f / pi
-    auto* float_pi1 = getConstant(3.140625f);
-    auto* float_pi2 = getConstant(0.0009670257568359375f);
-    auto* float_pi3 = getConstant(1.984187252998352e-07f);
-    auto* float_pi4 = getConstant(1.273533813134432e-11f);
-    auto* float_sinC3 = getConstant(-0.1666666567325592f);
-    auto* float_sinC5 = getConstant(0.00833307858556509f);
-    auto* float_sinC7 = getConstant(-0.00019807418575510383f);
-    auto* float_sinC9 = getConstant(2.6019030363451748e-06f);
+            // sign ^= (t2i << 31); // Flip sign based on quadrant
+            llvm::Value* t4 = builder_.CreateShl(t2i, 31);
+            sign = builder_.CreateXor(sign, t4);
 
-    auto* signmask = getInt32Constant(0x80000000);
+            t2 = builder_.CreateSIToFP(t2i, float_ty);
 
-    // sign = (x as int) & 0x80000000;
-    llvm::Value* sign = builder_.CreateBitCast(x, int32_ty);
-    sign = builder_.CreateAnd(sign, signmask);
+            // Reconstruct the value in the [-pi/2, pi/2] range using
+            // extended precision pi
+            auto* fma_intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
+                module_, llvm::Intrinsic::fma, {float_ty});
 
-    // t1 = Abs(x)
-    llvm::Value* t1 = createIntrinsicCall(llvm::Intrinsic::fabs, {x});
+            t1 = builder_.CreateCall(fma_intrinsic,
+                                     {t2, builder_.CreateFNeg(float_pi1), t1});
+            t1 = builder_.CreateCall(fma_intrinsic,
+                                     {t2, builder_.CreateFNeg(float_pi2), t1});
+            t1 = builder_.CreateCall(fma_intrinsic,
+                                     {t2, builder_.CreateFNeg(float_pi3), t1});
+            t1 = builder_.CreateCall(fma_intrinsic,
+                                     {t2, builder_.CreateFNeg(float_pi4), t1});
 
-    // Range reduction to [-pi/2, pi/2]
-    llvm::Value* t2 = builder_.CreateFMul(t1, float_invpi);
+            // Minimax polynomial for sin(x)
+            t2 = builder_.CreateFMul(t1, t1); // x^2
+            llvm::Value* t3 = builder_.CreateCall(
+                fma_intrinsic, {t2, float_sinC9, float_sinC7});
+            t3 = builder_.CreateCall(fma_intrinsic, {t3, t2, float_sinC5});
+            t3 = builder_.CreateCall(fma_intrinsic, {t3, t2, float_sinC3});
+            t3 = builder_.CreateFMul(t3, t2);
+            t3 = builder_.CreateFMul(t3, t1);
+            t1 = builder_.CreateFAdd(t1, t3);
 
-    llvm::Value* t2_rounded = createIntrinsicCall(llvm::Intrinsic::nearbyint, {t2});
-    llvm::Value* t2i = builder_.CreateFPToSI(t2_rounded, int32_ty);
-
-    // sign ^= (t2i << 31); // Flip sign based on quadrant
-    llvm::Value* t4 = builder_.CreateShl(t2i, 31);
-    sign = builder_.CreateXor(sign, t4);
-
-    t2 = builder_.CreateSIToFP(t2i, float_ty);
-
-    // Reconstruct the value in the [-pi/2, pi/2] range using extended precision pi
-    auto* fma_intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
-        module_, llvm::Intrinsic::fma, {float_ty});
-
-    t1 = builder_.CreateCall(fma_intrinsic,
-                             {t2, builder_.CreateFNeg(float_pi1), t1});
-    t1 = builder_.CreateCall(fma_intrinsic,
-                             {t2, builder_.CreateFNeg(float_pi2), t1});
-    t1 = builder_.CreateCall(fma_intrinsic,
-                             {t2, builder_.CreateFNeg(float_pi3), t1});
-    t1 = builder_.CreateCall(fma_intrinsic,
-                             {t2, builder_.CreateFNeg(float_pi4), t1});
-
-    // Minimax polynomial for sin(x)
-    t2 = builder_.CreateFMul(t1, t1); // x^2
-    llvm::Value* t3 =
-        builder_.CreateCall(fma_intrinsic, {t2, float_sinC9, float_sinC7});
-    t3 = builder_.CreateCall(fma_intrinsic, {t3, t2, float_sinC5});
-    t3 = builder_.CreateCall(fma_intrinsic, {t3, t2, float_sinC3});
-    t3 = builder_.CreateFMul(t3, t2);
-    t3 = builder_.CreateFMul(t3, t1);
-    t1 = builder_.CreateFAdd(t1, t3);
-
-    // Apply final sign
-    llvm::Value* t1_as_int = builder_.CreateBitCast(t1, int32_ty);
-    llvm::Value* result_as_int = builder_.CreateXor(sign, t1_as_int);
-    llvm::Value* result = builder_.CreateBitCast(result_as_int, float_ty);
-
-    builder_.CreateRet(result);
-
-    builder_.restoreIP(last_ip);
-
-    if (llvm::verifyFunction(*func, &llvm::errs())) {
-        func->eraseFromParent();
-        return nullptr;
-    }
-
-    return func;
+            // Apply final sign
+            llvm::Value* t1_as_int = builder_.CreateBitCast(t1, int32_ty);
+            llvm::Value* result_as_int = builder_.CreateXor(sign, t1_as_int);
+            return builder_.CreateBitCast(result_as_int, float_ty);
+        });
 }
 
 template <int VectorWidth>
 llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateCos() {
-    std::string func_name = getFunctionName("fast_cos");
+    return createUnaryFunction(
+        "fast_cos", [this](llvm::Value* x) -> llvm::Value* {
+            auto* float_ty = getFloatType();
+            auto* int32_ty = getInt32Type();
 
-    if (auto* existing_func = module_->getFunction(func_name)) {
-        return existing_func;
-    }
+            auto* float_invpi = getConstant(0.31830988618f); // 1.0f / pi
+            auto* float_pi1 = getConstant(3.140625f);
+            auto* float_pi2 = getConstant(0.0009670257568359375f);
+            auto* float_pi3 = getConstant(1.984187252998352e-07f);
+            auto* float_pi4 = getConstant(1.273533813134432e-11f);
+            auto* float_cosC2 = getConstant(-0.4999999701976776f);
+            auto* float_cosC4 = getConstant(0.04166652262210846f);
+            auto* float_cosC6 = getConstant(-0.001388676579343155f);
+            auto* float_cosC8 = getConstant(2.4390448881604243e-05f);
+            auto* one_float = getConstant(1.0f);
 
-    auto last_ip = builder_.saveIP();
+            // sign = 0;
+            llvm::Value* sign = getInt32Constant(0);
 
-    auto* float_ty = getFloatType();
-    auto* func_ty = llvm::FunctionType::get(float_ty, {float_ty}, false);
-    auto* func = llvm::Function::Create(
-        func_ty, llvm::Function::ExternalLinkage, func_name, module_);
+            // t1 = Abs(x)
+            llvm::Value* t1 = createIntrinsicCall(llvm::Intrinsic::fabs, {x});
 
-    auto* entry_bb = llvm::BasicBlock::Create(context_, "entry", func);
-    builder_.SetInsertPoint(entry_bb);
+            // Range reduction to [-pi/2, pi/2]
+            llvm::Value* t2 = builder_.CreateFMul(t1, float_invpi);
 
-    auto* x = func->getArg(0);
-    x->setName("x");
+            llvm::Value* t2_rounded =
+                createIntrinsicCall(llvm::Intrinsic::nearbyint, {t2});
+            llvm::Value* t2i = builder_.CreateFPToSI(t2_rounded, int32_ty);
 
-    auto* int32_ty = getInt32Type();
+            // sign ^= (t2i << 31); // Flip sign based on quadrant
+            llvm::Value* t4 = builder_.CreateShl(t2i, 31);
+            sign = builder_.CreateXor(sign, t4);
 
-    auto* float_invpi = getConstant(0.31830988618f); // 1.0f / pi
-    auto* float_pi1 = getConstant(3.140625f);
-    auto* float_pi2 = getConstant(0.0009670257568359375f);
-    auto* float_pi3 = getConstant(1.984187252998352e-07f);
-    auto* float_pi4 = getConstant(1.273533813134432e-11f);
-    auto* float_cosC2 = getConstant(-0.4999999701976776f);
-    auto* float_cosC4 = getConstant(0.04166652262210846f);
-    auto* float_cosC6 = getConstant(-0.001388676579343155f);
-    auto* float_cosC8 = getConstant(2.4390448881604243e-05f);
-    auto* one_float = getConstant(1.0f);
+            t2 = builder_.CreateSIToFP(t2i, float_ty);
 
-    // sign = 0;
-    llvm::Value* sign = getInt32Constant(0);
+            // Reconstruct the value in the [-pi/2, pi/2] range using
+            // extended precision pi
+            auto* fma_intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
+                module_, llvm::Intrinsic::fma, {float_ty});
 
-    // t1 = Abs(x)
-    llvm::Value* t1 = createIntrinsicCall(llvm::Intrinsic::fabs, {x});
+            t1 = builder_.CreateCall(fma_intrinsic,
+                                     {t2, builder_.CreateFNeg(float_pi1), t1});
+            t1 = builder_.CreateCall(fma_intrinsic,
+                                     {t2, builder_.CreateFNeg(float_pi2), t1});
+            t1 = builder_.CreateCall(fma_intrinsic,
+                                     {t2, builder_.CreateFNeg(float_pi3), t1});
+            t1 = builder_.CreateCall(fma_intrinsic,
+                                     {t2, builder_.CreateFNeg(float_pi4), t1});
 
-    // Range reduction to [-pi/2, pi/2]
-    llvm::Value* t2 = builder_.CreateFMul(t1, float_invpi);
+            // Minimax polynomial for cos(x)
+            t2 = builder_.CreateFMul(t1, t1); // x^2
+            llvm::Value* t3 = builder_.CreateCall(
+                fma_intrinsic, {t2, float_cosC8, float_cosC6});
+            t3 = builder_.CreateCall(fma_intrinsic, {t3, t2, float_cosC4});
+            t3 = builder_.CreateCall(fma_intrinsic, {t3, t2, float_cosC2});
+            t1 = builder_.CreateCall(fma_intrinsic, {t3, t2, one_float});
 
-    llvm::Value* t2_rounded = createIntrinsicCall(llvm::Intrinsic::nearbyint, {t2});
-    llvm::Value* t2i = builder_.CreateFPToSI(t2_rounded, int32_ty);
-
-    // sign ^= (t2i << 31); // Flip sign based on quadrant
-    llvm::Value* t4 = builder_.CreateShl(t2i, 31);
-    sign = builder_.CreateXor(sign, t4);
-
-    t2 = builder_.CreateSIToFP(t2i, float_ty);
-
-    // Reconstruct the value in the [-pi/2, pi/2] range using extended precision pi
-    auto* fma_intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
-        module_, llvm::Intrinsic::fma, {float_ty});
-
-    t1 = builder_.CreateCall(fma_intrinsic,
-                             {t2, builder_.CreateFNeg(float_pi1), t1});
-    t1 = builder_.CreateCall(fma_intrinsic,
-                             {t2, builder_.CreateFNeg(float_pi2), t1});
-    t1 = builder_.CreateCall(fma_intrinsic,
-                             {t2, builder_.CreateFNeg(float_pi3), t1});
-    t1 = builder_.CreateCall(fma_intrinsic,
-                             {t2, builder_.CreateFNeg(float_pi4), t1});
-
-    // Minimax polynomial for cos(x)
-    t2 = builder_.CreateFMul(t1, t1); // x^2
-    llvm::Value* t3 =
-        builder_.CreateCall(fma_intrinsic, {t2, float_cosC8, float_cosC6});
-    t3 = builder_.CreateCall(fma_intrinsic, {t3, t2, float_cosC4});
-    t3 = builder_.CreateCall(fma_intrinsic, {t3, t2, float_cosC2});
-    t1 = builder_.CreateCall(fma_intrinsic, {t3, t2, one_float});
-
-    // Apply final sign
-    llvm::Value* t1_as_int = builder_.CreateBitCast(t1, int32_ty);
-    llvm::Value* result_as_int = builder_.CreateXor(sign, t1_as_int);
-    llvm::Value* result = builder_.CreateBitCast(result_as_int, float_ty);
-
-    builder_.CreateRet(result);
-
-    builder_.restoreIP(last_ip);
-
-    if (llvm::verifyFunction(*func, &llvm::errs())) {
-        func->eraseFromParent();
-        return nullptr;
-    }
-
-    return func;
+            // Apply final sign
+            llvm::Value* t1_as_int = builder_.CreateBitCast(t1, int32_ty);
+            llvm::Value* result_as_int = builder_.CreateXor(sign, t1_as_int);
+            return builder_.CreateBitCast(result_as_int, float_ty);
+        });
 }
 
 template <int VectorWidth>
 llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateTan() {
-    std::string func_name = getFunctionName("fast_tan");
+    return createUnaryFunction(
+        "fast_tan", [this](llvm::Value* x) -> llvm::Value* {
+            // tan(x) = sin(x) / cos(x)
+            llvm::Function* sinFunc = this->getOrCreateSin();
+            llvm::Function* cosFunc = this->getOrCreateCos();
 
-    if (auto* existing_func = module_->getFunction(func_name)) {
-        return existing_func;
-    }
-
-    auto last_ip = builder_.saveIP();
-
-    auto* float_ty = getFloatType();
-    auto* func_ty = llvm::FunctionType::get(float_ty, {float_ty}, false);
-    auto* func = llvm::Function::Create(
-        func_ty, llvm::Function::ExternalLinkage, func_name, module_);
-
-    auto* entry_bb = llvm::BasicBlock::Create(context_, "entry", func);
-    builder_.SetInsertPoint(entry_bb);
-
-    auto* x = func->getArg(0);
-    x->setName("x");
-
-    // tan(x) = sin(x) / cos(x)
-    llvm::Function* sinFunc = this->getOrCreateSin();
-    llvm::Function* cosFunc = this->getOrCreateCos();
-
-    llvm::Value* sin_x = builder_.CreateCall(sinFunc, {x});
-    llvm::Value* cos_x = builder_.CreateCall(cosFunc, {x});
-    llvm::Value* result = builder_.CreateFDiv(sin_x, cos_x);
-
-    builder_.CreateRet(result);
-
-    builder_.restoreIP(last_ip);
-
-    if (llvm::verifyFunction(*func, &llvm::errs())) {
-        func->eraseFromParent();
-        return nullptr;
-    }
-
-    return func;
+            llvm::Value* sin_x = builder_.CreateCall(sinFunc, {x});
+            llvm::Value* cos_x = builder_.CreateCall(cosFunc, {x});
+            return builder_.CreateFDiv(sin_x, cos_x);
+        });
 }
 
 template <int VectorWidth>
 llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateAtan() {
-    std::string func_name = getFunctionName("fast_atan");
+    return createUnaryFunction(
+        "fast_atan", [this](llvm::Value* var) -> llvm::Value* {
+            auto* one = getConstant(1.0f);
+            auto* pi_div_2 = getConstant(1.5707963267948966f);
 
-    if (auto* existing_func = module_->getFunction(func_name)) {
-        return existing_func;
-    }
+            auto* zz = createIntrinsicCall(llvm::Intrinsic::fabs, {var});
+            auto* zz_gt_1 = builder_.CreateFCmpOGT(zz, one);
 
-    auto last_ip = builder_.saveIP();
+            auto* one_div_zz = builder_.CreateFDiv(one, zz);
+            auto* aa = builder_.CreateSelect(zz_gt_1, one_div_zz, zz);
 
-    auto* float_ty = getFloatType();
-    auto* func_ty = llvm::FunctionType::get(float_ty, {float_ty}, false);
-    auto* func = llvm::Function::Create(
-        func_ty, llvm::Function::ExternalLinkage, func_name, module_);
+            auto* ss = builder_.CreateFMul(aa, aa);
+            auto* qq = builder_.CreateFMul(ss, ss);
 
-    auto* entry_bb = llvm::BasicBlock::Create(context_, "entry", func);
-    builder_.SetInsertPoint(entry_bb);
+            llvm::Value* pp = getConstant(-2.0258553044340116e-5f);
+            llvm::Value* tt = getConstant(2.2302240345710764e-4f);
+            pp = createIntrinsicCall(
+                llvm::Intrinsic::fma,
+                {pp, qq, getConstant(-1.1640717779912220e-3f)});
+            tt = createIntrinsicCall(
+                llvm::Intrinsic::fma,
+                {tt, qq, getConstant(3.8559749383656407e-3f)});
+            pp = createIntrinsicCall(
+                llvm::Intrinsic::fma,
+                {pp, qq, getConstant(-9.1845592187222193e-3f)});
+            tt = createIntrinsicCall(
+                llvm::Intrinsic::fma,
+                {tt, qq, getConstant(1.6978035834594660e-2f)});
+            pp = createIntrinsicCall(
+                llvm::Intrinsic::fma,
+                {pp, qq, getConstant(-2.5826796814492296e-2f)});
+            tt = createIntrinsicCall(
+                llvm::Intrinsic::fma,
+                {tt, qq, getConstant(3.4067811082715810e-2f)});
+            pp = createIntrinsicCall(
+                llvm::Intrinsic::fma,
+                {pp, qq, getConstant(-4.0926382420509999e-2f)});
+            tt = createIntrinsicCall(
+                llvm::Intrinsic::fma,
+                {tt, qq, getConstant(4.6739496199158334e-2f)});
+            pp = createIntrinsicCall(
+                llvm::Intrinsic::fma,
+                {pp, qq, getConstant(-5.2392330054601366e-2f)});
+            tt = createIntrinsicCall(
+                llvm::Intrinsic::fma,
+                {tt, qq, getConstant(5.8773077721790683e-2f)});
+            pp = createIntrinsicCall(
+                llvm::Intrinsic::fma,
+                {pp, qq, getConstant(-6.6658603633512892e-2f)});
+            tt = createIntrinsicCall(
+                llvm::Intrinsic::fma,
+                {tt, qq, getConstant(7.6922129305867892e-2f)});
 
-    auto* var = func->getArg(0);
-    var->setName("var");
+            pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, ss, tt});
+            pp = createIntrinsicCall(
+                llvm::Intrinsic::fma,
+                {pp, ss, getConstant(-9.0909012354005267e-2f)});
+            pp = createIntrinsicCall(
+                llvm::Intrinsic::fma,
+                {pp, ss, getConstant(1.1111110678749421e-1f)});
+            pp = createIntrinsicCall(
+                llvm::Intrinsic::fma,
+                {pp, ss, getConstant(-1.4285714271334810e-1f)});
+            pp = createIntrinsicCall(
+                llvm::Intrinsic::fma,
+                {pp, ss, getConstant(1.9999999999755005e-1f)});
+            pp = createIntrinsicCall(
+                llvm::Intrinsic::fma,
+                {pp, ss, getConstant(-3.3333333333331838e-1f)});
 
-    auto* one = getConstant(1.0f);
-    auto* pi_div_2 = getConstant(1.5707963267948966f);
+            auto* pp_mul_ss = builder_.CreateFMul(pp, ss);
+            pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp_mul_ss, aa, aa});
 
-    auto* zz = createIntrinsicCall(llvm::Intrinsic::fabs, {var});
-    auto* zz_gt_1 = builder_.CreateFCmpOGT(zz, one);
+            auto* rr_if_gt_1 = builder_.CreateFSub(pi_div_2, pp);
+            auto* rr = builder_.CreateSelect(zz_gt_1, rr_if_gt_1, pp);
 
-    auto* one_div_zz = builder_.CreateFDiv(one, zz);
-    auto* aa = builder_.CreateSelect(zz_gt_1, one_div_zz, zz);
-
-    auto* ss = builder_.CreateFMul(aa, aa);
-    auto* qq = builder_.CreateFMul(ss, ss);
-
-    llvm::Value* pp = getConstant(-2.0258553044340116e-5f);
-    llvm::Value* tt = getConstant(2.2302240345710764e-4f);
-    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, qq, getConstant(-1.1640717779912220e-3f)});
-    tt = createIntrinsicCall(llvm::Intrinsic::fma, {tt, qq, getConstant(3.8559749383656407e-3f)});
-    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, qq, getConstant(-9.1845592187222193e-3f)});
-    tt = createIntrinsicCall(llvm::Intrinsic::fma, {tt, qq, getConstant(1.6978035834594660e-2f)});
-    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, qq, getConstant(-2.5826796814492296e-2f)});
-    tt = createIntrinsicCall(llvm::Intrinsic::fma, {tt, qq, getConstant(3.4067811082715810e-2f)});
-    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, qq, getConstant(-4.0926382420509999e-2f)});
-    tt = createIntrinsicCall(llvm::Intrinsic::fma, {tt, qq, getConstant(4.6739496199158334e-2f)});
-    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, qq, getConstant(-5.2392330054601366e-2f)});
-    tt = createIntrinsicCall(llvm::Intrinsic::fma, {tt, qq, getConstant(5.8773077721790683e-2f)});
-    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, qq, getConstant(-6.6658603633512892e-2f)});
-    tt = createIntrinsicCall(llvm::Intrinsic::fma, {tt, qq, getConstant(7.6922129305867892e-2f)});
-
-    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, ss, tt});
-    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, ss, getConstant(-9.0909012354005267e-2f)});
-    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, ss, getConstant(1.1111110678749421e-1f)});
-    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, ss, getConstant(-1.4285714271334810e-1f)});
-    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, ss, getConstant(1.9999999999755005e-1f)});
-    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, ss, getConstant(-3.3333333333331838e-1f)});
-
-    auto* pp_mul_ss = builder_.CreateFMul(pp, ss);
-    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp_mul_ss, aa, aa});
-
-    auto* rr_if_gt_1 = builder_.CreateFSub(pi_div_2, pp);
-    auto* rr = builder_.CreateSelect(zz_gt_1, rr_if_gt_1, pp);
-
-    auto* result = createIntrinsicCall(llvm::Intrinsic::copysign, {rr, var});
-
-    builder_.CreateRet(result);
-
-    builder_.restoreIP(last_ip);
-
-    if (llvm::verifyFunction(*func, &llvm::errs())) {
-        func->eraseFromParent();
-        return nullptr;
-    }
-
-    return func;
+            return createIntrinsicCall(llvm::Intrinsic::copysign, {rr, var});
+        });
 }
 
 template <int VectorWidth>
 llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateAtan2() {
-    std::string func_name = getFunctionName("fast_atan2");
+    return createBinaryFunction(
+        "fast_atan2",
+        [this](llvm::Value* var_y, llvm::Value* var_x) -> llvm::Value* {
+            auto* atan_func = this->getOrCreateAtan();
 
-    if (auto* existing_func = module_->getFunction(func_name)) {
-        return existing_func;
-    }
+            auto* zero = getConstant(0.0f);
+            auto* pi = getConstant(3.141592653589793f);
+            auto* pi_div_2 = getConstant(1.5707963267948966f);
 
-    auto last_ip = builder_.saveIP();
+            auto* y_div_x = builder_.CreateFDiv(var_y, var_x);
+            auto* atan_y_div_x = builder_.CreateCall(atan_func, {y_div_x});
 
-    auto* float_ty = getFloatType();
-    auto* func_ty = llvm::FunctionType::get(float_ty, {float_ty, float_ty}, false);
-    auto* func = llvm::Function::Create(
-        func_ty, llvm::Function::ExternalLinkage, func_name, module_);
+            // Case 1: x > 0
+            auto* res_x_gt_0 = atan_y_div_x;
 
-    auto* entry_bb = llvm::BasicBlock::Create(context_, "entry", func);
-    builder_.SetInsertPoint(entry_bb);
+            // Case 2: x < 0
+            auto* signed_pi =
+                createIntrinsicCall(llvm::Intrinsic::copysign, {pi, var_y});
+            auto* res_x_lt_0 = builder_.CreateFAdd(atan_y_div_x, signed_pi);
 
-    auto* var_y = func->getArg(0);
-    var_y->setName("y");
-    auto* var_x = func->getArg(1);
-    var_x->setName("x");
+            // Case 3: x == 0
+            auto* res_x_eq_0 = createIntrinsicCall(llvm::Intrinsic::copysign,
+                                                   {pi_div_2, var_y});
 
-    auto* atan_func = this->getOrCreateAtan();
+            // Select based on x
+            auto* x_gt_0 = builder_.CreateFCmpOGT(var_x, zero);
+            auto* x_lt_0 = builder_.CreateFCmpOLT(var_x, zero);
 
-    auto* zero = getConstant(0.0f);
-    auto* pi = getConstant(3.141592653589793f);
-    auto* pi_div_2 = getConstant(1.5707963267948966f);
+            auto* result =
+                builder_.CreateSelect(x_gt_0, res_x_gt_0, res_x_lt_0);
+            result = builder_.CreateSelect(
+                x_lt_0, res_x_lt_0,
+                builder_.CreateSelect(x_gt_0, res_x_gt_0, res_x_eq_0));
 
-    auto* y_div_x = builder_.CreateFDiv(var_y, var_x);
-    auto* atan_y_div_x = builder_.CreateCall(atan_func, {y_div_x});
+            // Handle (x=0, y=0) case, which should be 0.
+            auto* x_is_zero = builder_.CreateFCmpOEQ(var_x, zero);
+            auto* y_is_zero = builder_.CreateFCmpOEQ(var_y, zero);
+            auto* both_zero = builder_.CreateAnd(x_is_zero, y_is_zero);
 
-    // Case 1: x > 0
-    auto* res_x_gt_0 = atan_y_div_x;
+            result = builder_.CreateSelect(both_zero, zero, result);
 
-    // Case 2: x < 0
-    auto* signed_pi = createIntrinsicCall(llvm::Intrinsic::copysign, {pi, var_y});
-    auto* res_x_lt_0 = builder_.CreateFAdd(atan_y_div_x, signed_pi);
-
-    // Case 3: x == 0
-    auto* res_x_eq_0 = createIntrinsicCall(llvm::Intrinsic::copysign, {pi_div_2, var_y});
-
-    // Select based on x
-    auto* x_gt_0 = builder_.CreateFCmpOGT(var_x, zero);
-    auto* x_lt_0 = builder_.CreateFCmpOLT(var_x, zero);
-
-    auto* result = builder_.CreateSelect(x_gt_0, res_x_gt_0, res_x_lt_0);
-    result = builder_.CreateSelect(x_lt_0, res_x_lt_0, builder_.CreateSelect(x_gt_0, res_x_gt_0, res_x_eq_0));
-
-    // Handle (x=0, y=0) case, which should be 0.
-    auto* x_is_zero = builder_.CreateFCmpOEQ(var_x, zero);
-    auto* y_is_zero = builder_.CreateFCmpOEQ(var_y, zero);
-    auto* both_zero = builder_.CreateAnd(x_is_zero, y_is_zero);
-
-    result = builder_.CreateSelect(both_zero, zero, result);
-
-    builder_.CreateRet(result);
-
-    builder_.restoreIP(last_ip);
-
-    if (llvm::verifyFunction(*func, &llvm::errs())) {
-        func->eraseFromParent();
-        return nullptr;
-    }
-
-    return func;
+            return result;
+        });
 }
 
 class MathLibraryManager {
@@ -792,8 +715,18 @@ class MathLibraryManager {
         return nullptr;
     }
 
-    template <MathOp op> llvm::Function* generateAndCacheImpl() {
-        llvm::Function* scalarFunc = dispatchGeneration<op, 1>();
+    template <typename OpType, OpType op>
+    llvm::Function* generateAndCacheImpl() {
+        llvm::Function* scalarFunc;
+        constexpr bool is_unary = std::is_same_v<OpType, MathOp>;
+
+        if constexpr (is_unary) {
+            scalarFunc = dispatchGeneration<static_cast<MathOp>(op), 1>();
+        } else {
+            scalarFunc =
+                dispatchBinaryGeneration<static_cast<BinaryMathOp>(op), 1>();
+        }
+
         if (!scalarFunc) {
             return nullptr;
         }
@@ -802,87 +735,15 @@ class MathLibraryManager {
                                 std::integer_sequence<int, Widths...>) {
             (
                 [&] {
-                    // Generate vector function for each width and link it to scalar version
-                    llvm::Function* vecFunc = dispatchGeneration<op, Widths>();
-                    if (vecFunc) {
-                        // Vector function ABI variant attribute
-                        std::string abi_string = "_ZGV";
-
-                        // ISA identifier based on vector width
-                        if constexpr (Widths == 4) {
-#ifdef __SSE__
-                            abi_string += "b"; // SSE
-#elif defined(__ARM_NEON__)
-                            abi_string += "n"; // NEON
-#endif
-                        } else if constexpr (Widths == 8) {
-#ifdef __AVX2__
-                            abi_string += "d"; // AVX2
-#endif
-                        } else if constexpr (Widths == 16) {
-#ifdef __AVX512F__
-                            abi_string += "e"; // AVX-512
-#endif
-                        }
-
-                        abi_string += "N"; // No mask
-
-                        abi_string += std::to_string(Widths);
-
-                        abi_string += "v";
-
-                        abi_string += "_";
-                        abi_string += scalarFunc->getName().str();
-                        abi_string += "(";
-                        abi_string += vecFunc->getName().str();
-                        abi_string += ")";
-
-                        // Add the vector function ABI variant attribute to scalar function
-                        scalarFunc->addFnAttr(llvm::Attribute::get(
-                            context_, "vector-function-abi-variant",
-                            abi_string));
+                    llvm::Function* vecFunc;
+                    if constexpr (is_unary) {
+                        vecFunc = dispatchGeneration<static_cast<MathOp>(op),
+                                                     Widths>();
+                    } else {
+                        vecFunc = dispatchBinaryGeneration<
+                            static_cast<BinaryMathOp>(op), Widths>();
                     }
-                }(),
-                ...);
-        };
 
-        // Start iteration
-        link_vectors(SupportedVectorWidths{});
-
-        scalarFuncCache_[op] = scalarFunc;
-        return scalarFunc;
-    }
-
-    llvm::Function* generateAndCache(MathOp op) {
-        switch (op) {
-        case MathOp::Exp:
-            return generateAndCacheImpl<MathOp::Exp>();
-        case MathOp::Log:
-            return generateAndCacheImpl<MathOp::Log>();
-        case MathOp::Sin:
-            return generateAndCacheImpl<MathOp::Sin>();
-        case MathOp::Cos:
-            return generateAndCacheImpl<MathOp::Cos>();
-        case MathOp::Tan:
-            return generateAndCacheImpl<MathOp::Tan>();
-        case MathOp::Atan:
-            return generateAndCacheImpl<MathOp::Atan>();
-        }
-        return nullptr;
-    }
-
-    template <BinaryMathOp op> llvm::Function* generateAndCacheBinaryImpl() {
-        llvm::Function* scalarFunc = dispatchBinaryGeneration<op, 1>();
-        if (!scalarFunc) {
-            return nullptr;
-        }
-
-        auto link_vectors = [&]<int... Widths>(
-                                std::integer_sequence<int, Widths...>) {
-            (
-                [&] {
-                    llvm::Function* vecFunc =
-                        dispatchBinaryGeneration<op, Widths>();
                     if (vecFunc) {
                         std::string abi_string = "_ZGV";
 
@@ -904,7 +765,11 @@ class MathLibraryManager {
 
                         abi_string += "N"; // No mask
                         abi_string += std::to_string(Widths);
-                        abi_string += "vv"; // two vector arguments
+                        if constexpr (is_unary) {
+                            abi_string += "v";
+                        } else {
+                            abi_string += "vv"; // two vector arguments
+                        }
                         abi_string += "_";
                         abi_string += scalarFunc->getName().str();
                         abi_string += "(";
@@ -921,14 +786,36 @@ class MathLibraryManager {
 
         link_vectors(SupportedVectorWidths{});
 
-        scalarBinaryFuncCache_[op] = scalarFunc;
+        if constexpr (is_unary) {
+            scalarFuncCache_[static_cast<MathOp>(op)] = scalarFunc;
+        } else {
+            scalarBinaryFuncCache_[static_cast<BinaryMathOp>(op)] = scalarFunc;
+        }
         return scalarFunc;
+    }
+
+    llvm::Function* generateAndCache(MathOp op) {
+        switch (op) {
+        case MathOp::Exp:
+            return generateAndCacheImpl<MathOp, MathOp::Exp>();
+        case MathOp::Log:
+            return generateAndCacheImpl<MathOp, MathOp::Log>();
+        case MathOp::Sin:
+            return generateAndCacheImpl<MathOp, MathOp::Sin>();
+        case MathOp::Cos:
+            return generateAndCacheImpl<MathOp, MathOp::Cos>();
+        case MathOp::Tan:
+            return generateAndCacheImpl<MathOp, MathOp::Tan>();
+        case MathOp::Atan:
+            return generateAndCacheImpl<MathOp, MathOp::Atan>();
+        }
+        return nullptr;
     }
 
     llvm::Function* generateAndCacheBinary(BinaryMathOp op) {
         switch (op) {
         case BinaryMathOp::Atan2:
-            return generateAndCacheBinaryImpl<BinaryMathOp::Atan2>();
+            return generateAndCacheImpl<BinaryMathOp, BinaryMathOp::Atan2>();
         }
         return nullptr;
     }
