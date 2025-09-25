@@ -20,6 +20,7 @@
 #ifndef LLVMEXPR_MATH_FUNCTIONS_HPP
 #define LLVMEXPR_MATH_FUNCTIONS_HPP
 
+#include <format>
 #include <functional>
 #include <map>
 #include <string>
@@ -187,6 +188,7 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreate() {
     constexpr auto opInfo = getMathOpInfo(op);
 
     if constexpr (op == MathOp::Exp) {
+        // https://github.com/vapoursynth/vapoursynth/blob/2a3d3657320ca505c784b98f10e7cd9649d6169a/src/core/expr/jitcompiler_x86.cpp#L635
         return createFunction(
             opInfo.name, opInfo.arity,
             [this](llvm::ArrayRef<llvm::Value*> args) -> llvm::Value* {
@@ -243,6 +245,7 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreate() {
                 return x;
             });
     } else if constexpr (op == MathOp::Log) {
+        // https://github.com/vapoursynth/vapoursynth/blob/2a3d3657320ca505c784b98f10e7cd9649d6169a/src/core/expr/jitcompiler_x86.cpp#L671
         return createFunction(
             opInfo.name, opInfo.arity,
             [this](llvm::ArrayRef<llvm::Value*> args) -> llvm::Value* {
@@ -320,6 +323,7 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreate() {
                 return x;
             });
     } else if constexpr (op == MathOp::Sin) {
+        // https://github.com/vapoursynth/vapoursynth/blob/2a3d3657320ca505c784b98f10e7cd9649d6169a/src/core/expr/jitcompiler_x86.cpp#L813
         return createFunction(
             opInfo.name, opInfo.arity,
             [this](llvm::ArrayRef<llvm::Value*> args) -> llvm::Value* {
@@ -371,6 +375,7 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreate() {
                 return builder_.CreateBitCast(result_as_int, float_ty);
             });
     } else if constexpr (op == MathOp::Cos) {
+        // https://github.com/vapoursynth/vapoursynth/blob/2a3d3657320ca505c784b98f10e7cd9649d6169a/src/core/expr/jitcompiler_x86.cpp#L813
         return createFunction(
             opInfo.name, opInfo.arity,
             [this](llvm::ArrayRef<llvm::Value*> args) -> llvm::Value* {
@@ -430,6 +435,7 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreate() {
                 return builder_.CreateFDiv(sin_x, cos_x);
             });
     } else if constexpr (op == MathOp::Atan) {
+        // https://stackoverflow.com/a/23097989
         return createFunction(
             opInfo.name, opInfo.arity,
             [this](llvm::ArrayRef<llvm::Value*> args) -> llvm::Value* {
@@ -536,6 +542,7 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreate() {
                 return result;
             });
     } else if constexpr (op == MathOp::Acos) {
+        // https://forwardscattering.org/post/66
         return createFunction(
             opInfo.name, opInfo.arity,
             [this](llvm::ArrayRef<llvm::Value*> args) -> llvm::Value* {
@@ -612,50 +619,48 @@ class MathLibraryManager {
             return nullptr;
         }
 
-        auto link_vectors =
-            [&]<int... Widths>(std::integer_sequence<int, Widths...>) {
-                (
-                    [&] {
-                        llvm::Function* vecFunc = dispatch<op, Widths>();
+        // https://llvm.org/docs/LangRef.html#id1998
+        auto link_vectors = [&]<int... vlen>(
+                                std::integer_sequence<int, vlen...>) {
+            (
+                [&] {
+                    llvm::Function* vecFunc = dispatch<op, vlen>();
 
-                        if (vecFunc) {
-                            std::string abi_string = "_ZGV";
+                    if (vecFunc) {
+                        std::string isa;
 #ifdef __x86_64__
-                            if constexpr (Widths == 4) {
-                                abi_string += "b";
-                            } else if constexpr (Widths == 8) {
-                                abi_string += "d";
-                            } else if constexpr (Widths == 16) {
-                                abi_string += "e";
-                            }
+                        if constexpr (vlen == 4) {
+                            isa = "b"; // SSE
+                        } else if constexpr (vlen == 8) {
+                            isa = "d"; // AVX2
+                        } else if constexpr (vlen == 16) {
+                            isa = "e"; // AVX512
+                        }
 #elif defined(__ARM_NEON__)
-                            if constexpr (Widths == 4) {
-                                abi_string += "n";
-                            }
+                        if constexpr (vlen == 4) {
+                            isa = "n"; // Armv8 Advanced SIMD
+                        } else {
+                            isa = "s"; // SVE
+                        }
 #else
 #error "Unsupported architecture. Only x86_64 and ARM NEON are supported."
 #endif
-                            abi_string += "N"; // No mask
-                            abi_string += std::to_string(Widths);
 
-                            constexpr auto opInfo = getMathOpInfo(op);
-                            for (int i = 0; i < opInfo.arity; ++i) {
-                                abi_string += "v";
-                            }
+                        constexpr auto opInfo = getMathOpInfo(op);
+                        std::string parameters(opInfo.arity, 'v');
+                        std::string mask = "N";
+                        std::string abi_string =
+                            std::format("_ZGV{}{}{}{}_{}({})", isa, mask, vlen,
+                                        parameters, scalarFunc->getName().str(),
+                                        vecFunc->getName().str());
 
-                            abi_string += "_";
-                            abi_string += scalarFunc->getName().str();
-                            abi_string += "(";
-                            abi_string += vecFunc->getName().str();
-                            abi_string += ")";
-
-                            scalarFunc->addFnAttr(llvm::Attribute::get(
-                                context_, "vector-function-abi-variant",
-                                abi_string));
-                        }
-                    }(),
-                    ...);
-            };
+                        scalarFunc->addFnAttr(llvm::Attribute::get(
+                            context_, "vector-function-abi-variant",
+                            abi_string));
+                    }
+                }(),
+                ...);
+        };
 
         link_vectors(SupportedVectorWidths{});
 
