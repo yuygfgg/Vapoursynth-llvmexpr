@@ -1,6 +1,7 @@
 import time
 import abc
 import sys
+import math
 from typing import Dict, List, Optional, Union, Tuple
 
 import vapoursynth as vs
@@ -148,6 +149,60 @@ def print_results_table(results: Dict[str, Dict[str, str]], backend_names: List[
         print(f"| {' | '.join(row)} |")
 
 
+def compute_geometric_mean_performance(
+    results: Dict[str, Dict[str, str]], backend_names: List[str]
+) -> Tuple[Optional[Dict[str, float]], Optional[Dict[str, float]]]:
+    """Calculates geometric mean FPS per backend and relative ratios."""
+
+    per_backend_fps: Dict[str, List[float]] = {backend: [] for backend in backend_names}
+
+    for test_name in ENABLED_TESTS:
+        backend_results = results.get(test_name, {})
+        fps_values: Dict[str, float] = {}
+
+        for backend in backend_names:
+            value = backend_results.get(backend)
+            if not value or not value.endswith(" FPS"):
+                break
+
+            fps_str = value.split()[0]
+            try:
+                fps = float(fps_str)
+            except ValueError:
+                break
+
+            if fps <= 0:
+                break
+
+            fps_values[backend] = fps
+        else:
+            for backend in backend_names:
+                per_backend_fps[backend].append(fps_values[backend])
+
+    if not any(per_backend_fps.values()):
+        return None, None
+
+    geometric_means: Dict[str, float] = {}
+    for backend, values in per_backend_fps.items():
+        if not values:
+            return None, None
+        log_sum = sum(math.log(v) for v in values)
+        geometric_means[backend] = math.exp(log_sum / len(values))
+
+    baseline_backend = backend_names[0] if backend_names else None
+    ratios: Optional[Dict[str, float]] = None
+
+    if baseline_backend:
+        baseline_gm = geometric_means.get(baseline_backend)
+        if baseline_gm and baseline_gm > 0:
+            ratios = {
+                backend: geometric_means[backend] / baseline_gm
+                for backend in backend_names
+            }
+
+    return geometric_means, ratios
+
+
 def run_benchmark():
     """
     Sets up the test environment and runs the configured benchmarks.
@@ -230,6 +285,25 @@ def run_benchmark():
     print("All benchmarks completed.\n")
 
     print_results_table(results, backend_names)
+
+    geometric_means, ratios = compute_geometric_mean_performance(results, backend_names)
+
+    if geometric_means:
+        print("\nGeometric mean FPS (common successful tests only):")
+        for backend in backend_names:
+            gm_value = geometric_means.get(backend)
+            if gm_value is not None:
+                print(f"  {backend}: {gm_value:.2f} FPS")
+
+        if ratios:
+            baseline_backend = backend_names[0]
+            print(f"\nPerformance ratios (relative to '{baseline_backend}'): ")
+            for backend in backend_names:
+                ratio = ratios.get(backend)
+                if ratio is not None:
+                    print(f"  {backend}: {ratio:.3f}x")
+    else:
+        print("\nNo common successful tests for geometric mean calculation.")
 
 
 if __name__ == "__main__":

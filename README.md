@@ -14,24 +14,32 @@ Benchmark on Apple M2 Pro with 32GB RAM.
 
 | Test Case | llvmexpr | akarin |
 |---|---|---|
-| simple arithmetic | 3480.03 FPS | 3312.69 FPS |
-| logical condition | 3283.46 FPS | 3261.93 FPS |
-| data range clamp | 3344.97 FPS | 3264.31 FPS |
-| complex math chain | 1365.24 FPS | 1268.04 FPS |
-| trigonometry coords | 2091.13 FPS | FAILED (Error) |
-| power function | 3216.72 FPS | 3329.81 FPS |
-| stack dup | 3362.91 FPS | 3346.37 FPS |
-| named variables | 3356.80 FPS | 3286.55 FPS |
-| static relative access | 3045.89 FPS | 3152.01 FPS |
-| dynamic absolute access | 3032.77 FPS | 3029.29 FPS |
-| bitwise and | 3335.41 FPS | 3343.99 FPS |
-| gain | 1434.70 FPS | 1710.76 FPS |
-| power with loop | 3253.42 FPS | FAILED (Error) |
-| 3D rendering | 375.68 FPS | 191.89 FPS |
-| 3D rendering 2 (icosahedron) | 557.38 FPS | 325.72 FPS |
-| rotate clip | 215.19 FPS | 347.67 FPS |
-| 8x8 dct | 180.29 FPS | 184.62 FPS |
-| 8x8 idct | 193.84 FPS | 165.15 FPS |
+| simple arithmetic | 3394.66 FPS | 3178.16 FPS |
+| logical condition | 3268.11 FPS | 3347.38 FPS |
+| data range clamp | 3354.53 FPS | 3304.06 FPS |
+| complex math chain | 1366.07 FPS | 1274.04 FPS |
+| trigonometry coords | 2090.50 FPS | FAILED (Error) |
+| power function | 3238.64 FPS | 3138.22 FPS |
+| stack dup | 3404.09 FPS | 3328.36 FPS |
+| named variables | 3349.18 FPS | 3271.53 FPS |
+| static relative access | 3026.66 FPS | 3085.37 FPS |
+| dynamic absolute access | 2980.11 FPS | 3015.62 FPS |
+| bitwise and | 3314.40 FPS | 3254.09 FPS |
+| gain | 1456.08 FPS | 1722.37 FPS |
+| power with loop | 3275.87 FPS | FAILED (Error) |
+| 3D rendering | 371.87 FPS | 192.80 FPS |
+| 3D rendering 2 (icosahedron) | 552.66 FPS | 324.18 FPS |
+| rotate clip | 215.35 FPS | 347.64 FPS |
+| 8x8 dct | 180.91 FPS | 183.51 FPS |
+| 8x8 idct | 192.42 FPS | 164.70 FPS |
+
+Geometric mean FPS (common successful tests only):
+  llvmexpr: 1352.85 FPS
+  akarin: 1280.74 FPS
+
+Performance ratios (relative to 'llvmexpr'): 
+  llvmexpr: 1.000x
+  akarin: 0.947x
 
 ## Core Components
 
