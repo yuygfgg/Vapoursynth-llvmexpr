@@ -2961,6 +2961,7 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
             throw std::runtime_error(
                 "approx_math must be 0 (disabled), 1 (enabled), or 2 (auto).");
         }
+        // TODO: should we enable approx math only for NEON and x86_64?
 
     } catch (const std::exception& e) {
         for (auto* node : d->nodes) {

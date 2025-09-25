@@ -65,8 +65,10 @@ constexpr MathOpInfo getMathOpInfo(MathOp op) {
 
 #ifdef __x86_64__
 using SupportedVectorWidths = std::integer_sequence<int, 4, 8, 16>;
-#else
+#elif defined(__ARM_NEON__)
 using SupportedVectorWidths = std::integer_sequence<int, 4>;
+#else
+#error "Unsupported architecture. Only x86_64 and ARM NEON are supported."
 #endif
 // TODO: Figure out if other architectures have >4 wide vector support.
 
@@ -581,23 +583,21 @@ class MathLibraryManager {
 
                         if (vecFunc) {
                             std::string abi_string = "_ZGV";
-
+#ifdef __x86_64__
                             if constexpr (Widths == 4) {
-#ifdef __SSE__
                                 abi_string += "b";
-#elif defined(__ARM_NEON__)
-                                abi_string += "n";
-#endif
                             } else if constexpr (Widths == 8) {
-#ifdef __AVX2__
                                 abi_string += "d";
-#endif
                             } else if constexpr (Widths == 16) {
-#ifdef __AVX512F__
                                 abi_string += "e";
-#endif
                             }
-
+#elif defined(__ARM_NEON__)
+                            if constexpr (Widths == 4) {
+                                abi_string += "n";
+                            }
+#else
+#error "Unsupported architecture. Only x86_64 and ARM NEON are supported."
+#endif
                             abi_string += "N"; // No mask
                             abi_string += std::to_string(Widths);
 
