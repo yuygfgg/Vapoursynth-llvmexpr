@@ -716,6 +716,7 @@ class Compiler {
     std::string func_name;
     bool uses_x = false;
     bool uses_y = false;
+    bool validate_only;
     int opt_level;
     int approx_math;
 
@@ -769,6 +770,7 @@ class Compiler {
     std::vector<int> stack_depth_in;
 
   public:
+    // Constructor for compilation
     Compiler(std::vector<Token>&& tokens_in, const VSVideoInfo* out_vi,
              const std::vector<const VSVideoInfo*>& in_vi, int width_in,
              int height_in, bool mirror, std::string dump_path,
@@ -778,7 +780,8 @@ class Compiler {
           num_inputs(in_vi.size()), width(width_in), height(height_in),
           mirror_boundary(mirror), dump_ir_path(std::move(dump_path)),
           prop_map(p_map), func_name(std::move(function_name)),
-          opt_level(opt_level_in), approx_math(approx_math_in),
+          validate_only(false), opt_level(opt_level_in),
+          approx_math(approx_math_in),
           context(std::make_unique<llvm::LLVMContext>()),
           module(std::make_unique<llvm::Module>("ExprJITModule", *context)),
           builder(*context), mathManager_(module.get(), *context) {
@@ -792,11 +795,42 @@ class Compiler {
         }
     }
 
+    // Constructor for validation only
+    Compiler(std::vector<Token>&& tokens_in, const VSVideoInfo* out_vi,
+             const std::vector<const VSVideoInfo*>& in_vi, int width_in,
+             int height_in, bool mirror,
+             const std::map<std::pair<int, std::string>, int>& p_map)
+        : tokens(std::move(tokens_in)), vo(out_vi), vi(in_vi),
+          num_inputs(in_vi.size()), width(width_in), height(height_in),
+          mirror_boundary(mirror), prop_map(p_map), validate_only(true),
+          opt_level(0), approx_math(0),
+          context(std::make_unique<llvm::LLVMContext>()),
+          module(std::make_unique<llvm::Module>("ValidationModule", *context)),
+          builder(*context), mathManager_(module.get(), *context) {
+        for (const auto& token : tokens) {
+            if (token.type == TokenType::CONSTANT_X)
+                uses_x = true;
+            if (token.type == TokenType::CONSTANT_Y)
+                uses_y = true;
+            if (uses_x && uses_y)
+                break;
+        }
+    }
+
     CompiledFunction compile() {
+        if (validate_only) {
+            throw std::runtime_error("Cannot compile in validation mode");
+        }
         if (approx_math == 2) {
             return compile_with_approx_math(1);
         }
         return compile_with_approx_math(approx_math);
+    }
+
+    // Validate expression syntax and CFG without compiling
+    void validate() {
+        validate_and_build_cfg();
+        collect_rel_y_accesses();
     }
 
     CompiledFunction compile_with_approx_math(int actual_approx_math) {
@@ -2083,8 +2117,7 @@ class Compiler {
                         rpn_stack.pop_back();
                         auto y = rpn_stack.back();
                         rpn_stack.pop_back();
-                        auto* callee =
-                            mathManager_.getFunction(MathOp::Atan2);
+                        auto* callee = mathManager_.getFunction(MathOp::Atan2);
                         auto* call = builder.CreateCall(callee, {y, x});
                         call->setFastMathFlags(builder.getFastMathFlags());
                         rpn_stack.push_back(call);
@@ -2812,12 +2845,27 @@ const VSFrameRef* VS_CC exprGetFrame(int n, int activationReason,
                         std::string func_name =
                             std::format("process_plane_{}_{}", plane, key_hash);
 
-                        Compiler compiler(
-                            tokenize(d->expr_strs[plane], d->num_inputs),
-                            &d->vi, vi, width, height, d->mirror_boundary,
-                            d->dump_ir_path, d->prop_map, func_name,
-                            d->opt_level, d->approx_math);
-                        jit_cache[key] = compiler.compile();
+                        try {
+                            Compiler compiler(
+                                tokenize(d->expr_strs[plane], d->num_inputs),
+                                &d->vi, vi, width, height, d->mirror_boundary,
+                                d->dump_ir_path, d->prop_map, func_name,
+                                d->opt_level, d->approx_math);
+                            jit_cache[key] = compiler.compile();
+                        } catch (const std::exception& e) {
+                            // This should not happen since validation was done in exprCreate
+                            // But we catch it just in case
+                            std::string error_msg = std::format(
+                                "Compilation error for plane {}: {}", plane,
+                                e.what());
+                            vsapi->logMessage(mtFatal, error_msg.c_str());
+                            // Return an empty frame or handle error appropriately
+                            for (const auto& frame : src_frames) {
+                                vsapi->freeFrame(frame);
+                            }
+                            vsapi->freeFrame(dst_frame);
+                            return nullptr;
+                        }
                     }
                     d->compiled[plane] = jit_cache.at(key);
                 }
@@ -2912,7 +2960,7 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
             expr_strs[i] = expr_strs[nexpr - 1];
         }
 
-        // Tokenize and extract properties
+        // Tokenize, validate, and extract properties
         for (int i = 0; i < d->vi.format->numPlanes; ++i) {
             if (expr_strs[i].empty()) {
                 d->plane_op[i] = PO_COPY;
@@ -2936,6 +2984,15 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
                     }
                 }
             }
+
+            const int w =
+                vi[0]->width >> (i > 0 ? d->vi.format->subSamplingW : 0);
+            const int h =
+                vi[0]->height >> (i > 0 ? d->vi.format->subSamplingH : 0);
+
+            Compiler validator(std::move(tokens), &d->vi, vi, w,
+                               h, d->mirror_boundary, d->prop_map);
+            validator.validate();
         }
 
         d->mirror_boundary = vsapi->propGetInt(in, "boundary", 0, &err) != 0;
