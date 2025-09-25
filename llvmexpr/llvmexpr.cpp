@@ -2289,8 +2289,12 @@ class Compiler {
                 }
                 case TokenType::ACOS:
                     if (use_approx_math) {
-                        // TODO: Add fast acos
-                        applyUnaryIntrinsic(llvm::Intrinsic::acos);
+                        auto a = rpn_stack.back();
+                        rpn_stack.pop_back();
+                        auto* callee = mathManager_.getFunction(MathOp::Acos);
+                        auto* call = builder.CreateCall(callee, {a});
+                        call->setFastMathFlags(builder.getFastMathFlags());
+                        rpn_stack.push_back(call);
                     } else {
                         applyUnaryIntrinsic(llvm::Intrinsic::acos);
                     }
@@ -2990,8 +2994,8 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
             const int h =
                 vi[0]->height >> (i > 0 ? d->vi.format->subSamplingH : 0);
 
-            Compiler validator(std::move(tokens), &d->vi, vi, w,
-                               h, d->mirror_boundary, d->prop_map);
+            Compiler validator(std::move(tokens), &d->vi, vi, w, h,
+                               d->mirror_boundary, d->prop_map);
             validator.validate();
         }
 

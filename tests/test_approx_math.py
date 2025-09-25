@@ -256,6 +256,42 @@ def test_atan_random_values() -> None:
         assert out == pytest.approx(expected, abs=1e-4)
 
 
+def _eval_acos(x: float) -> float:
+    """Helper function to evaluate acos(x) using llvmexpr."""
+    c = core.std.BlankClip(format=vs.GRAYS, color=x)
+    res = core.llvmexpr.Expr(c, "x acos", vs.GRAYS, approx_math=1)
+    return float(res.get_frame(0)[0][0, 0])
+
+
+ACOS_SPECIAL_CASES = [
+    -1.0,
+    -0.75,
+    -0.5,
+    -0.25,
+    0.0,
+    0.25,
+    0.5,
+    0.75,
+    1.0,
+]
+
+
+@pytest.mark.parametrize("x", ACOS_SPECIAL_CASES)
+def test_acos_special_cases(x: float) -> None:
+    out = _eval_acos(x)
+    expected = float(np.arccos(x))
+    assert out == pytest.approx(expected, abs=0.0004333)
+
+
+def test_acos_random_values() -> None:
+    rng = np.random.default_rng(98765)
+    values = rng.uniform(-1.0, 1.0, size=100)
+    for x in values:
+        out = _eval_acos(float(x))
+        expected = float(np.arccos(float(x)))
+        assert out == pytest.approx(expected, abs=0.0004333)
+
+
 ATAN2_SPECIAL_CASES = [
     (0.0, 0.0),
     (1.0, 0.0),

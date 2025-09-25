@@ -36,7 +36,7 @@
 #include "llvm/IR/Value.h"
 #include "llvm/IR/Verifier.h"
 
-enum class MathOp { Exp, Log, Sin, Cos, Tan, Atan, Atan2 };
+enum class MathOp { Exp, Log, Sin, Cos, Tan, Atan, Atan2, Acos };
 
 struct MathOpInfo {
     int arity;
@@ -59,8 +59,10 @@ constexpr MathOpInfo getMathOpInfo(MathOp op) {
         return {1, "fast_atan"};
     case MathOp::Atan2:
         return {2, "fast_atan2"};
+    case MathOp::Acos:
+        return {1, "fast_acos"};
     }
-    return {0, ""}; // Should not happen
+    std::unreachable();
 }
 
 #ifdef __x86_64__
@@ -533,6 +535,40 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreate() {
                 result = builder_.CreateSelect(both_zero, zero, result);
                 return result;
             });
+    } else if constexpr (op == MathOp::Acos) {
+        return createFunction(
+            opInfo.name, opInfo.arity,
+            [this](llvm::ArrayRef<llvm::Value*> args) -> llvm::Value* {
+                auto* x = args[0];
+                auto* pi = getConstant(3.14159265f);
+                auto* ax = createIntrinsicCall(llvm::Intrinsic::fabs, {x});
+
+                auto* term1_mul = getConstant(-0.124605335f);
+                auto* term1_add = getConstant(0.1570634f);
+                auto* term1 = createIntrinsicCall(llvm::Intrinsic::fma,
+                                                  {ax, term1_mul, term1_add});
+
+                auto* term2_sub = getConstant(0.99418175f);
+                auto* term2 = builder_.CreateFSub(term2_sub, ax);
+
+                auto* poly_part = builder_.CreateFMul(term1, term2);
+
+                auto* two = getConstant(2.0f);
+                auto* neg_two = getConstant(-2.0f);
+                auto* sqrt_arg = createIntrinsicCall(llvm::Intrinsic::fma,
+                                                     {ax, neg_two, two});
+                auto* sqrt_part =
+                    createIntrinsicCall(llvm::Intrinsic::sqrt, {sqrt_arg});
+
+                auto* res_pos = builder_.CreateFAdd(poly_part, sqrt_part);
+
+                auto* zero = getConstant(0.0f);
+                auto* is_neg = builder_.CreateFCmpOLT(x, zero);
+
+                auto* res_neg = builder_.CreateFSub(pi, res_pos);
+
+                return builder_.CreateSelect(is_neg, res_neg, res_pos);
+            });
     }
     return nullptr;
 }
@@ -544,7 +580,8 @@ using SupportedMathOpsTuple =
                std::integral_constant<MathOp, MathOp::Cos>,
                std::integral_constant<MathOp, MathOp::Tan>,
                std::integral_constant<MathOp, MathOp::Atan>,
-               std::integral_constant<MathOp, MathOp::Atan2>>;
+               std::integral_constant<MathOp, MathOp::Atan2>,
+               std::integral_constant<MathOp, MathOp::Acos>>;
 
 class MathLibraryManager {
   public:
