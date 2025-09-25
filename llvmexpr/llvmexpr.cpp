@@ -766,6 +766,8 @@ class Compiler {
     };
     std::vector<RelYAccess> unique_rel_y_accesses;
     std::map<RelYAccess, llvm::Value*> row_ptr_cache;
+    int min_rel_x = 0;
+    int max_rel_x = 0;
 
     std::vector<int> stack_depth_in;
 
@@ -831,6 +833,7 @@ class Compiler {
     void validate() {
         validate_and_build_cfg();
         collect_rel_y_accesses();
+        collect_rel_x_accesses();
     }
 
     CompiledFunction compile_with_approx_math(int actual_approx_math) {
@@ -860,6 +863,7 @@ class Compiler {
 
         validate_and_build_cfg();
         collect_rel_y_accesses();
+        collect_rel_x_accesses();
 
         define_function_signature();
 
@@ -1092,6 +1096,25 @@ class Compiler {
                     seen.insert(access);
                     unique_rel_y_accesses.push_back(access);
                 }
+            } else if (token.type == TokenType::CLIP_CUR) {
+                const auto& payload =
+                    std::get<TokenPayload_ClipAccess>(token.payload);
+                RelYAccess access{payload.clip_idx, 0, mirror_boundary};
+                if (seen.find(access) == seen.end()) {
+                    seen.insert(access);
+                    unique_rel_y_accesses.push_back(access);
+                }
+            }
+        }
+    }
+
+    void collect_rel_x_accesses() {
+        for (const auto& token : tokens) {
+            if (token.type == TokenType::CLIP_REL) {
+                const auto& payload =
+                    std::get<TokenPayload_ClipAccess>(token.payload);
+                min_rel_x = std::min(min_rel_x, payload.rel_x);
+                max_rel_x = std::max(max_rel_x, payload.rel_x);
             }
         }
     }
@@ -1147,11 +1170,17 @@ class Compiler {
 
     llvm::Value* generate_load_from_row_ptr(llvm::Value* row_ptr, int clip_idx,
                                             llvm::Value* x, int rel_x,
-                                            bool use_mirror) {
+                                            bool use_mirror,
+                                            bool no_x_bounds_check) {
         const VSVideoInfo* vinfo = vi[clip_idx];
         llvm::Value* coord_x = builder.CreateAdd(x, builder.getInt32(rel_x));
-        llvm::Value* final_x =
-            get_final_coord(coord_x, builder.getInt32(width), use_mirror);
+        llvm::Value* final_x;
+        if (no_x_bounds_check) {
+            final_x = coord_x;
+        } else {
+            final_x =
+                get_final_coord(coord_x, builder.getInt32(width), use_mirror);
+        }
 
         const VSFormat* format = vinfo->format;
         int bpp = format->bytesPerSample;
@@ -1195,6 +1224,49 @@ class Compiler {
         }
     }
 
+    void add_vectorization_metadata(llvm::BranchInst* loop_br) {
+        llvm::StringMap<bool> host_features = llvm::sys::getHostCPUFeatures();
+        unsigned simd_width = 4;
+        if (!host_features.empty()) {
+            if (host_features["avx512f"]) {
+                simd_width = 16;
+            } else if (host_features["avx2"]) {
+                simd_width = 8;
+            }
+        }
+
+        llvm::Metadata* vec_width_md[] = {
+            llvm::MDString::get(*context, "llvm.loop.vectorize.width"),
+            llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(
+                llvm::Type::getInt32Ty(*context), simd_width))};
+        llvm::MDNode* vec_width_node =
+            llvm::MDNode::get(*context, vec_width_md);
+
+        llvm::Metadata* enable_vec[] = {
+            llvm::MDString::get(*context, "llvm.loop.vectorize.enable"),
+            llvm::ConstantAsMetadata::get(
+                llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 1))};
+        llvm::MDNode* enable_vec_node = llvm::MDNode::get(*context, enable_vec);
+
+        llvm::Metadata* interleave_md[] = {
+            llvm::MDString::get(*context, "llvm.loop.interleave.count"),
+            llvm::ConstantAsMetadata::get(
+                llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 4))};
+        llvm::MDNode* interleave_node =
+            llvm::MDNode::get(*context, interleave_md);
+
+        llvm::SmallVector<llvm::Metadata*, 5> loop_md_elems;
+        loop_md_elems.push_back(nullptr); // to be replaced with self reference
+        loop_md_elems.push_back(enable_vec_node);
+        loop_md_elems.push_back(vec_width_node);
+        loop_md_elems.push_back(interleave_node);
+        llvm::MDNode* loop_id =
+            llvm::MDNode::getDistinct(*context, loop_md_elems);
+        loop_id->replaceOperandWith(0, loop_id);
+
+        loop_br->setMetadata(llvm::LLVMContext::MD_loop, loop_id);
+    }
+
     void generate_loops() {
         llvm::BasicBlock* entry_bb =
             llvm::BasicBlock::Create(*context, "entry", func);
@@ -1210,7 +1282,7 @@ class Compiler {
 
         llvm::Value* y_var =
             builder.CreateAlloca(builder.getInt32Ty(), nullptr, "y.var");
-        llvm::Value* x_var_entry =
+        llvm::Value* x_var =
             builder.CreateAlloca(builder.getInt32Ty(), nullptr, "x.var");
         builder.CreateStore(builder.getInt32(0), y_var);
 
@@ -1306,94 +1378,101 @@ class Compiler {
             row_ptr_cache[access] = row_ptr;
         }
 
-        llvm::BasicBlock* loop_x_header =
-            llvm::BasicBlock::Create(*context, "loop_x_header", parent_func);
-        llvm::BasicBlock* loop_x_body =
-            llvm::BasicBlock::Create(*context, "loop_x_body", parent_func);
-        llvm::BasicBlock* loop_x_exit =
+        // Main loop structure
+        llvm::Value* width_val = builder.getInt32(width);
+        llvm::Value* start_main_x = builder.getInt32(-min_rel_x);
+        llvm::Value* end_main_x = builder.getInt32(width - max_rel_x);
+
+        bool has_left_peel = min_rel_x < 0;
+        bool has_right_peel = max_rel_x > 0;
+
+        llvm::BasicBlock* loop_x_start_bb =
+            llvm::BasicBlock::Create(*context, "loop_x_start", parent_func);
+        llvm::BasicBlock* loop_x_exit_bb =
             llvm::BasicBlock::Create(*context, "loop_x_exit", parent_func);
 
-        // Reset x.var at the start of each row
-        llvm::Value* x_var = x_var_entry;
+        builder.CreateBr(loop_x_start_bb);
+        builder.SetInsertPoint(loop_x_start_bb);
+
+        // Initialize x variables at the start of the row
         builder.CreateStore(builder.getInt32(0), x_var);
         if (uses_x) {
             builder.CreateStore(
                 llvm::ConstantFP::get(builder.getFloatTy(), 0.0), x_fp_var);
         }
-        builder.CreateBr(loop_x_header);
 
-        builder.SetInsertPoint(loop_x_header);
-        llvm::Value* x_val =
-            builder.CreateLoad(builder.getInt32Ty(), x_var, "x");
-        llvm::Value* x_cond =
-            builder.CreateICmpSLT(x_val, builder.getInt32(width), "x.cond");
+        if (has_left_peel) {
+            // Left peel loop
+            llvm::BasicBlock* left_peel_header = llvm::BasicBlock::Create(
+                *context, "left_peel_header", parent_func);
+            llvm::BasicBlock* left_peel_body =
+                llvm::BasicBlock::Create(*context, "left_peel_body", parent_func);
+            llvm::BasicBlock* after_left_peel = llvm::BasicBlock::Create(
+                *context, "after_left_peel", parent_func);
 
-        // Get SIMD width based on CPU features
-        llvm::StringMap<bool> host_features = llvm::sys::getHostCPUFeatures();
-        unsigned simd_width = 4;
-        if (!host_features.empty()) {
-            // TODO: Are there any other simd instructions we should check for?
-            if (host_features["avx512f"]) {
-                simd_width = 16;
-            } else if (host_features["avx2"]) {
-                simd_width = 8;
-            }
+            builder.CreateBr(left_peel_header);
+            builder.SetInsertPoint(left_peel_header);
+            llvm::Value* x_val = builder.CreateLoad(builder.getInt32Ty(), x_var, "x_peel_l");
+            llvm::Value* cond = builder.CreateICmpSLT(x_val, start_main_x);
+            llvm::BranchInst* left_peel_br =
+                builder.CreateCondBr(cond, left_peel_body, after_left_peel);
+            add_vectorization_metadata(left_peel_br);
+
+            builder.SetInsertPoint(left_peel_body);
+            generate_x_loop_body(x_var, x_fp_var, y_var, y_fp_var, false);
+            builder.CreateBr(left_peel_header);
+
+            builder.SetInsertPoint(after_left_peel);
         }
 
-        llvm::Metadata* vec_width_md[] = {
-            llvm::MDString::get(*context, "llvm.loop.vectorize.width"),
-            llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(
-                llvm::Type::getInt32Ty(*context), simd_width))};
-        llvm::MDNode* vec_width_node =
-            llvm::MDNode::get(*context, vec_width_md);
+        // Main vectorized loop
+        llvm::BasicBlock* main_loop_header =
+            llvm::BasicBlock::Create(*context, "main_loop_header", parent_func);
+        llvm::BasicBlock* main_loop_body =
+            llvm::BasicBlock::Create(*context, "main_loop_body", parent_func);
+        llvm::BasicBlock* after_main_loop =
+            llvm::BasicBlock::Create(*context, "after_main_loop", parent_func);
 
-        llvm::Metadata* enable_vec[] = {
-            llvm::MDString::get(*context, "llvm.loop.vectorize.enable"),
-            llvm::ConstantAsMetadata::get(
-                llvm::ConstantInt::get(llvm::Type::getInt1Ty(*context), 1))};
-        llvm::MDNode* enable_vec_node = llvm::MDNode::get(*context, enable_vec);
+        builder.CreateBr(main_loop_header);
+        builder.SetInsertPoint(main_loop_header);
+        llvm::Value* x_val_main =
+            builder.CreateLoad(builder.getInt32Ty(), x_var, "x_main");
+        llvm::Value* main_cond = builder.CreateICmpSLT(x_val_main, end_main_x);
 
-        llvm::Metadata* interleave_md[] = {
-            llvm::MDString::get(*context, "llvm.loop.interleave.count"),
-            llvm::ConstantAsMetadata::get(
-                llvm::ConstantInt::get(llvm::Type::getInt32Ty(*context), 4))};
-        llvm::MDNode* interleave_node =
-            llvm::MDNode::get(*context, interleave_md);
-
-        llvm::SmallVector<llvm::Metadata*, 5> loop_md_elems;
-        loop_md_elems.push_back(nullptr); // to be replaced with self reference
-        loop_md_elems.push_back(enable_vec_node);
-        loop_md_elems.push_back(vec_width_node);
-        loop_md_elems.push_back(interleave_node);
-        llvm::MDNode* loop_id =
-            llvm::MDNode::getDistinct(*context, loop_md_elems);
-        loop_id->replaceOperandWith(0, loop_id);
-
+        // Add vectorization metadata to the main loop branch
         llvm::BranchInst* loop_br =
-            builder.CreateCondBr(x_cond, loop_x_body, loop_x_exit);
-        loop_br->setMetadata(llvm::LLVMContext::MD_loop, loop_id);
+            builder.CreateCondBr(main_cond, main_loop_body, after_main_loop);
+        add_vectorization_metadata(loop_br);
 
-        builder.SetInsertPoint(loop_x_body);
-        llvm::Value* x_fp = nullptr;
-        if (uses_x) {
-            x_fp = builder.CreateLoad(builder.getFloatTy(), x_fp_var, "x_fp");
-        }
-        llvm::Value* y_fp = nullptr;
-        if (uses_y) {
-            y_fp = builder.CreateLoad(builder.getFloatTy(), y_fp_var, "y_fp");
-        }
-        generate_ir_from_tokens(x_val, y_val, x_fp, y_fp);
+        builder.SetInsertPoint(main_loop_body);
+        generate_x_loop_body(x_var, x_fp_var, y_var, y_fp_var, true);
+        builder.CreateBr(main_loop_header);
 
-        llvm::Value* x_next = builder.CreateAdd(x_val, builder.getInt32(1));
-        builder.CreateStore(x_next, x_var);
-        if (uses_x) {
-            llvm::Value* x_fp_next = builder.CreateFAdd(
-                x_fp, llvm::ConstantFP::get(builder.getFloatTy(), 1.0));
-            builder.CreateStore(x_fp_next, x_fp_var);
-        }
-        builder.CreateBr(loop_x_header);
+        builder.SetInsertPoint(after_main_loop);
 
-        builder.SetInsertPoint(loop_x_exit);
+        if (has_right_peel) {
+            // Right peel loop
+            llvm::BasicBlock* right_peel_header = llvm::BasicBlock::Create(
+                *context, "right_peel_header", parent_func);
+            llvm::BasicBlock* right_peel_body = llvm::BasicBlock::Create(
+                *context, "right_peel_body", parent_func);
+
+            builder.CreateBr(right_peel_header);
+            builder.SetInsertPoint(right_peel_header);
+            llvm::Value* x_val = builder.CreateLoad(builder.getInt32Ty(), x_var, "x_peel_r");
+            llvm::Value* cond = builder.CreateICmpSLT(x_val, width_val);
+            llvm::BranchInst* right_peel_br =
+                builder.CreateCondBr(cond, right_peel_body, loop_x_exit_bb);
+            add_vectorization_metadata(right_peel_br);
+
+            builder.SetInsertPoint(right_peel_body);
+            generate_x_loop_body(x_var, x_fp_var, y_var, y_fp_var, false);
+            builder.CreateBr(right_peel_header);
+        } else {
+            builder.CreateBr(loop_x_exit_bb);
+        }
+
+        builder.SetInsertPoint(loop_x_exit_bb);
         llvm::Value* y_next = builder.CreateAdd(y_val, builder.getInt32(1));
         builder.CreateStore(y_next, y_var);
         if (uses_y) {
@@ -1407,6 +1486,34 @@ class Compiler {
 
         builder.SetInsertPoint(loop_y_exit);
         builder.CreateRetVoid();
+    }
+
+    void generate_x_loop_body(llvm::Value* x_var, llvm::Value* x_fp_var,
+                              llvm::Value* y_var, llvm::Value* y_fp_var,
+                              bool no_x_bounds_check) {
+        llvm::Value* x_val =
+            builder.CreateLoad(builder.getInt32Ty(), x_var, "x");
+        llvm::Value* y_val =
+            builder.CreateLoad(builder.getInt32Ty(), y_var, "y_in_x_loop");
+
+        llvm::Value* x_fp = nullptr;
+        if (uses_x) {
+            x_fp = builder.CreateLoad(builder.getFloatTy(), x_fp_var, "x_fp");
+        }
+        llvm::Value* y_fp = nullptr;
+        if (uses_y) {
+            y_fp = builder.CreateLoad(builder.getFloatTy(), y_fp_var, "y_fp");
+        }
+
+        generate_ir_from_tokens(x_val, y_val, x_fp, y_fp, no_x_bounds_check);
+
+        llvm::Value* x_next = builder.CreateAdd(x_val, builder.getInt32(1));
+        builder.CreateStore(x_next, x_var);
+        if (uses_x) {
+            llvm::Value* x_fp_next = builder.CreateFAdd(
+                x_fp, llvm::ConstantFP::get(builder.getFloatTy(), 1.0));
+            builder.CreateStore(x_fp_next, x_fp_var);
+        }
     }
 
     int get_stack_effect(const Token& token) {
@@ -1779,7 +1886,8 @@ class Compiler {
     }
 
     void generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
-                                 llvm::Value* x_fp, llvm::Value* y_fp) {
+                                 llvm::Value* x_fp, llvm::Value* y_fp,
+                                 bool no_x_bounds_check) {
         llvm::Type* float_ty = builder.getFloatTy();
         llvm::Type* i32_ty = builder.getInt32Ty();
         llvm::Function* parent_func = builder.GetInsertBlock()->getParent();
@@ -2022,7 +2130,8 @@ class Compiler {
                     llvm::Value* row_ptr = row_ptr_cache.at(access);
                     rpn_stack.push_back(
                         generate_load_from_row_ptr(row_ptr, payload.clip_idx, x,
-                                                   payload.rel_x, use_mirror));
+                                                   payload.rel_x, use_mirror,
+                                                   no_x_bounds_check));
                     break;
                 }
                 case TokenType::CLIP_ABS: {
@@ -2059,8 +2168,11 @@ class Compiler {
                 case TokenType::CLIP_CUR: {
                     const auto& payload =
                         std::get<TokenPayload_ClipAccess>(token.payload);
-                    rpn_stack.push_back(generate_pixel_load(
-                        payload.clip_idx, x, y, mirror_boundary));
+                    RelYAccess access{payload.clip_idx, 0, mirror_boundary};
+                    llvm::Value* row_ptr = row_ptr_cache.at(access);
+                    rpn_stack.push_back(generate_load_from_row_ptr(
+                        row_ptr, payload.clip_idx, x, 0, mirror_boundary,
+                        no_x_bounds_check));
                     break;
                 }
                 case TokenType::PROP_ACCESS: {
@@ -2637,7 +2749,7 @@ class Compiler {
             builder.CreateGEP(builder.getInt8Ty(), base_ptr, y_offset);
 
         return generate_load_from_row_ptr(row_ptr, clip_idx, final_x, 0,
-                                          mirror);
+                                          mirror, true);
     }
 
     void generate_pixel_store(llvm::Value* value_to_store, llvm::Value* x,
