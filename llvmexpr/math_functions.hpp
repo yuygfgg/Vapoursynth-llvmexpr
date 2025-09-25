@@ -217,10 +217,10 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreate() {
                 auto* mask_int = builder_.CreateAnd(ext_cmp, one_int);
                 auto* mask = builder_.CreateBitCast(mask_int, getFloatType());
                 fx = builder_.CreateFSub(etmp, mask);
-                auto* temp1 = builder_.CreateFMul(fx, neg_exp_c1);
-                x = builder_.CreateFAdd(x, temp1);
-                auto* temp2 = builder_.CreateFMul(fx, neg_exp_c2);
-                x = builder_.CreateFAdd(x, temp2);
+                x = createIntrinsicCall(llvm::Intrinsic::fma,
+                                        {fx, neg_exp_c1, x});
+                x = createIntrinsicCall(llvm::Intrinsic::fma,
+                                        {fx, neg_exp_c2, x});
                 auto* z = builder_.CreateFMul(x, x);
                 llvm::Value* y = exp_p0;
                 y = createIntrinsicCall(llvm::Intrinsic::fma, {y, x, exp_p1});
