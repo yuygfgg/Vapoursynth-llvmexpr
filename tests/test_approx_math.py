@@ -208,3 +208,85 @@ def test_trig_random_values(op: str, func) -> None:
             assert out == pytest.approx(expected, abs=3e-4)
         else:  # tan
             assert out == pytest.approx(expected, abs=0.01)
+
+
+def _eval_atan(x: float) -> float:
+    """Helper function to evaluate atan(x) using llvmexpr."""
+    c = core.std.BlankClip(format=vs.GRAYS, color=x)
+    res = core.llvmexpr.Expr(c, "x atan", vs.GRAYS, approx_math=1)
+    return float(res.get_frame(0)[0][0, 0])
+
+
+def _eval_atan2(y: float, x: float) -> float:
+    """Helper function to evaluate atan2(y, x) using llvmexpr."""
+    c_y = core.std.BlankClip(format=vs.GRAYS, color=y)
+    c_x = core.std.BlankClip(format=vs.GRAYS, color=x)
+    res = core.llvmexpr.Expr([c_y, c_x], "x y atan2", vs.GRAYS, approx_math=1)
+    return float(res.get_frame(0)[0][0, 0])
+
+
+ATAN_SPECIAL_CASES = [
+    0.0,
+    1.0,
+    -1.0,
+    0.5,
+    -0.5,
+    2.0,
+    -2.0,
+    10.0,
+    -10.0,
+    1000.0,
+    -1000.0,
+]
+
+
+@pytest.mark.parametrize("x", ATAN_SPECIAL_CASES)
+def test_atan_special_cases(x: float) -> None:
+    out = _eval_atan(x)
+    expected = float(np.arctan(x))
+    assert out == pytest.approx(expected, abs=1e-4)
+
+
+def test_atan_random_values() -> None:
+    rng = np.random.default_rng(67890)
+    values = rng.uniform(-1000.0, 1000.0, size=100)
+    for x in values:
+        out = _eval_atan(float(x))
+        expected = float(np.arctan(float(x)))
+        assert out == pytest.approx(expected, abs=1e-4)
+
+
+ATAN2_SPECIAL_CASES = [
+    (0.0, 0.0),
+    (1.0, 0.0),
+    (-1.0, 0.0),
+    (0.0, 1.0),
+    (0.0, -1.0),
+    (1.0, 1.0),
+    (1.0, -1.0),
+    (-1.0, 1.0),
+    (-1.0, -1.0),
+    (100.0, 100.0),
+    (100.0, -100.0),
+    (-100.0, 100.0),
+    (-100.0, -100.0),
+]
+
+
+@pytest.mark.parametrize("y, x", ATAN2_SPECIAL_CASES)
+def test_atan2_special_cases(y: float, x: float) -> None:
+    out = _eval_atan2(y, x)
+    expected = float(np.arctan2(y, x))
+    assert out == pytest.approx(expected, abs=1e-4)
+
+
+def test_atan2_random_values() -> None:
+    rng = np.random.default_rng(13579)
+    y_values = rng.uniform(-1000.0, 1000.0, size=100)
+    x_values = rng.uniform(-1000.0, 1000.0, size=100)
+    for y, x in zip(y_values, x_values):
+        if y == 0.0 and x == 0.0:
+            continue
+        out = _eval_atan2(float(y), float(x))
+        expected = float(np.arctan2(float(y), float(x)))
+        assert out == pytest.approx(expected, abs=1e-4)

@@ -2074,14 +2074,24 @@ class Compiler {
                     });
                     break;
                 }
-                case TokenType::POW: {
+                case TokenType::POW:
                     applyBinaryIntrinsic(llvm::Intrinsic::pow);
                     break;
-                }
-                case TokenType::ATAN2: {
-                    applyBinaryIntrinsic(llvm::Intrinsic::atan2);
+                case TokenType::ATAN2:
+                    if (use_approx_math) {
+                        auto x = rpn_stack.back();
+                        rpn_stack.pop_back();
+                        auto y = rpn_stack.back();
+                        rpn_stack.pop_back();
+                        auto* callee = mathManager_.getScalarBinaryFunction(
+                            BinaryMathOp::Atan2);
+                        auto* call = builder.CreateCall(callee, {y, x});
+                        call->setFastMathFlags(builder.getFastMathFlags());
+                        rpn_stack.push_back(call);
+                    } else {
+                        applyBinaryIntrinsic(llvm::Intrinsic::atan2);
+                    }
                     break;
-                }
                 case TokenType::COPYSIGN: {
                     applyBinaryIntrinsic(llvm::Intrinsic::copysign);
                     break;
@@ -2244,14 +2254,26 @@ class Compiler {
                     applyUnaryIntrinsic(llvm::Intrinsic::asin);
                     break;
                 }
-                case TokenType::ACOS: {
-                    applyUnaryIntrinsic(llvm::Intrinsic::acos);
+                case TokenType::ACOS:
+                    if (use_approx_math) {
+                        // TODO: Add fast acos
+                        applyUnaryIntrinsic(llvm::Intrinsic::acos);
+                    } else {
+                        applyUnaryIntrinsic(llvm::Intrinsic::acos);
+                    }
                     break;
-                }
-                case TokenType::ATAN: {
-                    applyUnaryIntrinsic(llvm::Intrinsic::atan);
+                case TokenType::ATAN:
+                    if (use_approx_math) {
+                        auto a = rpn_stack.back();
+                        rpn_stack.pop_back();
+                        auto* callee = mathManager_.getScalarFunction(MathOp::Atan);
+                        auto* call = builder.CreateCall(callee, {a});
+                        call->setFastMathFlags(builder.getFastMathFlags());
+                        rpn_stack.push_back(call);
+                    } else {
+                        applyUnaryIntrinsic(llvm::Intrinsic::atan);
+                    }
                     break;
-                }
                 case TokenType::EXP2: {
                     applyUnaryIntrinsic(llvm::Intrinsic::exp2);
                     break;

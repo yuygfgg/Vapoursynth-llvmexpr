@@ -18,7 +18,7 @@ Benchmark on Apple M2 Pro with 32GB RAM.
 | logical condition | 3335.33 FPS | 3356.79 FPS |
 | data range clamp | 3322.70 FPS | 3297.24 FPS |
 | complex math chain | 1371.12 FPS | 1276.12 FPS |
-| trigonometry coords | 1437.69 FPS | FAILED (Error) |
+| trigonometry coords | 2076.42 FPS | FAILED (Error) |
 | power function | 3429.03 FPS | 3256.96 FPS |
 | stack dup | 3440.84 FPS | 3325.12 FPS |
 | named variables | 3297.12 FPS | 3356.67 FPS |

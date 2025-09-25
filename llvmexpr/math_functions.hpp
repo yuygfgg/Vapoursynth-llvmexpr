@@ -34,7 +34,9 @@
 #include "llvm/IR/Value.h"
 #include "llvm/IR/Verifier.h"
 
-enum class MathOp { Exp, Log, Sin, Cos, Tan };
+enum class MathOp { Exp, Log, Sin, Cos, Tan, Atan };
+
+enum class BinaryMathOp { Atan2 };
 
 #ifdef __x86_64__
 using SupportedVectorWidths = std::integer_sequence<int, 4, 8, 16>;
@@ -53,6 +55,8 @@ template <int VectorWidth> class MathFunctionGenerator {
     llvm::Function* getOrCreateSin();
     llvm::Function* getOrCreateCos();
     llvm::Function* getOrCreateTan();
+    llvm::Function* getOrCreateAtan();
+    llvm::Function* getOrCreateAtan2();
 
   private:
     llvm::Module* module_;
@@ -593,6 +597,149 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateTan() {
     return func;
 }
 
+template <int VectorWidth>
+llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateAtan() {
+    std::string func_name = getFunctionName("fast_atan");
+
+    if (auto* existing_func = module_->getFunction(func_name)) {
+        return existing_func;
+    }
+
+    auto last_ip = builder_.saveIP();
+
+    auto* float_ty = getFloatType();
+    auto* func_ty = llvm::FunctionType::get(float_ty, {float_ty}, false);
+    auto* func = llvm::Function::Create(
+        func_ty, llvm::Function::ExternalLinkage, func_name, module_);
+
+    auto* entry_bb = llvm::BasicBlock::Create(context_, "entry", func);
+    builder_.SetInsertPoint(entry_bb);
+
+    auto* var = func->getArg(0);
+    var->setName("var");
+
+    auto* one = getConstant(1.0f);
+    auto* pi_div_2 = getConstant(1.5707963267948966f);
+
+    auto* zz = createIntrinsicCall(llvm::Intrinsic::fabs, {var});
+    auto* zz_gt_1 = builder_.CreateFCmpOGT(zz, one);
+
+    auto* one_div_zz = builder_.CreateFDiv(one, zz);
+    auto* aa = builder_.CreateSelect(zz_gt_1, one_div_zz, zz);
+
+    auto* ss = builder_.CreateFMul(aa, aa);
+    auto* qq = builder_.CreateFMul(ss, ss);
+
+    llvm::Value* pp = getConstant(-2.0258553044340116e-5f);
+    llvm::Value* tt = getConstant(2.2302240345710764e-4f);
+    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, qq, getConstant(-1.1640717779912220e-3f)});
+    tt = createIntrinsicCall(llvm::Intrinsic::fma, {tt, qq, getConstant(3.8559749383656407e-3f)});
+    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, qq, getConstant(-9.1845592187222193e-3f)});
+    tt = createIntrinsicCall(llvm::Intrinsic::fma, {tt, qq, getConstant(1.6978035834594660e-2f)});
+    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, qq, getConstant(-2.5826796814492296e-2f)});
+    tt = createIntrinsicCall(llvm::Intrinsic::fma, {tt, qq, getConstant(3.4067811082715810e-2f)});
+    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, qq, getConstant(-4.0926382420509999e-2f)});
+    tt = createIntrinsicCall(llvm::Intrinsic::fma, {tt, qq, getConstant(4.6739496199158334e-2f)});
+    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, qq, getConstant(-5.2392330054601366e-2f)});
+    tt = createIntrinsicCall(llvm::Intrinsic::fma, {tt, qq, getConstant(5.8773077721790683e-2f)});
+    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, qq, getConstant(-6.6658603633512892e-2f)});
+    tt = createIntrinsicCall(llvm::Intrinsic::fma, {tt, qq, getConstant(7.6922129305867892e-2f)});
+
+    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, ss, tt});
+    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, ss, getConstant(-9.0909012354005267e-2f)});
+    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, ss, getConstant(1.1111110678749421e-1f)});
+    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, ss, getConstant(-1.4285714271334810e-1f)});
+    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, ss, getConstant(1.9999999999755005e-1f)});
+    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp, ss, getConstant(-3.3333333333331838e-1f)});
+
+    auto* pp_mul_ss = builder_.CreateFMul(pp, ss);
+    pp = createIntrinsicCall(llvm::Intrinsic::fma, {pp_mul_ss, aa, aa});
+
+    auto* rr_if_gt_1 = builder_.CreateFSub(pi_div_2, pp);
+    auto* rr = builder_.CreateSelect(zz_gt_1, rr_if_gt_1, pp);
+
+    auto* result = createIntrinsicCall(llvm::Intrinsic::copysign, {rr, var});
+
+    builder_.CreateRet(result);
+
+    builder_.restoreIP(last_ip);
+
+    if (llvm::verifyFunction(*func, &llvm::errs())) {
+        func->eraseFromParent();
+        return nullptr;
+    }
+
+    return func;
+}
+
+template <int VectorWidth>
+llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreateAtan2() {
+    std::string func_name = getFunctionName("fast_atan2");
+
+    if (auto* existing_func = module_->getFunction(func_name)) {
+        return existing_func;
+    }
+
+    auto last_ip = builder_.saveIP();
+
+    auto* float_ty = getFloatType();
+    auto* func_ty = llvm::FunctionType::get(float_ty, {float_ty, float_ty}, false);
+    auto* func = llvm::Function::Create(
+        func_ty, llvm::Function::ExternalLinkage, func_name, module_);
+
+    auto* entry_bb = llvm::BasicBlock::Create(context_, "entry", func);
+    builder_.SetInsertPoint(entry_bb);
+
+    auto* var_y = func->getArg(0);
+    var_y->setName("y");
+    auto* var_x = func->getArg(1);
+    var_x->setName("x");
+
+    auto* atan_func = this->getOrCreateAtan();
+
+    auto* zero = getConstant(0.0f);
+    auto* pi = getConstant(3.141592653589793f);
+    auto* pi_div_2 = getConstant(1.5707963267948966f);
+
+    auto* y_div_x = builder_.CreateFDiv(var_y, var_x);
+    auto* atan_y_div_x = builder_.CreateCall(atan_func, {y_div_x});
+
+    // Case 1: x > 0
+    auto* res_x_gt_0 = atan_y_div_x;
+
+    // Case 2: x < 0
+    auto* signed_pi = createIntrinsicCall(llvm::Intrinsic::copysign, {pi, var_y});
+    auto* res_x_lt_0 = builder_.CreateFAdd(atan_y_div_x, signed_pi);
+
+    // Case 3: x == 0
+    auto* res_x_eq_0 = createIntrinsicCall(llvm::Intrinsic::copysign, {pi_div_2, var_y});
+
+    // Select based on x
+    auto* x_gt_0 = builder_.CreateFCmpOGT(var_x, zero);
+    auto* x_lt_0 = builder_.CreateFCmpOLT(var_x, zero);
+
+    auto* result = builder_.CreateSelect(x_gt_0, res_x_gt_0, res_x_lt_0);
+    result = builder_.CreateSelect(x_lt_0, res_x_lt_0, builder_.CreateSelect(x_gt_0, res_x_gt_0, res_x_eq_0));
+
+    // Handle (x=0, y=0) case, which should be 0.
+    auto* x_is_zero = builder_.CreateFCmpOEQ(var_x, zero);
+    auto* y_is_zero = builder_.CreateFCmpOEQ(var_y, zero);
+    auto* both_zero = builder_.CreateAnd(x_is_zero, y_is_zero);
+
+    result = builder_.CreateSelect(both_zero, zero, result);
+
+    builder_.CreateRet(result);
+
+    builder_.restoreIP(last_ip);
+
+    if (llvm::verifyFunction(*func, &llvm::errs())) {
+        func->eraseFromParent();
+        return nullptr;
+    }
+
+    return func;
+}
+
 class MathLibraryManager {
   public:
     MathLibraryManager(llvm::Module* module, llvm::LLVMContext& context)
@@ -605,10 +752,19 @@ class MathLibraryManager {
         return generateAndCache(op);
     }
 
+    llvm::Function* getScalarBinaryFunction(BinaryMathOp op) {
+        if (auto it = scalarBinaryFuncCache_.find(op);
+            it != scalarBinaryFuncCache_.end()) {
+            return it->second;
+        }
+        return generateAndCacheBinary(op);
+    }
+
   private:
     llvm::Module* module_;
     llvm::LLVMContext& context_;
     std::map<MathOp, llvm::Function*> scalarFuncCache_;
+    std::map<BinaryMathOp, llvm::Function*> scalarBinaryFuncCache_;
 
     // Template dispatch: Map MathOp enum to concrete generator methods
     template <MathOp op, int VectorWidth> llvm::Function* dispatchGeneration() {
@@ -623,6 +779,16 @@ class MathLibraryManager {
             return generator.getOrCreateCos();
         if constexpr (op == MathOp::Tan)
             return generator.getOrCreateTan();
+        if constexpr (op == MathOp::Atan)
+            return generator.getOrCreateAtan();
+        return nullptr;
+    }
+
+    template <BinaryMathOp op, int VectorWidth>
+    llvm::Function* dispatchBinaryGeneration() {
+        MathFunctionGenerator<VectorWidth> generator(module_, context_);
+        if constexpr (op == BinaryMathOp::Atan2)
+            return generator.getOrCreateAtan2();
         return nullptr;
     }
 
@@ -699,6 +865,70 @@ class MathLibraryManager {
             return generateAndCacheImpl<MathOp::Cos>();
         case MathOp::Tan:
             return generateAndCacheImpl<MathOp::Tan>();
+        case MathOp::Atan:
+            return generateAndCacheImpl<MathOp::Atan>();
+        }
+        return nullptr;
+    }
+
+    template <BinaryMathOp op> llvm::Function* generateAndCacheBinaryImpl() {
+        llvm::Function* scalarFunc = dispatchBinaryGeneration<op, 1>();
+        if (!scalarFunc) {
+            return nullptr;
+        }
+
+        auto link_vectors = [&]<int... Widths>(
+                                std::integer_sequence<int, Widths...>) {
+            (
+                [&] {
+                    llvm::Function* vecFunc =
+                        dispatchBinaryGeneration<op, Widths>();
+                    if (vecFunc) {
+                        std::string abi_string = "_ZGV";
+
+                        if constexpr (Widths == 4) {
+#ifdef __SSE__
+                            abi_string += "b";
+#elif defined(__ARM_NEON__)
+                            abi_string += "n";
+#endif
+                        } else if constexpr (Widths == 8) {
+#ifdef __AVX2__
+                            abi_string += "d";
+#endif
+                        } else if constexpr (Widths == 16) {
+#ifdef __AVX512F__
+                            abi_string += "e";
+#endif
+                        }
+
+                        abi_string += "N"; // No mask
+                        abi_string += std::to_string(Widths);
+                        abi_string += "vv"; // two vector arguments
+                        abi_string += "_";
+                        abi_string += scalarFunc->getName().str();
+                        abi_string += "(";
+                        abi_string += vecFunc->getName().str();
+                        abi_string += ")";
+
+                        scalarFunc->addFnAttr(llvm::Attribute::get(
+                            context_, "vector-function-abi-variant",
+                            abi_string));
+                    }
+                }(),
+                ...);
+        };
+
+        link_vectors(SupportedVectorWidths{});
+
+        scalarBinaryFuncCache_[op] = scalarFunc;
+        return scalarFunc;
+    }
+
+    llvm::Function* generateAndCacheBinary(BinaryMathOp op) {
+        switch (op) {
+        case BinaryMathOp::Atan2:
+            return generateAndCacheBinaryImpl<BinaryMathOp::Atan2>();
         }
         return nullptr;
     }
