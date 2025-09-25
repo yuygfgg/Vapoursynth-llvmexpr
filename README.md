@@ -63,7 +63,7 @@ llvmexpr.Expr(clip[] clips, string[] expr[, int format, int boundary=0, string d
 - `opt_level`: Optimization level (> 0, default: 5)
 - `approx_math`: Approximate math mode (default: 2)
   - `0`: Disabled – use precise LLVM intrinsics for all math operations
-  - `1`: Enabled – use fast approximate implementations for `exp`, `log`, `sin`, `cos`, `tan`
+  - `1`: Enabled – use fast approximate implementations for `exp`, `log`, `sin`, `cos`, `tan`, `acos`, `atan`, and `atan2`.
   - `2`: Auto (recommended) – first tries with approximate math enabled; if LLVM reports that the inner loop cannot be vectorized, the compiler automatically recompiles the same function with approximate math disabled and JITs that precise version instead.
 
 ### 2. `exprutils` (Python Utility Library)
