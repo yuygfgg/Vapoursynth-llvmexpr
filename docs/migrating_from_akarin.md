@@ -1,4 +1,4 @@
-### Migrating from `akarin.Expr` to `llvmexpr`
+## Migrating from `akarin.Expr` to `llvmexpr`
 
 This document serves as a guide for users familiar with `akarin.Expr` who are transitioning to `llvmexpr.Expr`.
 
@@ -8,9 +8,9 @@ While `llvmexpr` is designed for full syntax compatibility with `akarin`'s RPN, 
 
 The most significant changes when migrating from `akarin.Expr` to `llvmexpr` stem from fundamental differences in the evaluation engine and math library implementations.
 
-#### 1. Core Evaluation Engine: Always-Float vs. Type-Aware
+#### 1. Evaluation Mode: Always-Float vs. Type-Aware
 
-The primary difference lies in their core evaluation engines. `llvmexpr` operates exclusively in a **32-bit always-float mode**. In contrast, `akarin.Expr` uses a **type-aware, integer-preserving engine** that only promotes values to floating-point when an operation requires it. The `opt` parameter in `akarin` is the crucial switch that controls how this engine treats pixel data loaded from integer-format clips.
+The primary difference lies in their evaluation modes. `llvmexpr` operates exclusively in a **32-bit always-float mode**. In contrast, `akarin.Expr` uses a **type-aware, integer-preserving mode** that only promotes values to floating-point when an operation requires it. The `opt` parameter in `akarin` switches how this mode treats pixel data loaded from integer-format clips.
 
 ##### Integer Wrap-around Behavior
 
@@ -45,7 +45,7 @@ This leads to a stark difference in capabilities:
 
 **Conclusion for Migration:**
 
-*   `llvmexpr`'s behavior is simple and consistent: everything is a float, and precision is always limited to 24 bits for integer values.
+*   `llvmexpr`: everything is a float, and precision is always limited to 24 bits for integer values.
 *   `akarin` with `opt=0` behaves like `llvmexpr` *when dealing with pixel data*, as the initial conversion to float limits precision. However, it still performs integer math on integer constants.
 *   `akarin` with `opt=1` unlocks a integer-only, high-precision pipeline that `llvmexpr` cannot replicate.
 
@@ -57,7 +57,7 @@ Behavior of the `pow` function and approximate math differs significantly:
 *   **`akarin.Expr`** uses approximate math for the `pow` function.
 *   **`llvmexpr`** does not implement an approximate `pow`, as the precise version always offers better performance. It will always use the precise implementation.
 
-This means that even when forcing approximate math in `llvmexpr` (`approx_math=1`), calculations involving `pow` may produce different results compared to `akarin.Expr`. It is technically impossible to fully replicate `akarin.Expr`'s `pow` behavior.
+This means that even when forcing approximate math in `llvmexpr` (`approx_math=1`), calculations involving `pow` may produce different results compared to `akarin.Expr`. It is impossible to fully replicate `akarin.Expr`'s `pow` behavior (unless you write the approximate `pow` logic yourself in the expression).
 
 Beyond `pow`, `llvmexpr` provides more explicit control over mathematical precision. With `approx_math=2` (the default auto mode) or `approx_math=0` (forced precise), `llvmexpr` will (or may) use precise mathematical functions. This can lead to different results compared to `akarin.Expr`, which use approximate math only.
 
@@ -65,7 +65,7 @@ Beyond `pow`, `llvmexpr` provides more explicit control over mathematical precis
 
 When migrating from `akarin.Expr`, **do not perform a simple find-and-replace** on the function name, especially if you use positional arguments. The optional parameters for `akarin.Expr` and `llvmexpr.Expr` are in a **different order**, which can lead to silent errors or immediate script failure.
 
-#### Parameter Signature Mismatch
+#### 4. Parameter Signature Mismatch
 
 A side-by-side comparison reveals the incompatibility:
 
