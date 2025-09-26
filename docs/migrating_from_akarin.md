@@ -4,50 +4,15 @@ This document serves as a guide for users familiar with `akarin.Expr` who are tr
 
 While `llvmexpr` is designed for full syntax compatibility with `akarin`'s RPN, its enhanced feature set introduce new possibilities and some important distinctions.
 
-### 1. Major New Capabilities
+### Differences
 
-These are fundamental features in `llvmexpr` that enable entirely new types of operations not possible in `akarin.Expr`.
+The most significant changes when migrating from `akarin.Expr` to `llvmexpr` stem from fundamental differences in the evaluation engine and math library implementations.
 
-*   **Turing-Complete Control Flow:** `llvmexpr` allows for complex, iterative algorithms using labels and conditional jumps, making the expression engine Turing-complete.
-    *   **Labels (`#label_name`):** Defines a destination for a jump.
-    *   **Conditional Jumps (`label_name#`):** Pops a value from the stack. If the value is true (> 0), execution jumps to the corresponding label. This enables the creation of loops and complex conditional logic.
+#### 1. Core Evaluation Engine: Always-Float vs. Type-Aware
 
-*   **Direct Output Control:** Provides operators to write to arbitrary pixel locations and suppress the default output, allowing for advanced spatial operations like rotations or custom warps directly within an expression.
-    *   **`@[]`:** Pops a value and `x`, `y` coordinates (`val absX absY @[]`), and writes the value to the output frame at `[absX, absY]`.
-    *   **`^exit^`:** A special marker that suppresses the default write to the current pixel `[X, Y]` if it (or a variable it was assigned to) is the only item left on the stack after evaluation.
+The primary difference lies in their core evaluation engines. `llvmexpr` operates exclusively in a **32-bit always-float mode**. In contrast, `akarin.Expr` uses a **type-aware, integer-preserving engine** that only promotes values to floating-point when an operation requires it. The `opt` parameter in `akarin` is the crucial switch that controls how this engine treats pixel data loaded from integer-format clips.
 
-### 2. Core Engine and Usability Enhancements
-
-*   **`exprutils` Python Library:** A companion library is provided to improve the user experience:
-    *   **`infix2postfix`:** A transpiler to convert C-style infix expressions into the RPN format.
-    *   **`postfix2infix`:** A reverse transpiler for debugging and understanding RPN expressions.
-*   **Advanced Function Parameters:** Offers more fine-grained control over compilation and execution:
-    *   `dump_ir`: Dumps the intermediate LLVM IR for debugging and performance analysis.
-    *   `opt_level`: Provides explicit control over the LLVM optimization level.
-    *   `approx_math`: An intelligent mode for using fast, approximate math functions, with an automatic fallback to precise versions if the LLVM vectorizer fails.
-
-### 3. Expanded Syntax and Function Library
-
-`llvmexpr` extends `akarin`'s syntax with a significantly larger set of mathematical functions.
-
-*   **Expanded Mathematical Functions:**
-    *   **Trigonometry:** `tan`, `asin`, `acos`, `atan`, `atan2`
-    *   **Hyperbolic:** `sinh`, `cosh`, `tanh`
-    *   **Logarithmic:** `log2`, `log10`
-    *   **Exponential:** `exp2`
-    *   **Rounding:** `ceil`
-    *   **Miscellaneous:** `copysign`, `fma` (fused multiply-add), `neg`, `sgn` (signum).
-*   **Enhanced Pixel Access Modifiers:** Extends absolute pixel access with explicit boundary mode control.
-    *   `absX absY clip[]:m`: Forces mirrored boundary for absolute access.
-    *   `absX absY clip[]:b`: Forces the use of the filter's global `boundary` parameter for absolute access.
-    *   `absX absY clip[]:c`: Forces clamped boundary for absolute access (default when not specified, same as akarin.Expr).
-*   **Relaxed Offset Range for Static Pixel Access:**: While `akarin.Expr` requires `-width < relX < width && -height < relY < height` in `x[relX,relY]` syntax, `llvmexpr` allows `relX` and `relY` to be any integer value.
-
-### 4. Behavioral Differences: Type-Aware vs. Always-Float Evaluation
-
-The most significant difference between the two filters lies in their core evaluation engines. `llvmexpr` operates exclusively in a **32-bit always-float mode**. In contrast, `akarin.Expr` uses a **type-aware, integer-preserving engine** that only promotes values to floating-point when an operation requires it. The `opt` parameter in `akarin` is the crucial switch that controls how this engine treats pixel data loaded from integer-format clips.
-
-#### 4.1. Integer Wrap-around Behavior
+##### Integer Wrap-around Behavior
 
 `akarin`'s engine tracks the type of each value. If an operation involves only integers, it performs the calculation using 32-bit signed two's complement arithmetic, which enables integer wrap-around.
 
@@ -60,11 +25,11 @@ The most significant difference between the two filters lies in their core evalu
 
 **Implication:** Any expression that relies on integer overflow as a mechanism is **not** directly portable and will produce fundamentally different results in `llvmexpr`.
 
-#### 4.2. Integer Precision & The Critical Role of `akarin`'s `opt` Parameter
+##### Integer Precision & The Critical Role of `akarin`'s `opt` Parameter
 
 A standard 32-bit float can only represent all consecutive integers exactly up to **$2^{24}$**.
 
-The `opt` parameter controls the **initial type** of pixel data loaded from integer-format clips (`x`, `y`, etc.):
+The `opt` parameter in `akarin` controls the **initial type** of pixel data loaded from integer-format clips (`x`, `y`, etc.):
 
 *   **`opt=0` (default):** Loads integer pixel data **as floats**. In this mode, if a clip has more than 24 bits of integer precision, that extra precision is **lost immediately upon loading**, before any operations are performed.
 *   **`opt=1`:** Loads integer pixel data **as integers**. This mode **preserves the full bit-depth** of the source clip, allowing for precise calculations on values up to 32 bits.
@@ -85,3 +50,72 @@ This leads to a stark difference in capabilities:
 *   `akarin` with `opt=1` unlocks a integer-only, high-precision pipeline that `llvmexpr` cannot replicate.
 
 Users migrating from `akarin.Expr` must be mindful of this core difference. **Expressions that depend on the precise representation of integers greater than 24 bits (especially for bitwise operations) or on integer wrap-around behavior will not work as expected in `llvmexpr` and may require algorithmic changes.**
+
+#### 2. `pow` Function and Approximate Math
+
+Behavior of the `pow` function and approximate math differs significantly:
+*   **`akarin.Expr`** uses approximate math for the `pow` function.
+*   **`llvmexpr`** does not implement an approximate `pow`, as the precise version always offers better performance. It will always use the precise implementation.
+
+This means that even when forcing approximate math in `llvmexpr` (`approx_math=1`), calculations involving `pow` may produce different results compared to `akarin.Expr`. It is technically impossible to fully replicate `akarin.Expr`'s `pow` behavior.
+
+Beyond `pow`, `llvmexpr` provides more explicit control over mathematical precision. With `approx_math=2` (the default auto mode) or `approx_math=0` (forced precise), `llvmexpr` will (or may) use precise mathematical functions. This can lead to different results compared to `akarin.Expr`, which use approximate math only.
+
+#### 3. Incompatible Positional Arguments
+
+When migrating from `akarin.Expr`, **do not perform a simple find-and-replace** on the function name, especially if you use positional arguments. The optional parameters for `akarin.Expr` and `llvmexpr.Expr` are in a **different order**, which can lead to silent errors or immediate script failure.
+
+#### Parameter Signature Mismatch
+
+A side-by-side comparison reveals the incompatibility:
+
+| Index | `akarin.Expr`             | `llvmexpr.Expr`           | Compatibility  |
+| :---- | :------------------------ | :------------------------ | :------------- |
+| 1     | `clips`                   | `clips`                   | ✅ Match        |
+| 2     | `expr`                    | `expr`                    | ✅ Match        |
+| 3     | `format` (optional)       | `format` (optional)       | ✅ Match        |
+| **4** | **`opt`** (optional)      | **`boundary`** (optional) | ❌ **MISMATCH** |
+| **5** | **`boundary`** (optional) | **`dump_ir`** (optional)  | ❌ **MISMATCH** |
+
+### Enhancements
+
+`llvmexpr` introduces major new features and usability improvements that significantly expand upon the capabilities of `akarin.Expr`.
+
+#### 1. Major New Capabilities
+
+These are fundamental features in `llvmexpr` that enable entirely new types of operations not possible in `akarin.Expr`.
+
+*   **Turing-Complete Control Flow:** `llvmexpr` allows for complex, iterative algorithms using labels and conditional jumps, making the expression engine Turing-complete.
+    *   **Labels (`#label_name`):** Defines a destination for a jump.
+    *   **Conditional Jumps (`label_name#`):** Pops a value from the stack. If the value is true (> 0), execution jumps to the corresponding label. This enables the creation of loops and complex conditional logic.
+
+*   **Direct Output Control:** Provides operators to write to arbitrary pixel locations and suppress the default output, allowing for advanced spatial operations like rotations or custom warps directly within an expression.
+    *   **`@[]`:** Pops a value and `x`, `y` coordinates (`val absX absY @[]`), and writes the value to the output frame at `[absX, absY]`.
+    *   **`^exit^`:** A special marker that suppresses the default write to the current pixel `[X, Y]` if it (or a variable it was assigned to) is the only item left on the stack after evaluation.
+
+#### 2. Expanded Syntax and Function Library
+
+`llvmexpr` extends `akarin`'s syntax with a significantly larger set of mathematical functions and more flexible syntax.
+
+*   **Expanded Mathematical Functions:**
+    *   **Trigonometry:** `tan`, `asin`, `acos`, `atan`, `atan2`
+    *   **Hyperbolic:** `sinh`, `cosh`, `tanh`
+    *   **Logarithmic:** `log2`, `log10`
+    *   **Exponential:** `exp2`
+    *   **Rounding:** `ceil`
+    *   **Miscellaneous:** `copysign`, `fma` (fused multiply-add), `neg`, `sgn` (signum).
+*   **Enhanced Pixel Access Modifiers:** Extends absolute pixel access with explicit boundary mode control.
+    *   `absX absY clip[]:m`: Forces mirrored boundary for absolute access.
+    *   `absX absY clip[]:b`: Forces the use of the filter's global `boundary` parameter for absolute access.
+    *   `absX absY clip[]:c`: Forces clamped boundary for absolute access (default when not specified, same as akarin.Expr).
+*   **Relaxed Offset Range for Static Pixel Access:**: While `akarin.Expr` requires `-width < relX < width && -height < relY < height` in `x[relX,relY]` syntax, `llvmexpr` allows `relX` and `relY` to be any integer value.
+
+#### 3. Core Engine and Usability Enhancements
+
+*   **`exprutils` Python Library:** A companion library is provided to improve the user experience:
+    *   **`infix2postfix`:** A transpiler to convert C-style infix expressions into the RPN format.
+    *   **`postfix2infix`:** A reverse transpiler for debugging and understanding RPN expressions.
+*   **Advanced Function Parameters:** Offers more fine-grained control over compilation and execution:
+    *   `dump_ir`: Dumps the intermediate LLVM IR for debugging and performance analysis.
+    *   `opt_level`: Provides explicit control over the LLVM optimization level.
+    *   `approx_math`: An intelligent mode for using fast, approximate math functions, with an automatic fallback to precise versions if the LLVM vectorizer fails.
