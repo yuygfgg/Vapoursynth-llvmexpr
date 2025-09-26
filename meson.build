@@ -18,7 +18,7 @@
 project('llvmexpr', 'cpp', 'c',
   default_options: ['buildtype=release', 'warning_level=2', 'b_lto=true', 'b_ndebug=if-release', 'cpp_std=c++23'],
   license: 'GPL-3.0-or-later',
-  meson_version: '>=0.51.0',
+  meson_version: '>=0.58.0',
   version: '1.11'
 )
 
@@ -37,6 +37,12 @@ endif
 
 static_llvm = get_option('static-llvm')
 llvm_dep = dependency('llvm', version: '>=20.0.0', method: 'config-tool', modules: ['core', 'orcjit', 'native', 'all-targets'], static: static_llvm)
+
+if gcc_syntax
+  llvm_inc_dir = include_directories(llvm_dep.get_variable('includedir'), is_system: true)
+  llvm_link_dep = llvm_dep.partial_dependency(link_args: true)
+  llvm_dep = declare_dependency(include_directories: llvm_inc_dir, dependencies: llvm_link_dep)
+endif
 
 dependencies = [vapoursynth_dep, llvm_dep]
 link_args = []
