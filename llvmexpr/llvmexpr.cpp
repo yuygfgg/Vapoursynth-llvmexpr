@@ -2536,7 +2536,7 @@ class Compiler {
                     rpn_stack.pop_back();
                     rpn_stack.push_back(builder.CreateCall(
                         llvm::Intrinsic::getOrInsertDeclaration(
-                            module.get(), llvm::Intrinsic::fmuladd,
+                            module.get(), llvm::Intrinsic::fma,
                             {builder.getFloatTy()}),
                         {a, b, c}));
                     break;
