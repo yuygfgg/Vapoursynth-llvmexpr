@@ -1405,14 +1405,15 @@ class Compiler {
             // Left peel loop
             llvm::BasicBlock* left_peel_header = llvm::BasicBlock::Create(
                 *context, "left_peel_header", parent_func);
-            llvm::BasicBlock* left_peel_body =
-                llvm::BasicBlock::Create(*context, "left_peel_body", parent_func);
+            llvm::BasicBlock* left_peel_body = llvm::BasicBlock::Create(
+                *context, "left_peel_body", parent_func);
             llvm::BasicBlock* after_left_peel = llvm::BasicBlock::Create(
                 *context, "after_left_peel", parent_func);
 
             builder.CreateBr(left_peel_header);
             builder.SetInsertPoint(left_peel_header);
-            llvm::Value* x_val = builder.CreateLoad(builder.getInt32Ty(), x_var, "x_peel_l");
+            llvm::Value* x_val =
+                builder.CreateLoad(builder.getInt32Ty(), x_var, "x_peel_l");
             llvm::Value* cond = builder.CreateICmpSLT(x_val, start_main_x);
             llvm::BranchInst* left_peel_br =
                 builder.CreateCondBr(cond, left_peel_body, after_left_peel);
@@ -1459,7 +1460,8 @@ class Compiler {
 
             builder.CreateBr(right_peel_header);
             builder.SetInsertPoint(right_peel_header);
-            llvm::Value* x_val = builder.CreateLoad(builder.getInt32Ty(), x_var, "x_peel_r");
+            llvm::Value* x_val =
+                builder.CreateLoad(builder.getInt32Ty(), x_var, "x_peel_r");
             llvm::Value* cond = builder.CreateICmpSLT(x_val, width_val);
             llvm::BranchInst* right_peel_br =
                 builder.CreateCondBr(cond, right_peel_body, loop_x_exit_bb);
@@ -2128,10 +2130,9 @@ class Compiler {
                     RelYAccess access{payload.clip_idx, payload.rel_y,
                                       use_mirror};
                     llvm::Value* row_ptr = row_ptr_cache.at(access);
-                    rpn_stack.push_back(
-                        generate_load_from_row_ptr(row_ptr, payload.clip_idx, x,
-                                                   payload.rel_x, use_mirror,
-                                                   no_x_bounds_check));
+                    rpn_stack.push_back(generate_load_from_row_ptr(
+                        row_ptr, payload.clip_idx, x, payload.rel_x, use_mirror,
+                        no_x_bounds_check));
                     break;
                 }
                 case TokenType::CLIP_ABS: {
@@ -2396,7 +2397,16 @@ class Compiler {
                     break;
                 }
                 case TokenType::ASIN: {
-                    applyUnaryIntrinsic(llvm::Intrinsic::asin);
+                    if (use_approx_math) {
+                        auto a = rpn_stack.back();
+                        rpn_stack.pop_back();
+                        auto* callee = mathManager_.getFunction(MathOp::Asin);
+                        auto* call = builder.CreateCall(callee, {a});
+                        call->setFastMathFlags(builder.getFastMathFlags());
+                        rpn_stack.push_back(call);
+                    } else {
+                        applyUnaryIntrinsic(llvm::Intrinsic::asin);
+                    }
                     break;
                 }
                 case TokenType::ACOS:
@@ -2748,8 +2758,8 @@ class Compiler {
         llvm::Value* row_ptr =
             builder.CreateGEP(builder.getInt8Ty(), base_ptr, y_offset);
 
-        return generate_load_from_row_ptr(row_ptr, clip_idx, final_x, 0,
-                                          mirror, true);
+        return generate_load_from_row_ptr(row_ptr, clip_idx, final_x, 0, mirror,
+                                          true);
     }
 
     void generate_pixel_store(llvm::Value* value_to_store, llvm::Value* x,

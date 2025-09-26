@@ -326,3 +326,39 @@ def test_atan2_random_values() -> None:
         out = _eval_atan2(float(y), float(x))
         expected = float(np.arctan2(float(y), float(x)))
         assert out == pytest.approx(expected, abs=1e-4)
+
+
+def _eval_asin(x: float) -> float:
+    """Helper function to evaluate asin(x) using llvmexpr."""
+    c = core.std.BlankClip(format=vs.GRAYS, color=x)
+    res = core.llvmexpr.Expr(c, "x asin", vs.GRAYS, approx_math=1)
+    return float(res.get_frame(0)[0][0, 0])
+
+
+ASIN_SPECIAL_CASES = [
+    -1.0,
+    -0.75,
+    -0.5,
+    -0.25,
+    0.0,
+    0.25,
+    0.5,
+    0.75,
+    1.0,
+]
+
+
+@pytest.mark.parametrize("x", ASIN_SPECIAL_CASES)
+def test_asin_special_cases(x: float) -> None:
+    out = _eval_asin(x)
+    expected = float(np.arcsin(x))
+    assert out == pytest.approx(expected, abs=5e-4)
+
+
+def test_asin_random_values() -> None:
+    rng = np.random.default_rng(98766)
+    values = rng.uniform(-1.0, 1.0, size=100)
+    for x in values:
+        out = _eval_asin(float(x))
+        expected = float(np.arcsin(float(x)))
+        assert out == pytest.approx(expected, abs=5e-4)

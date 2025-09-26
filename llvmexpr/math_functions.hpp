@@ -37,7 +37,7 @@
 #include "llvm/IR/Value.h"
 #include "llvm/IR/Verifier.h"
 
-enum class MathOp { Exp, Log, Sin, Cos, Tan, Atan, Atan2, Acos };
+enum class MathOp { Exp, Log, Sin, Cos, Tan, Atan, Atan2, Acos, Asin };
 
 struct MathOpInfo {
     int arity;
@@ -62,6 +62,8 @@ constexpr MathOpInfo getMathOpInfo(MathOp op) {
         return {2, "fast_atan2"};
     case MathOp::Acos:
         return {1, "fast_acos"};
+    case MathOp::Asin:
+        return {1, "fast_asin"};
     }
     std::unreachable();
 }
@@ -576,6 +578,17 @@ llvm::Function* MathFunctionGenerator<VectorWidth>::getOrCreate() {
 
                 return builder_.CreateSelect(is_neg, res_neg, res_pos);
             });
+    } else if constexpr (op == MathOp::Asin) {
+        // asin(x) = pi/2 - acos(x)
+        return createFunction(
+            opInfo.name, opInfo.arity,
+            [this](llvm::ArrayRef<llvm::Value*> args) -> llvm::Value* {
+                auto* x = args[0];
+                auto* pi_div_2 = getConstant(1.5707963267948966f);
+                auto* acos_func = this->getOrCreate<MathOp::Acos>();
+                auto* acos_x = builder_.CreateCall(acos_func, {x});
+                return builder_.CreateFSub(pi_div_2, acos_x);
+            });
     }
     return nullptr;
 }
@@ -588,7 +601,8 @@ using SupportedMathOpsTuple =
                std::integral_constant<MathOp, MathOp::Tan>,
                std::integral_constant<MathOp, MathOp::Atan>,
                std::integral_constant<MathOp, MathOp::Atan2>,
-               std::integral_constant<MathOp, MathOp::Acos>>;
+               std::integral_constant<MathOp, MathOp::Acos>,
+               std::integral_constant<MathOp, MathOp::Asin>>;
 
 class MathLibraryManager {
   public:
