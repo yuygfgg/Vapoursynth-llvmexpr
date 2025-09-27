@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "exprutils"
-version = "0.0.1"
+version = "0.0.4"
 description = "Expression conversion utilities for Vapoursynth-llvmexpr (infix/postfix)."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "regex>=2024.11.6",
 ]
-license = { text = "GPL-3.0-or-later" }
+license = { text = "GPL-2.0" }
 authors = [{ name = "yuygfgg" }]
 keywords = ["vapoursynth", "llvm", "expression", "infix", "postfix"]
 classifiers = [
