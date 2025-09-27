@@ -1,6 +1,6 @@
 ## 1. Introduction
 
-This function implements a simple domain-specific language designed to be transpiled into postfix notation (Reverse Polish Notation) for use with VapourSynth's `llvmexpr` plugin.
+The `exprutils` module implements a simple domain-specific language designed to be transpiled into postfix notation (Reverse Polish Notation) for use with VapourSynth's `llvmexpr` plugin.
 
 The language provides a familiar C-style infix syntax that supports variables, operators, user-defined functions, and special constructs for video processing.
 It is designed to be expressive and readable, abstracting away the complexities of writing raw postfix expressions.

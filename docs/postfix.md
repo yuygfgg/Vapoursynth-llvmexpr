@@ -1,6 +1,6 @@
 ### VapourSynth Expr Syntax Documentation
 
-`Expr` is a powerful VapourSynth function that evaluates a per-pixel mathematical or logical expression. Its core is the `expr` string, which uses Reverse Polish Notation (RPN). This guide details the syntax of that string.
+`llvmexpr.Expr` is a powerful VapourSynth function that evaluates a per-pixel mathematical or logical expression. Its core is the `expr` string, which uses Reverse Polish Notation (RPN). This guide details the syntax of that string.
 
 ---
 
