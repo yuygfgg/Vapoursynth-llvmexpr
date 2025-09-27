@@ -77,6 +77,14 @@ A side-by-side comparison reveals the incompatibility:
 | **4** | **`opt`** (optional)      | **`boundary`** (optional) | ❌ **MISMATCH** |
 | **5** | **`boundary`** (optional) | **`dump_ir`** (optional)  | ❌ **MISMATCH** |
 
+#### 5. Different Error Messages
+
+When an RPN fails to compile, `llvmexpr` will raise a different error message than `akarin.Expr`.
+
+For example, `akarin.Expr('invalid')` raises `vapoursynth.Error: Expr: failed to convert 'invalid' to float`, while `llvmexpr.Expr('invalid')` raises `vapoursynth.Error: Expr: Invalid token: invalid (idx 0)`. `akarin.Expr('+')` raises `vapoursynth.Error: Expr: insufficient values on stack: +` while `llvmexpr.Expr('+')` raises `vapoursynth.Error: Expr: Stack underflow before executing block 0: depth_in = 0, min_needed = 1. start token '+' (idx 0).`.
+
+If your code relies on the exact error message, you will need to adjust it.
+
 ### Enhancements
 
 `llvmexpr` introduces major new features and usability improvements that significantly expand upon the capabilities of `akarin.Expr`.
