@@ -723,7 +723,7 @@ class Compiler {
     std::unique_ptr<llvm::LLVMContext> context;
     std::unique_ptr<llvm::Module> module;
     llvm::IRBuilder<> builder;
-    MathLibraryManager mathManager_;
+    MathLibraryManager math_manager;
     VectorizationDiagnosticHandler diagnostic_handler;
 
     llvm::Function* func;
@@ -786,7 +786,7 @@ class Compiler {
           approx_math(approx_math_in),
           context(std::make_unique<llvm::LLVMContext>()),
           module(std::make_unique<llvm::Module>("ExprJITModule", *context)),
-          builder(*context), mathManager_(module.get(), *context) {
+          builder(*context), math_manager(module.get(), *context) {
         for (const auto& token : tokens) {
             if (token.type == TokenType::CONSTANT_X)
                 uses_x = true;
@@ -808,7 +808,7 @@ class Compiler {
           opt_level(0), approx_math(0),
           context(std::make_unique<llvm::LLVMContext>()),
           module(std::make_unique<llvm::Module>("ValidationModule", *context)),
-          builder(*context), mathManager_(module.get(), *context) {
+          builder(*context), math_manager(module.get(), *context) {
         for (const auto& token : tokens) {
             if (token.type == TokenType::CONSTANT_X)
                 uses_x = true;
@@ -2230,7 +2230,7 @@ class Compiler {
                         rpn_stack.pop_back();
                         auto y = rpn_stack.back();
                         rpn_stack.pop_back();
-                        auto* callee = mathManager_.getFunction(MathOp::Atan2);
+                        auto* callee = math_manager.getFunction(MathOp::Atan2);
                         auto* call = builder.CreateCall(callee, {y, x});
                         call->setFastMathFlags(builder.getFastMathFlags());
                         rpn_stack.push_back(call);
@@ -2321,7 +2321,7 @@ class Compiler {
                         auto a = rpn_stack.back();
                         rpn_stack.pop_back();
                         llvm::Function* expFunc =
-                            mathManager_.getFunction(MathOp::Exp);
+                            math_manager.getFunction(MathOp::Exp);
                         rpn_stack.push_back(builder.CreateCall(expFunc, {a}));
                     } else {
                         applyUnaryIntrinsic(llvm::Intrinsic::exp);
@@ -2333,7 +2333,7 @@ class Compiler {
                         auto a = rpn_stack.back();
                         rpn_stack.pop_back();
                         llvm::Function* logFunc =
-                            mathManager_.getFunction(MathOp::Log);
+                            math_manager.getFunction(MathOp::Log);
                         rpn_stack.push_back(builder.CreateCall(logFunc, {a}));
                     } else {
                         applyUnaryIntrinsic(llvm::Intrinsic::log);
@@ -2365,7 +2365,7 @@ class Compiler {
                         auto a = rpn_stack.back();
                         rpn_stack.pop_back();
                         llvm::Function* sinFunc =
-                            mathManager_.getFunction(MathOp::Sin);
+                            math_manager.getFunction(MathOp::Sin);
                         rpn_stack.push_back(builder.CreateCall(sinFunc, {a}));
                     } else {
                         applyUnaryIntrinsic(llvm::Intrinsic::sin);
@@ -2377,7 +2377,7 @@ class Compiler {
                         auto a = rpn_stack.back();
                         rpn_stack.pop_back();
                         llvm::Function* cosFunc =
-                            mathManager_.getFunction(MathOp::Cos);
+                            math_manager.getFunction(MathOp::Cos);
                         rpn_stack.push_back(builder.CreateCall(cosFunc, {a}));
                     } else {
                         applyUnaryIntrinsic(llvm::Intrinsic::cos);
@@ -2389,7 +2389,7 @@ class Compiler {
                         auto a = rpn_stack.back();
                         rpn_stack.pop_back();
                         llvm::Function* tanFunc =
-                            mathManager_.getFunction(MathOp::Tan);
+                            math_manager.getFunction(MathOp::Tan);
                         rpn_stack.push_back(builder.CreateCall(tanFunc, {a}));
                     } else {
                         applyUnaryIntrinsic(llvm::Intrinsic::tan);
@@ -2400,7 +2400,7 @@ class Compiler {
                     if (use_approx_math) {
                         auto a = rpn_stack.back();
                         rpn_stack.pop_back();
-                        auto* callee = mathManager_.getFunction(MathOp::Asin);
+                        auto* callee = math_manager.getFunction(MathOp::Asin);
                         auto* call = builder.CreateCall(callee, {a});
                         call->setFastMathFlags(builder.getFastMathFlags());
                         rpn_stack.push_back(call);
@@ -2413,7 +2413,7 @@ class Compiler {
                     if (use_approx_math) {
                         auto a = rpn_stack.back();
                         rpn_stack.pop_back();
-                        auto* callee = mathManager_.getFunction(MathOp::Acos);
+                        auto* callee = math_manager.getFunction(MathOp::Acos);
                         auto* call = builder.CreateCall(callee, {a});
                         call->setFastMathFlags(builder.getFastMathFlags());
                         rpn_stack.push_back(call);
@@ -2425,7 +2425,7 @@ class Compiler {
                     if (use_approx_math) {
                         auto a = rpn_stack.back();
                         rpn_stack.pop_back();
-                        auto* callee = mathManager_.getFunction(MathOp::Atan);
+                        auto* callee = math_manager.getFunction(MathOp::Atan);
                         auto* call = builder.CreateCall(callee, {a});
                         call->setFastMathFlags(builder.getFastMathFlags());
                         rpn_stack.push_back(call);
