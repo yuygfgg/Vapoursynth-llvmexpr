@@ -1,0 +1,184 @@
+# Copyright (C) 2025 yuygfgg
+# 
+# This file is part of Vapoursynth-llvmexpr.
+# 
+# Vapoursynth-llvmexpr is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# Vapoursynth-llvmexpr is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
+
+
+# Forward 8x8 Discrete Cosine Transform (DCT-II)
+#
+# This script computes the DCT for 8x8 blocks of the input source clip ($src0).
+# The output at coordinate (X, Y) is the DCT coefficient (u, v) for the
+# corresponding block.
+#
+# The 2D DCT is implemented as two separable 1D DCTs (one for rows, one for columns).
+
+# ==============================================================================
+# 1. SETUP: Determine current block and frequency coordinates (u, v)
+# ==============================================================================
+
+# DCT block size
+N = 8
+
+# Frequency coordinates (u, v) for the current output pixel within an 8x8 block.
+u = $X % N
+v = $Y % N
+
+# Top-left corner of the current 8x8 source block.
+block_x = trunc($X / N) * N
+block_y = trunc($Y / N) * N
+
+
+# ==============================================================================
+# 2. DATA GATHERING: Load all 64 pixels from the source 8x8 block.
+#    `p_xy` corresponds to the pixel at (x, y) relative to the block corner.
+# ==============================================================================
+
+p_00 = dyn($src0, block_x + 0, block_y + 0)
+p_10 = dyn($src0, block_x + 1, block_y + 0)
+p_20 = dyn($src0, block_x + 2, block_y + 0)
+p_30 = dyn($src0, block_x + 3, block_y + 0)
+p_40 = dyn($src0, block_x + 4, block_y + 0)
+p_50 = dyn($src0, block_x + 5, block_y + 0)
+p_60 = dyn($src0, block_x + 6, block_y + 0)
+p_70 = dyn($src0, block_x + 7, block_y + 0)
+
+p_01 = dyn($src0, block_x + 0, block_y + 1)
+p_11 = dyn($src0, block_x + 1, block_y + 1)
+p_21 = dyn($src0, block_x + 2, block_y + 1)
+p_31 = dyn($src0, block_x + 3, block_y + 1)
+p_41 = dyn($src0, block_x + 4, block_y + 1)
+p_51 = dyn($src0, block_x + 5, block_y + 1)
+p_61 = dyn($src0, block_x + 6, block_y + 1)
+p_71 = dyn($src0, block_x + 7, block_y + 1)
+
+p_02 = dyn($src0, block_x + 0, block_y + 2)
+p_12 = dyn($src0, block_x + 1, block_y + 2)
+p_22 = dyn($src0, block_x + 2, block_y + 2)
+p_32 = dyn($src0, block_x + 3, block_y + 2)
+p_42 = dyn($src0, block_x + 4, block_y + 2)
+p_52 = dyn($src0, block_x + 5, block_y + 2)
+p_62 = dyn($src0, block_x + 6, block_y + 2)
+p_72 = dyn($src0, block_x + 7, block_y + 2)
+
+p_03 = dyn($src0, block_x + 0, block_y + 3)
+p_13 = dyn($src0, block_x + 1, block_y + 3)
+p_23 = dyn($src0, block_x + 2, block_y + 3)
+p_33 = dyn($src0, block_x + 3, block_y + 3)
+p_43 = dyn($src0, block_x + 4, block_y + 3)
+p_53 = dyn($src0, block_x + 5, block_y + 3)
+p_63 = dyn($src0, block_x + 6, block_y + 3)
+p_73 = dyn($src0, block_x + 7, block_y + 3)
+
+p_04 = dyn($src0, block_x + 0, block_y + 4)
+p_14 = dyn($src0, block_x + 1, block_y + 4)
+p_24 = dyn($src0, block_x + 2, block_y + 4)
+p_34 = dyn($src0, block_x + 3, block_y + 4)
+p_44 = dyn($src0, block_x + 4, block_y + 4)
+p_54 = dyn($src0, block_x + 5, block_y + 4)
+p_64 = dyn($src0, block_x + 6, block_y + 4)
+p_74 = dyn($src0, block_x + 7, block_y + 4)
+
+p_05 = dyn($src0, block_x + 0, block_y + 5)
+p_15 = dyn($src0, block_x + 1, block_y + 5)
+p_25 = dyn($src0, block_x + 2, block_y + 5)
+p_35 = dyn($src0, block_x + 3, block_y + 5)
+p_45 = dyn($src0, block_x + 4, block_y + 5)
+p_55 = dyn($src0, block_x + 5, block_y + 5)
+p_65 = dyn($src0, block_x + 6, block_y + 5)
+p_75 = dyn($src0, block_x + 7, block_y + 5)
+
+p_06 = dyn($src0, block_x + 0, block_y + 6)
+p_16 = dyn($src0, block_x + 1, block_y + 6)
+p_26 = dyn($src0, block_x + 2, block_y + 6)
+p_36 = dyn($src0, block_x + 3, block_y + 6)
+p_46 = dyn($src0, block_x + 4, block_y + 6)
+p_56 = dyn($src0, block_x + 5, block_y + 6)
+p_66 = dyn($src0, block_x + 6, block_y + 6)
+p_76 = dyn($src0, block_x + 7, block_y + 6)
+
+p_07 = dyn($src0, block_x + 0, block_y + 7)
+p_17 = dyn($src0, block_x + 1, block_y + 7)
+p_27 = dyn($src0, block_x + 2, block_y + 7)
+p_37 = dyn($src0, block_x + 3, block_y + 7)
+p_47 = dyn($src0, block_x + 4, block_y + 7)
+p_57 = dyn($src0, block_x + 5, block_y + 7)
+p_67 = dyn($src0, block_x + 6, block_y + 7)
+p_77 = dyn($src0, block_x + 7, block_y + 7)
+
+
+# ==============================================================================
+# 3. ROW TRANSFORMS: Perform 1D DCT on each row of the 8x8 block.
+#    This sums pixels across x for each row y.
+# ==============================================================================
+
+# Pre-calculate cosine terms for the row transform (depends on u).
+# cos_ux = cos((2*x + 1) * u * pi / 16)
+cos_u0 = cos( 1 * u * $pi / 16)
+cos_u1 = cos( 3 * u * $pi / 16)
+cos_u2 = cos( 5 * u * $pi / 16)
+cos_u3 = cos( 7 * u * $pi / 16)
+cos_u4 = cos( 9 * u * $pi / 16)
+cos_u5 = cos(11 * u * $pi / 16)
+cos_u6 = cos(13 * u * $pi / 16)
+cos_u7 = cos(15 * u * $pi / 16)
+
+# Calculate the 8 intermediate values, one for each row.
+row_dct_0 = p_00 * cos_u0 + p_10 * cos_u1 + p_20 * cos_u2 + p_30 * cos_u3 + p_40 * cos_u4 + p_50 * cos_u5 + p_60 * cos_u6 + p_70 * cos_u7
+row_dct_1 = p_01 * cos_u0 + p_11 * cos_u1 + p_21 * cos_u2 + p_31 * cos_u3 + p_41 * cos_u4 + p_51 * cos_u5 + p_61 * cos_u6 + p_71 * cos_u7
+row_dct_2 = p_02 * cos_u0 + p_12 * cos_u1 + p_22 * cos_u2 + p_32 * cos_u3 + p_42 * cos_u4 + p_52 * cos_u5 + p_62 * cos_u6 + p_72 * cos_u7
+row_dct_3 = p_03 * cos_u0 + p_13 * cos_u1 + p_23 * cos_u2 + p_33 * cos_u3 + p_43 * cos_u4 + p_53 * cos_u5 + p_63 * cos_u6 + p_73 * cos_u7
+row_dct_4 = p_04 * cos_u0 + p_14 * cos_u1 + p_24 * cos_u2 + p_34 * cos_u3 + p_44 * cos_u4 + p_54 * cos_u5 + p_64 * cos_u6 + p_74 * cos_u7
+row_dct_5 = p_05 * cos_u0 + p_15 * cos_u1 + p_25 * cos_u2 + p_35 * cos_u3 + p_45 * cos_u4 + p_55 * cos_u5 + p_65 * cos_u6 + p_75 * cos_u7
+row_dct_6 = p_06 * cos_u0 + p_16 * cos_u1 + p_26 * cos_u2 + p_36 * cos_u3 + p_46 * cos_u4 + p_56 * cos_u5 + p_66 * cos_u6 + p_76 * cos_u7
+row_dct_7 = p_07 * cos_u0 + p_17 * cos_u1 + p_27 * cos_u2 + p_37 * cos_u3 + p_47 * cos_u4 + p_57 * cos_u5 + p_67 * cos_u6 + p_77 * cos_u7
+
+
+# ==============================================================================
+# 4. COLUMN TRANSFORM: Perform 1D DCT on the intermediate results.
+#    This sums the intermediate row_dct values across y.
+# ==============================================================================
+
+# Pre-calculate cosine terms for the column transform (depends on v).
+# cos_vy = cos((2*y + 1) * v * pi / 16)
+cos_v0 = cos( 1 * v * $pi / 16)
+cos_v1 = cos( 3 * v * $pi / 16)
+cos_v2 = cos( 5 * v * $pi / 16)
+cos_v3 = cos( 7 * v * $pi / 16)
+cos_v4 = cos( 9 * v * $pi / 16)
+cos_v5 = cos(11 * v * $pi / 16)
+cos_v6 = cos(13 * v * $pi / 16)
+cos_v7 = cos(15 * v * $pi / 16)
+
+# Calculate the final un-normalized sum.
+final_sum = row_dct_0 * cos_v0 + row_dct_1 * cos_v1 + row_dct_2 * cos_v2 + row_dct_3 * cos_v3 + row_dct_4 * cos_v4 + row_dct_5 * cos_v5 + row_dct_6 * cos_v6 + row_dct_7 * cos_v7
+
+
+# ==============================================================================
+# 5. NORMALIZATION and FINAL RESULT
+# ==============================================================================
+
+# Define normalization constants.
+# C(k) = 1/sqrt(N) for k=0
+# C(k) = sqrt(2/N) for k>0
+# For N=8, C(k>0) = sqrt(2/8) = sqrt(1/4) = 0.5
+inv_sqrt_N = 1 / sqrt(N)
+sqrt_2_div_N = 0.5
+
+# Determine the normalization factors C(u) and C(v) using the ternary operator.
+norm_u = (u == 0) ? inv_sqrt_N : sqrt_2_div_N
+norm_v = (v == 0) ? inv_sqrt_N : sqrt_2_div_N
+
+# Apply normalization and assign to the final result.
+RESULT = final_sum * norm_u * norm_v

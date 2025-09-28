@@ -75,6 +75,14 @@ This is a companion Python library designed to assist with writing expressions. 
 
 The `exprutils` library provides an alternative way to generate the expression strings used by the `llvmexpr` plugin.
 
+#### Examples
+
+See [examples](examples) for examples of infix code.
+
+- [8x8 DCT](examples/8x8dct.expr)
+- [8x8 IDCT](examples/8x8idct.expr)
+- [NL-Means](examples/nl-means.expr)
+
 ## Documentation
 
 *   **[Infix Syntax](docs/infix.md)**: Describes the C-style syntax for use with the `exprutils.infix2postfix` transpiler.

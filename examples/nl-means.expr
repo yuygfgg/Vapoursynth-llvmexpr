@@ -1,0 +1,56 @@
+# Copyright (C) 2025 yuygfgg
+# 
+# This file is part of Vapoursynth-llvmexpr.
+# 
+# Vapoursynth-llvmexpr is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# Vapoursynth-llvmexpr is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
+
+patch_radius = 2
+search_radius = 5
+filter_strength = 10.0
+
+<global<patch_radius>>
+function patch_distance(cx1, cy1, cx2, cy2) {
+    sum_sq_diff = 0.0
+    py = -patch_radius
+    while (py <= patch_radius) {
+        px = -patch_radius
+        while (px <= patch_radius) {
+            pixel1 = dyn($x, cx1 + px, cy1 + py)
+            pixel2 = dyn($x, cx2 + px, cy2 + py)
+            diff = pixel1 - pixel2
+            sum_sq_diff = sum_sq_diff + (diff * diff)
+            px = px + 1
+        }
+        py = py + 1
+    }
+    return sum_sq_diff
+}
+
+weighted_sum = 0.0
+total_weight = 0.0
+h_squared = filter_strength * filter_strength
+sy = $Y - search_radius
+while (sy <= $Y + search_radius) {
+    sx = $X - search_radius
+    while (sx <= $X + search_radius) {
+        distance = patch_distance($X, $Y, sx, sy)
+        weight = exp(-distance / h_squared)
+        search_pixel_value = dyn($x, sx, sy)
+        total_weight = total_weight + weight
+        weighted_sum = weighted_sum + (search_pixel_value * weight)
+        sx = sx + 1
+    }
+    sy = sy + 1
+}
+RESULT = total_weight > 0 ? weighted_sum / total_weight : $x
