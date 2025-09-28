@@ -402,3 +402,26 @@ def test_non_integer_coordinate_rounding() -> None:
     assert res.get_frame(0)[0][0, 1] == pytest.approx(2.0)
     assert res.get_frame(0)[0][0, 2] == pytest.approx(2.0)
     assert res.get_frame(0)[0][0, 3] == pytest.approx(3.0)
+
+
+@pytest.mark.parametrize(
+    "expr, err_msg",
+    [
+        ("2 3 + atan2 1", "Stack underflow"),
+        ("1 +", "Stack underflow"),
+        ("sin", "Stack underflow"),
+        ("1 2 ?", "Stack underflow"),
+        ("1 dup1", "Stack underflow"),
+        ("1 2", "Expression stack not balanced"),
+        ("my_label#", "Undefined label for jump"),
+        ("my_var@", "Variable is uninitialized"),
+        ("#L #L", "Duplicate label"),
+        ("1 drop2", "Stack underflow"),
+        ("2 3 swap2", "Stack underflow"),
+        ("invalid_token", "Invalid token"),
+    ],
+)
+def test_validation_errors(expr: str, err_msg: str) -> None:
+    c = core.std.BlankClip()
+    with pytest.raises(vs.Error, match=err_msg):
+        core.llvmexpr.Expr(c, expr)

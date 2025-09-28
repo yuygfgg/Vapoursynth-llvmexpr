@@ -1629,6 +1629,93 @@ class Compiler {
         return 0; // Should not happen
     }
 
+    int get_min_stack_for_op(const Token& token) {
+        switch (token.type) {
+        // UNARY: POP 1
+        case TokenType::NOT:
+        case TokenType::BITNOT:
+        case TokenType::SQRT:
+        case TokenType::EXP:
+        case TokenType::LOG:
+        case TokenType::ABS:
+        case TokenType::FLOOR:
+        case TokenType::CEIL:
+        case TokenType::TRUNC:
+        case TokenType::ROUND:
+        case TokenType::SIN:
+        case TokenType::COS:
+        case TokenType::TAN:
+        case TokenType::ASIN:
+        case TokenType::ACOS:
+        case TokenType::ATAN:
+        case TokenType::EXP2:
+        case TokenType::LOG10:
+        case TokenType::LOG2:
+        case TokenType::SINH:
+        case TokenType::COSH:
+        case TokenType::TANH:
+        case TokenType::SGN:
+        case TokenType::NEG:
+        case TokenType::VAR_STORE:
+        case TokenType::JUMP:
+            return 1;
+
+        // BINARY: POP 2
+        case TokenType::ADD:
+        case TokenType::SUB:
+        case TokenType::MUL:
+        case TokenType::DIV:
+        case TokenType::MOD:
+        case TokenType::GT:
+        case TokenType::LT:
+        case TokenType::GE:
+        case TokenType::LE:
+        case TokenType::EQ:
+        case TokenType::AND:
+        case TokenType::OR:
+        case TokenType::XOR:
+        case TokenType::BITAND:
+        case TokenType::BITOR:
+        case TokenType::BITXOR:
+        case TokenType::POW:
+        case TokenType::ATAN2:
+        case TokenType::COPYSIGN:
+        case TokenType::MIN:
+        case TokenType::MAX:
+        case TokenType::CLIP_ABS:
+            return 2;
+
+        // TERNARY: POP 3
+        case TokenType::TERNARY:
+        case TokenType::CLIP:
+        case TokenType::CLAMP:
+        case TokenType::FMA:
+        case TokenType::STORE_ABS:
+            return 3;
+
+        // STACK
+        case TokenType::DUP: {
+            const auto& payload = std::get<TokenPayload_StackOp>(token.payload);
+            return payload.n + 1;
+        }
+        case TokenType::DROP: {
+            const auto& payload = std::get<TokenPayload_StackOp>(token.payload);
+            return payload.n;
+        }
+        case TokenType::SWAP: {
+            const auto& payload = std::get<TokenPayload_StackOp>(token.payload);
+            return payload.n + 1;
+        }
+        case TokenType::SORTN: {
+            const auto& payload = std::get<TokenPayload_StackOp>(token.payload);
+            return payload.n;
+        }
+
+        default:
+            return 0;
+        }
+    }
+
     void validate_and_build_cfg() {
         if (tokens.empty()) {
             throw std::runtime_error("Expression cannot be empty.");
@@ -1682,18 +1769,21 @@ class Compiler {
         for (size_t i = 0; i < cfg_blocks.size(); ++i) {
             CFGBlock& block = cfg_blocks[i];
             int current_stack = 0;
+            int min_stack_in_block = 0;
             for (int j = block.start_token_idx; j < block.end_token_idx; ++j) {
                 const auto& token = tokens[j];
-                int effect = get_stack_effect(token);
 
-                if (current_stack + effect < 0) {
-                    block.min_stack_needed = std::min(block.min_stack_needed,
-                                                      current_stack + effect);
+                int items_needed = get_min_stack_for_op(token);
+                if (current_stack < items_needed) {
+                    min_stack_in_block = std::max(min_stack_in_block,
+                                                  items_needed - current_stack);
                 }
+
+                int effect = get_stack_effect(token);
                 current_stack += effect;
             }
             block.stack_effect = current_stack;
-            block.min_stack_needed = -block.min_stack_needed;
+            block.min_stack_needed = min_stack_in_block;
 
             const auto& last_token = tokens[block.end_token_idx - 1];
             if (last_token.type == TokenType::JUMP) {
