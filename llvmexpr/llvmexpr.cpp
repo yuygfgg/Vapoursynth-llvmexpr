@@ -772,20 +772,24 @@ class Compiler {
     std::vector<int> stack_depth_in;
 
   public:
-    // Constructor for compilation
+  private:
+    // Base constructor
     Compiler(std::vector<Token>&& tokens_in, const VSVideoInfo* out_vi,
              const std::vector<const VSVideoInfo*>& in_vi, int width_in,
-             int height_in, bool mirror, std::string dump_path,
+             int height_in, bool mirror,
              const std::map<std::pair<int, std::string>, int>& p_map,
-             std::string function_name, int opt_level_in, int approx_math_in)
+             bool is_validation, std::string dump_path = {},
+             std::string function_name = {}, int opt_level_in = 0,
+             int approx_math_in = 0)
         : tokens(std::move(tokens_in)), vo(out_vi), vi(in_vi),
           num_inputs(in_vi.size()), width(width_in), height(height_in),
           mirror_boundary(mirror), dump_ir_path(std::move(dump_path)),
           prop_map(p_map), func_name(std::move(function_name)),
-          validate_only(false), opt_level(opt_level_in),
+          validate_only(is_validation), opt_level(opt_level_in),
           approx_math(approx_math_in),
           context(std::make_unique<llvm::LLVMContext>()),
-          module(std::make_unique<llvm::Module>("ExprJITModule", *context)),
+          module(std::make_unique<llvm::Module>(
+              is_validation ? "ValidationModule" : "ExprJITModule", *context)),
           builder(*context), math_manager(module.get(), *context) {
         for (const auto& token : tokens) {
             if (token.type == TokenType::CONSTANT_X)
@@ -797,27 +801,24 @@ class Compiler {
         }
     }
 
+  public:
+    // Constructor for compilation
+    Compiler(std::vector<Token>&& tokens_in, const VSVideoInfo* out_vi,
+             const std::vector<const VSVideoInfo*>& in_vi, int width_in,
+             int height_in, bool mirror, std::string dump_path,
+             const std::map<std::pair<int, std::string>, int>& p_map,
+             std::string function_name, int opt_level_in, int approx_math_in)
+        : Compiler(std::move(tokens_in), out_vi, in_vi, width_in, height_in,
+                   mirror, p_map, false, std::move(dump_path),
+                   std::move(function_name), opt_level_in, approx_math_in) {}
+
     // Constructor for validation only
     Compiler(std::vector<Token>&& tokens_in, const VSVideoInfo* out_vi,
              const std::vector<const VSVideoInfo*>& in_vi, int width_in,
              int height_in, bool mirror,
              const std::map<std::pair<int, std::string>, int>& p_map)
-        : tokens(std::move(tokens_in)), vo(out_vi), vi(in_vi),
-          num_inputs(in_vi.size()), width(width_in), height(height_in),
-          mirror_boundary(mirror), prop_map(p_map), validate_only(true),
-          opt_level(0), approx_math(0),
-          context(std::make_unique<llvm::LLVMContext>()),
-          module(std::make_unique<llvm::Module>("ValidationModule", *context)),
-          builder(*context), math_manager(module.get(), *context) {
-        for (const auto& token : tokens) {
-            if (token.type == TokenType::CONSTANT_X)
-                uses_x = true;
-            if (token.type == TokenType::CONSTANT_Y)
-                uses_y = true;
-            if (uses_x && uses_y)
-                break;
-        }
-    }
+        : Compiler(std::move(tokens_in), out_vi, in_vi, width_in, height_in,
+                   mirror, p_map, true) {}
 
     CompiledFunction compile() {
         if (validate_only) {
@@ -830,11 +831,7 @@ class Compiler {
     }
 
     // Validate expression syntax and CFG without compiling
-    void validate() {
-        validate_and_build_cfg();
-        collect_rel_y_accesses();
-        collect_rel_x_accesses();
-    }
+    void validate() { validate_and_build_cfg(); }
 
     CompiledFunction compile_with_approx_math(int actual_approx_math) {
         bool needs_nans = false;
