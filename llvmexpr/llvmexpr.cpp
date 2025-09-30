@@ -1129,21 +1129,14 @@ class Compiler {
         return entryBuilder.CreateAlloca(type, nullptr, name);
     }
 
-    llvm::Value* createUnaryIntrinsicCall(llvm::Intrinsic::ID intrinsic_id,
-                                          llvm::Value* arg) {
+    template <typename... Args>
+    llvm::Value* createIntrinsicCall(llvm::Intrinsic::ID intrinsic_id,
+                                     Args... args) {
+        static_assert(sizeof...(Args) >= 1, "At least one argument required");
+        llvm::SmallVector<llvm::Value*, 4> arg_vec{args...};
         auto* callee = llvm::Intrinsic::getOrInsertDeclaration(
-            module.get(), intrinsic_id, {arg->getType()});
-        auto* call = builder.CreateCall(callee, {arg});
-        call->setFastMathFlags(builder.getFastMathFlags());
-        return call;
-    }
-
-    llvm::Value* createBinaryIntrinsicCall(llvm::Intrinsic::ID intrinsic_id,
-                                           llvm::Value* arg1,
-                                           llvm::Value* arg2) {
-        auto* callee = llvm::Intrinsic::getOrInsertDeclaration(
-            module.get(), intrinsic_id, {arg1->getType()});
-        auto* call = builder.CreateCall(callee, {arg1, arg2});
+            module.get(), intrinsic_id, {arg_vec[0]->getType()});
+        auto* call = builder.CreateCall(callee, arg_vec);
         call->setFastMathFlags(builder.getFastMathFlags());
         return call;
     }
@@ -1988,92 +1981,111 @@ class Compiler {
                  j < block_info.end_token_idx; ++j) {
                 const auto& token = tokens[j];
 
-                auto applyBinaryOp = [&](auto opCallable) {
-                    auto b = rpn_stack.back();
-                    rpn_stack.pop_back();
-                    auto a = rpn_stack.back();
-                    rpn_stack.pop_back();
-                    rpn_stack.push_back(opCallable(a, b));
+                auto applyStackOp = [&]<size_t ARITY>(auto&& op) {
+                    std::array<llvm::Value*, ARITY> args;
+                    for (size_t i = ARITY; i > 0; --i) {
+                        args[i - 1] = rpn_stack.back();
+                        rpn_stack.pop_back();
+                    }
+
+                    rpn_stack.push_back(std::apply(op, args));
                 };
 
-                auto applyBinaryIntrinsic =
-                    [&](llvm::Intrinsic::ID intrinsic_id) {
-                        auto b = rpn_stack.back();
-                        rpn_stack.pop_back();
-                        auto a = rpn_stack.back();
-                        rpn_stack.pop_back();
-                        rpn_stack.push_back(
-                            createBinaryIntrinsicCall(intrinsic_id, a, b));
+                auto applyIntrinsic =
+                    [&]<size_t ARITY>(llvm::Intrinsic::ID id) {
+                        applyStackOp.operator()<ARITY>([&](auto... args) {
+                            return createIntrinsicCall(id, args...);
+                        });
                     };
 
+                auto applyBinaryOp = [&](auto opCallable) {
+                    applyStackOp.operator()<2>(
+                        [&](auto a, auto b) { return opCallable(a, b); });
+                };
+
                 auto applyBinaryCmp = [&](llvm::CmpInst::Predicate pred) {
-                    auto b = rpn_stack.back();
-                    rpn_stack.pop_back();
-                    auto a = rpn_stack.back();
-                    rpn_stack.pop_back();
-                    auto cmp = builder.CreateFCmp(pred, a, b);
-                    rpn_stack.push_back(builder.CreateSelect(
-                        cmp, llvm::ConstantFP::get(float_ty, 1.0),
-                        llvm::ConstantFP::get(float_ty, 0.0)));
+                    applyStackOp.operator()<2>([&](auto a, auto b) {
+                        auto cmp = builder.CreateFCmp(pred, a, b);
+                        return builder.CreateSelect(
+                            cmp, llvm::ConstantFP::get(float_ty, 1.0),
+                            llvm::ConstantFP::get(float_ty, 0.0));
+                    });
                 };
 
                 enum class BoolBinOp { And, Or, Xor };
                 auto applyLogicalOp = [&](BoolBinOp which) {
-                    auto b_val = rpn_stack.back();
-                    rpn_stack.pop_back();
-                    auto a_val = rpn_stack.back();
-                    rpn_stack.pop_back();
-                    auto a_bool = builder.CreateFCmpOGT(
-                        a_val, llvm::ConstantFP::get(float_ty, 0.0));
-                    auto b_bool = builder.CreateFCmpOGT(
-                        b_val, llvm::ConstantFP::get(float_ty, 0.0));
-                    llvm::Value* logic_res = nullptr;
-                    switch (which) {
-                    case BoolBinOp::And:
-                        logic_res = builder.CreateAnd(a_bool, b_bool);
-                        break;
-                    case BoolBinOp::Or:
-                        logic_res = builder.CreateOr(a_bool, b_bool);
-                        break;
-                    case BoolBinOp::Xor:
-                        logic_res = builder.CreateXor(a_bool, b_bool);
-                        break;
-                    }
-                    rpn_stack.push_back(builder.CreateSelect(
-                        logic_res, llvm::ConstantFP::get(float_ty, 1.0),
-                        llvm::ConstantFP::get(float_ty, 0.0)));
+                    applyStackOp.operator()<2>([&](auto a_val, auto b_val) {
+                        auto a_bool = builder.CreateFCmpOGT(
+                            a_val, llvm::ConstantFP::get(float_ty, 0.0));
+                        auto b_bool = builder.CreateFCmpOGT(
+                            b_val, llvm::ConstantFP::get(float_ty, 0.0));
+                        llvm::Value* logic_res = nullptr;
+                        switch (which) {
+                        case BoolBinOp::And:
+                            logic_res = builder.CreateAnd(a_bool, b_bool);
+                            break;
+                        case BoolBinOp::Or:
+                            logic_res = builder.CreateOr(a_bool, b_bool);
+                            break;
+                        case BoolBinOp::Xor:
+                            logic_res = builder.CreateXor(a_bool, b_bool);
+                            break;
+                        }
+                        return builder.CreateSelect(
+                            logic_res, llvm::ConstantFP::get(float_ty, 1.0),
+                            llvm::ConstantFP::get(float_ty, 0.0));
+                    });
                 };
 
                 enum class IntBinOp { And, Or, Xor };
                 auto applyBitwiseOp = [&](IntBinOp which) {
-                    auto b = rpn_stack.back();
-                    rpn_stack.pop_back();
-                    auto a = rpn_stack.back();
-                    rpn_stack.pop_back();
-                    auto ai = builder.CreateFPToSI(a, i32_ty);
-                    auto bi = builder.CreateFPToSI(b, i32_ty);
-                    llvm::Value* resi = nullptr;
-                    switch (which) {
-                    case IntBinOp::And:
-                        resi = builder.CreateAnd(ai, bi);
-                        break;
-                    case IntBinOp::Or:
-                        resi = builder.CreateOr(ai, bi);
-                        break;
-                    case IntBinOp::Xor:
-                        resi = builder.CreateXor(ai, bi);
-                        break;
-                    }
-                    rpn_stack.push_back(builder.CreateSIToFP(resi, float_ty));
+                    applyStackOp.operator()<2>([&](auto a, auto b) {
+                        auto ai = builder.CreateFPToSI(a, i32_ty);
+                        auto bi = builder.CreateFPToSI(b, i32_ty);
+                        llvm::Value* resi = nullptr;
+                        switch (which) {
+                        case IntBinOp::And:
+                            resi = builder.CreateAnd(ai, bi);
+                            break;
+                        case IntBinOp::Or:
+                            resi = builder.CreateOr(ai, bi);
+                            break;
+                        case IntBinOp::Xor:
+                            resi = builder.CreateXor(ai, bi);
+                            break;
+                        }
+                        return builder.CreateSIToFP(resi, float_ty);
+                    });
                 };
 
-                auto applyUnaryIntrinsic =
-                    [&](llvm::Intrinsic::ID intrinsic_id) {
-                        auto a = rpn_stack.back();
+                auto applyApproxMathOp = [&]<size_t ARITY>(
+                                             MathOp math_op,
+                                             llvm::Intrinsic::ID intrinsic_id) {
+                    static_assert(ARITY == 1 || ARITY == 2,
+                                  "Only unary or binary operations supported");
+
+                    std::array<llvm::Value*, ARITY> args;
+                    for (size_t i = ARITY; i > 0; --i) {
+                        args[i - 1] = rpn_stack.back();
                         rpn_stack.pop_back();
-                        rpn_stack.push_back(
-                            createUnaryIntrinsicCall(intrinsic_id, a));
-                    };
+                    }
+
+                    if (use_approx_math) {
+                        auto* callee = math_manager.getFunction(math_op);
+                        llvm::SmallVector<llvm::Value*, 2> call_args(
+                            args.begin(), args.end());
+                        auto* call = builder.CreateCall(callee, call_args);
+                        call->setFastMathFlags(builder.getFastMathFlags());
+                        rpn_stack.push_back(call);
+                    } else {
+                        rpn_stack.push_back(std::apply(
+                            [&](auto... args) {
+                                return createIntrinsicCall(intrinsic_id,
+                                                           args...);
+                            },
+                            args));
+                    }
+                };
 
                 switch (token.type) {
                 // Literals & Constants
@@ -2227,32 +2239,22 @@ class Compiler {
                     break;
                 }
                 case TokenType::POW:
-                    applyBinaryIntrinsic(llvm::Intrinsic::pow);
+                    applyIntrinsic.operator()<2>(llvm::Intrinsic::pow);
                     break;
                 case TokenType::ATAN2:
-                    if (use_approx_math) {
-                        auto x = rpn_stack.back();
-                        rpn_stack.pop_back();
-                        auto y = rpn_stack.back();
-                        rpn_stack.pop_back();
-                        auto* callee = math_manager.getFunction(MathOp::Atan2);
-                        auto* call = builder.CreateCall(callee, {y, x});
-                        call->setFastMathFlags(builder.getFastMathFlags());
-                        rpn_stack.push_back(call);
-                    } else {
-                        applyBinaryIntrinsic(llvm::Intrinsic::atan2);
-                    }
+                    applyApproxMathOp.operator()<2>(MathOp::Atan2,
+                                                    llvm::Intrinsic::atan2);
                     break;
                 case TokenType::COPYSIGN: {
-                    applyBinaryIntrinsic(llvm::Intrinsic::copysign);
+                    applyIntrinsic.operator()<2>(llvm::Intrinsic::copysign);
                     break;
                 }
                 case TokenType::MIN: {
-                    applyBinaryIntrinsic(llvm::Intrinsic::minnum);
+                    applyIntrinsic.operator()<2>(llvm::Intrinsic::minnum);
                     break;
                 }
                 case TokenType::MAX: {
-                    applyBinaryIntrinsic(llvm::Intrinsic::maxnum);
+                    applyIntrinsic.operator()<2>(llvm::Intrinsic::maxnum);
                     break;
                 }
 
@@ -2315,151 +2317,86 @@ class Compiler {
                     auto a = rpn_stack.back();
                     rpn_stack.pop_back();
                     auto zero = llvm::ConstantFP::get(float_ty, 0.0);
-                    auto max_val = createBinaryIntrinsicCall(
-                        llvm::Intrinsic::maxnum, a, zero);
-                    rpn_stack.push_back(createUnaryIntrinsicCall(
-                        llvm::Intrinsic::sqrt, max_val));
+                    auto max_val =
+                        createIntrinsicCall(llvm::Intrinsic::maxnum, a, zero);
+                    rpn_stack.push_back(
+                        createIntrinsicCall(llvm::Intrinsic::sqrt, max_val));
                     break;
                 }
-                case TokenType::EXP: {
-                    if (use_approx_math) {
-                        auto a = rpn_stack.back();
-                        rpn_stack.pop_back();
-                        llvm::Function* expFunc =
-                            math_manager.getFunction(MathOp::Exp);
-                        rpn_stack.push_back(builder.CreateCall(expFunc, {a}));
-                    } else {
-                        applyUnaryIntrinsic(llvm::Intrinsic::exp);
-                    }
+                case TokenType::EXP:
+                    applyApproxMathOp.operator()<1>(MathOp::Exp,
+                                                    llvm::Intrinsic::exp);
                     break;
-                }
-                case TokenType::LOG: {
-                    if (use_approx_math) {
-                        auto a = rpn_stack.back();
-                        rpn_stack.pop_back();
-                        llvm::Function* logFunc =
-                            math_manager.getFunction(MathOp::Log);
-                        rpn_stack.push_back(builder.CreateCall(logFunc, {a}));
-                    } else {
-                        applyUnaryIntrinsic(llvm::Intrinsic::log);
-                    }
+                case TokenType::LOG:
+                    applyApproxMathOp.operator()<1>(MathOp::Log,
+                                                    llvm::Intrinsic::log);
                     break;
-                }
                 case TokenType::ABS: {
-                    applyUnaryIntrinsic(llvm::Intrinsic::fabs);
+                    applyIntrinsic.operator()<1>(llvm::Intrinsic::fabs);
                     break;
                 }
                 case TokenType::FLOOR: {
-                    applyUnaryIntrinsic(llvm::Intrinsic::floor);
+                    applyIntrinsic.operator()<1>(llvm::Intrinsic::floor);
                     break;
                 }
                 case TokenType::CEIL: {
-                    applyUnaryIntrinsic(llvm::Intrinsic::ceil);
+                    applyIntrinsic.operator()<1>(llvm::Intrinsic::ceil);
                     break;
                 }
                 case TokenType::TRUNC: {
-                    applyUnaryIntrinsic(llvm::Intrinsic::trunc);
+                    applyIntrinsic.operator()<1>(llvm::Intrinsic::trunc);
                     break;
                 }
                 case TokenType::ROUND: {
-                    applyUnaryIntrinsic(llvm::Intrinsic::round);
+                    applyIntrinsic.operator()<1>(llvm::Intrinsic::round);
                     break;
                 }
-                case TokenType::SIN: {
-                    if (use_approx_math) {
-                        auto a = rpn_stack.back();
-                        rpn_stack.pop_back();
-                        llvm::Function* sinFunc =
-                            math_manager.getFunction(MathOp::Sin);
-                        rpn_stack.push_back(builder.CreateCall(sinFunc, {a}));
-                    } else {
-                        applyUnaryIntrinsic(llvm::Intrinsic::sin);
-                    }
+                case TokenType::SIN:
+                    applyApproxMathOp.operator()<1>(MathOp::Sin,
+                                                    llvm::Intrinsic::sin);
                     break;
-                }
-                case TokenType::COS: {
-                    if (use_approx_math) {
-                        auto a = rpn_stack.back();
-                        rpn_stack.pop_back();
-                        llvm::Function* cosFunc =
-                            math_manager.getFunction(MathOp::Cos);
-                        rpn_stack.push_back(builder.CreateCall(cosFunc, {a}));
-                    } else {
-                        applyUnaryIntrinsic(llvm::Intrinsic::cos);
-                    }
+                case TokenType::COS:
+                    applyApproxMathOp.operator()<1>(MathOp::Cos,
+                                                    llvm::Intrinsic::cos);
                     break;
-                }
-                case TokenType::TAN: {
-                    if (use_approx_math) {
-                        auto a = rpn_stack.back();
-                        rpn_stack.pop_back();
-                        llvm::Function* tanFunc =
-                            math_manager.getFunction(MathOp::Tan);
-                        rpn_stack.push_back(builder.CreateCall(tanFunc, {a}));
-                    } else {
-                        applyUnaryIntrinsic(llvm::Intrinsic::tan);
-                    }
+                case TokenType::TAN:
+                    applyApproxMathOp.operator()<1>(MathOp::Tan,
+                                                    llvm::Intrinsic::tan);
                     break;
-                }
-                case TokenType::ASIN: {
-                    if (use_approx_math) {
-                        auto a = rpn_stack.back();
-                        rpn_stack.pop_back();
-                        auto* callee = math_manager.getFunction(MathOp::Asin);
-                        auto* call = builder.CreateCall(callee, {a});
-                        call->setFastMathFlags(builder.getFastMathFlags());
-                        rpn_stack.push_back(call);
-                    } else {
-                        applyUnaryIntrinsic(llvm::Intrinsic::asin);
-                    }
+                case TokenType::ASIN:
+                    applyApproxMathOp.operator()<1>(MathOp::Asin,
+                                                    llvm::Intrinsic::asin);
                     break;
-                }
                 case TokenType::ACOS:
-                    if (use_approx_math) {
-                        auto a = rpn_stack.back();
-                        rpn_stack.pop_back();
-                        auto* callee = math_manager.getFunction(MathOp::Acos);
-                        auto* call = builder.CreateCall(callee, {a});
-                        call->setFastMathFlags(builder.getFastMathFlags());
-                        rpn_stack.push_back(call);
-                    } else {
-                        applyUnaryIntrinsic(llvm::Intrinsic::acos);
-                    }
+                    applyApproxMathOp.operator()<1>(MathOp::Acos,
+                                                    llvm::Intrinsic::acos);
                     break;
                 case TokenType::ATAN:
-                    if (use_approx_math) {
-                        auto a = rpn_stack.back();
-                        rpn_stack.pop_back();
-                        auto* callee = math_manager.getFunction(MathOp::Atan);
-                        auto* call = builder.CreateCall(callee, {a});
-                        call->setFastMathFlags(builder.getFastMathFlags());
-                        rpn_stack.push_back(call);
-                    } else {
-                        applyUnaryIntrinsic(llvm::Intrinsic::atan);
-                    }
+                    applyApproxMathOp.operator()<1>(MathOp::Atan,
+                                                    llvm::Intrinsic::atan);
                     break;
                 case TokenType::EXP2: {
-                    applyUnaryIntrinsic(llvm::Intrinsic::exp2);
+                    applyIntrinsic.operator()<1>(llvm::Intrinsic::exp2);
                     break;
                 }
                 case TokenType::LOG10: {
-                    applyUnaryIntrinsic(llvm::Intrinsic::log10);
+                    applyIntrinsic.operator()<1>(llvm::Intrinsic::log10);
                     break;
                 }
                 case TokenType::LOG2: {
-                    applyUnaryIntrinsic(llvm::Intrinsic::log2);
+                    applyIntrinsic.operator()<1>(llvm::Intrinsic::log2);
                     break;
                 }
                 case TokenType::SINH: {
-                    applyUnaryIntrinsic(llvm::Intrinsic::sinh);
+                    applyIntrinsic.operator()<1>(llvm::Intrinsic::sinh);
                     break;
                 }
                 case TokenType::COSH: {
-                    applyUnaryIntrinsic(llvm::Intrinsic::cosh);
+                    applyIntrinsic.operator()<1>(llvm::Intrinsic::cosh);
                     break;
                 }
                 case TokenType::TANH: {
-                    applyUnaryIntrinsic(llvm::Intrinsic::tanh);
+                    applyIntrinsic.operator()<1>(llvm::Intrinsic::tanh);
                     break;
                 }
                 case TokenType::SGN: {
@@ -2525,10 +2462,10 @@ class Compiler {
                     rpn_stack.pop_back();
                     auto val = rpn_stack.back();
                     rpn_stack.pop_back();
-                    auto temp = createBinaryIntrinsicCall(
-                        llvm::Intrinsic::maxnum, val, min_val);
-                    auto clamped = createBinaryIntrinsicCall(
-                        llvm::Intrinsic::minnum, temp, max_val);
+                    auto temp = createIntrinsicCall(llvm::Intrinsic::maxnum,
+                                                    val, min_val);
+                    auto clamped = createIntrinsicCall(llvm::Intrinsic::minnum,
+                                                       temp, max_val);
                     rpn_stack.push_back(clamped);
                     break;
                 }
@@ -2793,13 +2730,13 @@ class Compiler {
             llvm::Value* max_f = llvm::ConstantFP::get(
                 builder.getFloatTy(), static_cast<double>(max_val));
 
-            llvm::Value* temp = createBinaryIntrinsicCall(
-                llvm::Intrinsic::maxnum, value_to_store, zero_f);
+            llvm::Value* temp = createIntrinsicCall(llvm::Intrinsic::maxnum,
+                                                    value_to_store, zero_f);
             llvm::Value* clamped_f =
-                createBinaryIntrinsicCall(llvm::Intrinsic::minnum, temp, max_f);
+                createIntrinsicCall(llvm::Intrinsic::minnum, temp, max_f);
 
             llvm::Value* rounded_f =
-                createUnaryIntrinsicCall(llvm::Intrinsic::roundeven, clamped_f);
+                createIntrinsicCall(llvm::Intrinsic::roundeven, clamped_f);
 
             llvm::Type* store_type =
                 bpp == 1

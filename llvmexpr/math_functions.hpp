@@ -311,34 +311,43 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Log> {
                 x_as_int = gen->builder.CreateBitCast(x, gen->getInt32Type());
                 auto* etmp_as_int = gen->builder.CreateAnd(ext_mask, x_as_int);
                 auto* etmp = gen->builder.CreateBitCast(etmp_as_int,
-                                                         gen->getFloatType());
+                                                        gen->getFloatType());
                 x = gen->builder.CreateFSub(x, one);
                 auto* one_as_int =
                     gen->builder.CreateBitCast(one, gen->getInt32Type());
                 auto* maskf_as_int =
                     gen->builder.CreateAnd(ext_mask, one_as_int);
                 auto* maskf = gen->builder.CreateBitCast(maskf_as_int,
-                                                          gen->getFloatType());
+                                                         gen->getFloatType());
                 emm0 = gen->builder.CreateFSub(emm0, maskf);
                 x = gen->builder.CreateFAdd(x, etmp);
                 auto* z = gen->builder.CreateFMul(x, x);
-                auto* fma_intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
-                    gen->module, llvm::Intrinsic::fma, gen->getFloatType());
                 llvm::Value* y = log_p0;
-                y = gen->builder.CreateCall(fma_intrinsic, {y, x, log_p1});
-                y = gen->builder.CreateCall(fma_intrinsic, {y, x, log_p2});
-                y = gen->builder.CreateCall(fma_intrinsic, {y, x, log_p3});
-                y = gen->builder.CreateCall(fma_intrinsic, {y, x, log_p4});
-                y = gen->builder.CreateCall(fma_intrinsic, {y, x, log_p5});
-                y = gen->builder.CreateCall(fma_intrinsic, {y, x, log_p6});
-                y = gen->builder.CreateCall(fma_intrinsic, {y, x, log_p7});
-                y = gen->builder.CreateCall(fma_intrinsic, {y, x, log_p8});
+                y = gen->createIntrinsicCall(llvm::Intrinsic::fma,
+                                             {y, x, log_p1});
+                y = gen->createIntrinsicCall(llvm::Intrinsic::fma,
+                                             {y, x, log_p2});
+                y = gen->createIntrinsicCall(llvm::Intrinsic::fma,
+                                             {y, x, log_p3});
+                y = gen->createIntrinsicCall(llvm::Intrinsic::fma,
+                                             {y, x, log_p4});
+                y = gen->createIntrinsicCall(llvm::Intrinsic::fma,
+                                             {y, x, log_p5});
+                y = gen->createIntrinsicCall(llvm::Intrinsic::fma,
+                                             {y, x, log_p6});
+                y = gen->createIntrinsicCall(llvm::Intrinsic::fma,
+                                             {y, x, log_p7});
+                y = gen->createIntrinsicCall(llvm::Intrinsic::fma,
+                                             {y, x, log_p8});
                 y = gen->builder.CreateFMul(y, x);
                 y = gen->builder.CreateFMul(y, z);
-                y = gen->builder.CreateCall(fma_intrinsic, {emm0, log_q1, y});
-                y = gen->builder.CreateCall(fma_intrinsic, {z, neg_half, y});
+                y = gen->createIntrinsicCall(llvm::Intrinsic::fma,
+                                             {emm0, log_q1, y});
+                y = gen->createIntrinsicCall(llvm::Intrinsic::fma,
+                                             {z, neg_half, y});
                 x = gen->builder.CreateFAdd(x, y);
-                x = gen->builder.CreateCall(fma_intrinsic, {emm0, log_q2, x});
+                x = gen->createIntrinsicCall(llvm::Intrinsic::fma,
+                                             {emm0, log_q2, x});
                 x_as_int = gen->builder.CreateBitCast(x, gen->getInt32Type());
                 auto* ext_is_one =
                     gen->builder.CreateSExt(is_one, gen->getInt32Type());
@@ -346,7 +355,7 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Log> {
                 auto* result_as_int =
                     gen->builder.CreateAnd(not_ext_is_one, x_as_int);
                 x = gen->builder.CreateBitCast(result_as_int,
-                                                gen->getFloatType());
+                                               gen->getFloatType());
                 return x;
             });
     }
@@ -384,26 +393,24 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Sin> {
                 llvm::Value* t4 = gen->builder.CreateShl(t2i, 31);
                 sign = gen->builder.CreateXor(sign, t4);
                 t2 = gen->builder.CreateSIToFP(t2i, float_ty);
-                auto* fma_intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
-                    gen->module, llvm::Intrinsic::fma, {float_ty});
-                t1 = gen->builder.CreateCall(
-                    fma_intrinsic,
+                t1 = gen->createIntrinsicCall(
+                    llvm::Intrinsic::fma,
                     {t2, gen->builder.CreateFNeg(float_pi1), t1});
-                t1 = gen->builder.CreateCall(
-                    fma_intrinsic,
+                t1 = gen->createIntrinsicCall(
+                    llvm::Intrinsic::fma,
                     {t2, gen->builder.CreateFNeg(float_pi2), t1});
-                t1 = gen->builder.CreateCall(
-                    fma_intrinsic,
+                t1 = gen->createIntrinsicCall(
+                    llvm::Intrinsic::fma,
                     {t2, gen->builder.CreateFNeg(float_pi3), t1});
-                t1 = gen->builder.CreateCall(
-                    fma_intrinsic,
+                t1 = gen->createIntrinsicCall(
+                    llvm::Intrinsic::fma,
                     {t2, gen->builder.CreateFNeg(float_pi4), t1});
                 t2 = gen->builder.CreateFMul(t1, t1);
-                llvm::Value* t3 = gen->builder.CreateCall(
-                    fma_intrinsic, {t2, float_sinC9, float_sinC7});
-                t3 = gen->builder.CreateCall(fma_intrinsic,
+                llvm::Value* t3 = gen->createIntrinsicCall(
+                    llvm::Intrinsic::fma, {t2, float_sinC9, float_sinC7});
+                t3 = gen->createIntrinsicCall(llvm::Intrinsic::fma,
                                               {t3, t2, float_sinC5});
-                t3 = gen->builder.CreateCall(fma_intrinsic,
+                t3 = gen->createIntrinsicCall(llvm::Intrinsic::fma,
                                               {t3, t2, float_sinC3});
                 t3 = gen->builder.CreateFMul(t3, t2);
                 t3 = gen->builder.CreateFMul(t3, t1);
@@ -448,28 +455,26 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Cos> {
                 llvm::Value* t4 = gen->builder.CreateShl(t2i, 31);
                 sign = gen->builder.CreateXor(sign, t4);
                 t2 = gen->builder.CreateSIToFP(t2i, float_ty);
-                auto* fma_intrinsic = llvm::Intrinsic::getOrInsertDeclaration(
-                    gen->module, llvm::Intrinsic::fma, {float_ty});
-                t1 = gen->builder.CreateCall(
-                    fma_intrinsic,
+                t1 = gen->createIntrinsicCall(
+                    llvm::Intrinsic::fma,
                     {t2, gen->builder.CreateFNeg(float_pi1), t1});
-                t1 = gen->builder.CreateCall(
-                    fma_intrinsic,
+                t1 = gen->createIntrinsicCall(
+                    llvm::Intrinsic::fma,
                     {t2, gen->builder.CreateFNeg(float_pi2), t1});
-                t1 = gen->builder.CreateCall(
-                    fma_intrinsic,
+                t1 = gen->createIntrinsicCall(
+                    llvm::Intrinsic::fma,
                     {t2, gen->builder.CreateFNeg(float_pi3), t1});
-                t1 = gen->builder.CreateCall(
-                    fma_intrinsic,
+                t1 = gen->createIntrinsicCall(
+                    llvm::Intrinsic::fma,
                     {t2, gen->builder.CreateFNeg(float_pi4), t1});
                 t2 = gen->builder.CreateFMul(t1, t1);
-                llvm::Value* t3 = gen->builder.CreateCall(
-                    fma_intrinsic, {t2, float_cosC8, float_cosC6});
-                t3 = gen->builder.CreateCall(fma_intrinsic,
+                llvm::Value* t3 = gen->createIntrinsicCall(
+                    llvm::Intrinsic::fma, {t2, float_cosC8, float_cosC6});
+                t3 = gen->createIntrinsicCall(llvm::Intrinsic::fma,
                                               {t3, t2, float_cosC4});
-                t3 = gen->builder.CreateCall(fma_intrinsic,
+                t3 = gen->createIntrinsicCall(llvm::Intrinsic::fma,
                                               {t3, t2, float_cosC2});
-                t1 = gen->builder.CreateCall(fma_intrinsic,
+                t1 = gen->createIntrinsicCall(llvm::Intrinsic::fma,
                                               {t3, t2, one_float});
                 llvm::Value* t1_as_int =
                     gen->builder.CreateBitCast(t1, int32_ty);
