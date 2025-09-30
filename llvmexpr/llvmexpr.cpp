@@ -531,6 +531,7 @@ static const std::vector<TokenInfo> token_definitions = {
             data.prop_name = m[3].str();
             return data;
         }),
+
     define_regex(
         TokenType::NUMBER, "number", TokenBehavior{0, 1},
         std::regex(
@@ -545,57 +546,6 @@ static const std::vector<TokenInfo> token_definitions = {
             }
             return TokenPayload_Number{val};
         })};
-
-class VectorizationDiagnosticHandler {
-  public:
-    VectorizationDiagnosticHandler()
-        : vectorization_failed_(false), original_handler_(nullptr),
-          original_context_(nullptr) {}
-
-    void
-    setOriginalHandler(llvm::DiagnosticHandler::DiagnosticHandlerTy handler,
-                       void* context) {
-        original_handler_ = handler;
-        original_context_ = context;
-    }
-
-    void handleDiagnostic(const llvm::DiagnosticInfo& DI) {
-        bool should_suppress = false;
-
-        if (DI.getSeverity() == llvm::DS_Remark ||
-            DI.getSeverity() == llvm::DS_Warning) {
-            std::string msg;
-            llvm::raw_string_ostream stream(msg);
-            llvm::DiagnosticPrinterRawOStream printer(stream);
-            DI.print(printer);
-
-            if (msg.find("loop not vectorized") != std::string::npos) {
-                vectorization_failed_.store(true);
-                should_suppress = true;
-            }
-        }
-
-        // Call original handler for all diagnostics except "loop not vectorized"
-        if (!should_suppress && original_handler_) {
-            original_handler_(&DI, original_context_);
-        }
-    }
-
-    bool hasVectorizationFailed() const { return vectorization_failed_.load(); }
-
-    void reset() { vectorization_failed_.store(false); }
-
-    static void diagnosticHandlerCallback(const llvm::DiagnosticInfo* DI,
-                                          void* Context) {
-        static_cast<VectorizationDiagnosticHandler*>(Context)->handleDiagnostic(
-            *DI);
-    }
-
-  private:
-    std::atomic<bool> vectorization_failed_;
-    llvm::DiagnosticHandler::DiagnosticHandlerTy original_handler_;
-    void* original_context_;
-};
 
 std::vector<Token> tokenize(const std::string& expr, int num_inputs) {
     std::vector<Token> tokens;
@@ -816,6 +766,57 @@ std::unordered_map<std::string, CompiledFunction> jit_cache;
 std::mutex cache_mutex;
 OrcJit global_jit_fast(true);
 OrcJit global_jit_nan_safe(false);
+
+class VectorizationDiagnosticHandler {
+  public:
+    VectorizationDiagnosticHandler()
+        : vectorization_failed(false), original_handler(nullptr),
+          original_context(nullptr) {}
+
+    void
+    setOriginalHandler(llvm::DiagnosticHandler::DiagnosticHandlerTy handler,
+                       void* context) {
+        original_handler = handler;
+        original_context = context;
+    }
+
+    void handleDiagnostic(const llvm::DiagnosticInfo& DI) {
+        bool should_suppress = false;
+
+        if (DI.getSeverity() == llvm::DS_Remark ||
+            DI.getSeverity() == llvm::DS_Warning) {
+            std::string msg;
+            llvm::raw_string_ostream stream(msg);
+            llvm::DiagnosticPrinterRawOStream printer(stream);
+            DI.print(printer);
+
+            if (msg.find("loop not vectorized") != std::string::npos) {
+                vectorization_failed.store(true);
+                should_suppress = true;
+            }
+        }
+
+        // Call original handler for all diagnostics except "loop not vectorized"
+        if (!should_suppress && original_handler) {
+            original_handler(&DI, original_context);
+        }
+    }
+
+    bool hasVectorizationFailed() const { return vectorization_failed.load(); }
+
+    void reset() { vectorization_failed.store(false); }
+
+    static void diagnosticHandlerCallback(const llvm::DiagnosticInfo* DI,
+                                          void* Context) {
+        static_cast<VectorizationDiagnosticHandler*>(Context)->handleDiagnostic(
+            *DI);
+    }
+
+  private:
+    std::atomic<bool> vectorization_failed;
+    llvm::DiagnosticHandler::DiagnosticHandlerTy original_handler;
+    void* original_context;
+};
 
 class Compiler {
   private:
