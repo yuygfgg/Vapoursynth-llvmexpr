@@ -122,7 +122,7 @@ class IRGenerator {
                                             llvm::Value* x, int rel_x,
                                             bool use_mirror,
                                             bool no_x_bounds_check);
-    void add_vectorization_metadata(llvm::BranchInst* loop_br);
+    void add_loop_metadata(llvm::BranchInst* loop_br);
     void generate_loops();
     void generate_x_loop_body(llvm::Value* x_var, llvm::Value* x_fp_var,
                               llvm::Value* y_var, llvm::Value* y_fp_var,

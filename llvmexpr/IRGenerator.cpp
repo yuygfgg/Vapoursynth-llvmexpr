@@ -262,7 +262,7 @@ llvm::Value* IRGenerator::generate_load_from_row_ptr(llvm::Value* row_ptr,
     }
 }
 
-void IRGenerator::add_vectorization_metadata(llvm::BranchInst* loop_br) {
+void IRGenerator::add_loop_metadata(llvm::BranchInst* loop_br) {
     llvm::StringMap<bool> host_features = llvm::sys::getHostCPUFeatures();
     unsigned simd_width = 4;
     if (!host_features.empty()) {
@@ -273,23 +273,23 @@ void IRGenerator::add_vectorization_metadata(llvm::BranchInst* loop_br) {
         }
     }
 
-    llvm::Metadata* vec_width_md[] = {
-        llvm::MDString::get(context, "llvm.loop.vectorize.width"),
-        llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(
-            llvm::Type::getInt32Ty(context), simd_width))};
-    llvm::MDNode* vec_width_node = llvm::MDNode::get(context, vec_width_md);
+    auto create_md_node = [this](const char* name, llvm::Type* type,
+                                 uint64_t value) -> llvm::MDNode* {
+        llvm::Metadata* md[] = {
+            llvm::MDString::get(context, name),
+            llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(type, value))};
+        return llvm::MDNode::get(context, md);
+    };
 
-    llvm::Metadata* enable_vec[] = {
-        llvm::MDString::get(context, "llvm.loop.vectorize.enable"),
-        llvm::ConstantAsMetadata::get(
-            llvm::ConstantInt::get(llvm::Type::getInt1Ty(context), 1))};
-    llvm::MDNode* enable_vec_node = llvm::MDNode::get(context, enable_vec);
+    llvm::MDNode* vec_width_node =
+        create_md_node("llvm.loop.vectorize.width",
+                       llvm::Type::getInt32Ty(context), simd_width);
 
-    llvm::Metadata* interleave_md[] = {
-        llvm::MDString::get(context, "llvm.loop.interleave.count"),
-        llvm::ConstantAsMetadata::get(
-            llvm::ConstantInt::get(llvm::Type::getInt32Ty(context), 4))};
-    llvm::MDNode* interleave_node = llvm::MDNode::get(context, interleave_md);
+    llvm::MDNode* enable_vec_node = create_md_node(
+        "llvm.loop.vectorize.enable", llvm::Type::getInt1Ty(context), 1);
+
+    llvm::MDNode* interleave_node = create_md_node(
+        "llvm.loop.interleave.count", llvm::Type::getInt32Ty(context), 4);
 
     llvm::SmallVector<llvm::Metadata*, 5> loop_md_elems;
     loop_md_elems.push_back(nullptr); // to be replaced with self reference
@@ -443,7 +443,7 @@ void IRGenerator::generate_loops() {
         llvm::Value* cond = builder.CreateICmpSLT(x_val, start_main_x);
         llvm::BranchInst* left_peel_br =
             builder.CreateCondBr(cond, left_peel_body, after_left_peel);
-        add_vectorization_metadata(left_peel_br);
+        add_loop_metadata(left_peel_br);
 
         builder.SetInsertPoint(left_peel_body);
         generate_x_loop_body(x_var, x_fp_var, y_var, y_fp_var, false);
@@ -467,7 +467,7 @@ void IRGenerator::generate_loops() {
 
     llvm::BranchInst* loop_br =
         builder.CreateCondBr(main_cond, main_loop_body, after_main_loop);
-    add_vectorization_metadata(loop_br);
+    add_loop_metadata(loop_br);
 
     builder.SetInsertPoint(main_loop_body);
     generate_x_loop_body(x_var, x_fp_var, y_var, y_fp_var, true);
@@ -488,7 +488,7 @@ void IRGenerator::generate_loops() {
         llvm::Value* cond = builder.CreateICmpSLT(x_val, width_val);
         llvm::BranchInst* right_peel_br =
             builder.CreateCondBr(cond, right_peel_body, loop_x_exit_bb);
-        add_vectorization_metadata(right_peel_br);
+        add_loop_metadata(right_peel_br);
 
         builder.SetInsertPoint(right_peel_body);
         generate_x_loop_body(x_var, x_fp_var, y_var, y_fp_var, false);
