@@ -43,17 +43,14 @@ Compiler::Compiler(std::vector<Token>&& tokens_in, const VSVideoInfo* out_vi,
                    int height_in, bool mirror, std::string dump_path,
                    const std::map<std::pair<int, std::string>, int>& p_map,
                    std::string function_name, int opt_level_in,
-                   int approx_math_in, std::vector<CFGBlock>&& cfg_blocks_in,
-                   std::map<std::string, int>&& label_to_block_idx_in,
-                   std::vector<int>&& stack_depth_in_in)
+                   int approx_math_in,
+                   ExpressionAnalysisResults&& analysis_results_in)
     : tokens(std::move(tokens_in)), vo(out_vi), vi(in_vi),
       num_inputs(in_vi.size()), width(width_in), height(height_in),
       mirror_boundary(mirror), dump_ir_path(std::move(dump_path)),
       prop_map(p_map), func_name(std::move(function_name)),
       opt_level(opt_level_in), approx_math(approx_math_in),
-      cfg_blocks(std::move(cfg_blocks_in)),
-      label_to_block_idx(std::move(label_to_block_idx_in)),
-      stack_depth_in(std::move(stack_depth_in_in)) {}
+      analysis_results(std::move(analysis_results_in)) {}
 
 CompiledFunction Compiler::compile() {
     if (approx_math == 2) {
@@ -97,9 +94,8 @@ CompiledFunction Compiler::compile_with_approx_math(int actual_approx_math) {
 
     // Create IR generator and generate code
     IRGenerator ir_gen(tokens, vo, vi, width, height, mirror_boundary, prop_map,
-                       cfg_blocks, label_to_block_idx, stack_depth_in, *context,
-                       *module, builder, math_manager, func_name,
-                       actual_approx_math);
+                       analysis_results, *context, *module, builder,
+                       math_manager, func_name, actual_approx_math);
     ir_gen.generate();
 
     // Get the generated function and set attributes
@@ -213,12 +209,10 @@ CompiledFunction Compiler::compile_with_approx_math(int actual_approx_math) {
     // Handle vectorization fallback
     if (diagnostic_handler.hasVectorizationFailed() && approx_math == 2 &&
         actual_approx_math == 1) {
-        Compiler fallback_compiler(
-            std::vector<Token>(tokens), vo, vi, width, height, mirror_boundary,
-            dump_ir_path, prop_map, func_name, opt_level, approx_math,
-            std::vector<CFGBlock>(cfg_blocks),
-            std::map<std::string, int>(label_to_block_idx),
-            std::vector<int>(stack_depth_in));
+        Compiler fallback_compiler(std::vector<Token>(tokens), vo, vi, width,
+                                   height, mirror_boundary, dump_ir_path,
+                                   prop_map, func_name, opt_level, approx_math,
+                                   ExpressionAnalysisResults(analysis_results));
         return fallback_compiler.compile_with_approx_math(0);
     }
 

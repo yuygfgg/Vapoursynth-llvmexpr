@@ -47,7 +47,7 @@ struct ExprData {
     int num_inputs;
 
     PlaneOp plane_op[3] = {};
-    std::string expr_strs[3];
+    std::string expr_strs[3]; // TODO: Remove this since we have tokens
     CompiledFunction compiled[3];
     bool mirror_boundary;
     std::string dump_ir_path;
@@ -58,9 +58,7 @@ struct ExprData {
     std::map<std::pair<int, std::string>, int> prop_map;
 
     std::vector<Token> tokens[3];
-    std::vector<CFGBlock> cfg_blocks[3];
-    std::map<std::string, int> label_to_block_idx[3];
-    std::vector<int> stack_depth_in[3];
+    ExpressionAnalysisResults analysis_results[3];
 };
 
 std::string
@@ -192,10 +190,8 @@ const VSFrame* VS_CC exprGetFrame(int n, int activationReason,
                                 vi, width, height, d->mirror_boundary,
                                 d->dump_ir_path, d->prop_map, func_name,
                                 d->opt_level, d->approx_math,
-                                std::vector<CFGBlock>(d->cfg_blocks[plane]),
-                                std::map<std::string, int>(
-                                    d->label_to_block_idx[plane]),
-                                std::vector<int>(d->stack_depth_in[plane]));
+                                ExpressionAnalysisResults(
+                                    d->analysis_results[plane]));
                             jit_cache[key] = compiler.compile();
                         } catch (const std::exception& e) {
                             std::string error_msg = std::format(
@@ -300,7 +296,6 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
             expr_strs[i] = expr_strs[nexpr - 1];
         }
 
-        // Tokenize, validate, and extract properties
         for (int i = 0; i < d->vi.format.numPlanes; ++i) {
             if (expr_strs[i].empty()) {
                 d->plane_op[i] = PO_COPY;
@@ -327,9 +322,7 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
 
             ExpressionAnalyser analyser(d->tokens[i]);
             analyser.run();
-            d->cfg_blocks[i] = analyser.getCFGBlocks();
-            d->label_to_block_idx[i] = analyser.getLabelToBlockIdx();
-            d->stack_depth_in[i] = analyser.getStackDepthIn();
+            d->analysis_results[i] = analyser.getResults();
         }
 
         d->mirror_boundary = vsapi->mapGetInt(in, "boundary", 0, &err) != 0;

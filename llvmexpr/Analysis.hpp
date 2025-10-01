@@ -49,6 +49,12 @@ struct RelYAccess {
     }
 };
 
+struct ExpressionAnalysisResults {
+    std::vector<CFGBlock> cfg_blocks;
+    std::map<std::string, int> label_to_block_idx;
+    std::vector<int> stack_depth_in;
+};
+
 class ExpressionAnalyser {
   public:
     ExpressionAnalyser(const std::vector<Token>& tokens);
@@ -56,18 +62,12 @@ class ExpressionAnalyser {
     // Run the analysis
     void run();
 
-    // Getters for results
-    const std::vector<CFGBlock>& getCFGBlocks() const { return cfg_blocks; }
-    const std::map<std::string, int>& getLabelToBlockIdx() const {
-        return label_to_block_idx;
-    }
-    const std::vector<int>& getStackDepthIn() const { return stack_depth_in; }
+    // Getter for results
+    const ExpressionAnalysisResults& getResults() const { return results; }
 
   private:
     const std::vector<Token>& tokens;
-    std::vector<CFGBlock> cfg_blocks;
-    std::map<std::string, int> label_to_block_idx;
-    std::vector<int> stack_depth_in;
+    ExpressionAnalysisResults results;
 
     void validate_and_build_cfg();
 };

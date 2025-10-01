@@ -41,9 +41,7 @@ class IRGenerator {
                 const std::vector<const VSVideoInfo*>& in_vi, int width_in,
                 int height_in, bool mirror,
                 const std::map<std::pair<int, std::string>, int>& p_map,
-                const std::vector<CFGBlock>& cfg_blocks_in,
-                const std::map<std::string, int>& label_to_block_idx_in,
-                const std::vector<int>& stack_depth_in_in,
+                const ExpressionAnalysisResults& analysis_results_in,
                 llvm::LLVMContext& context_ref, llvm::Module& module_ref,
                 llvm::IRBuilder<>& builder_ref, MathLibraryManager& math_mgr,
                 std::string func_name_in, int approx_math_in);
@@ -61,9 +59,7 @@ class IRGenerator {
     int height;
     bool mirror_boundary;
     const std::map<std::pair<int, std::string>, int>& prop_map;
-    const std::vector<CFGBlock>& cfg_blocks;
-    const std::map<std::string, int>& label_to_block_idx;
-    const std::vector<int>& stack_depth_in;
+    const ExpressionAnalysisResults& analysis_results;
     std::string func_name;
     int approx_math;
 

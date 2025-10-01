@@ -48,21 +48,18 @@ IRGenerator::IRGenerator(
     const std::vector<Token>& tokens_in, const VSVideoInfo* out_vi,
     const std::vector<const VSVideoInfo*>& in_vi, int width_in, int height_in,
     bool mirror, const std::map<std::pair<int, std::string>, int>& p_map,
-    const std::vector<CFGBlock>& cfg_blocks_in,
-    const std::map<std::string, int>& label_to_block_idx_in,
-    const std::vector<int>& stack_depth_in_in, llvm::LLVMContext& context_ref,
-    llvm::Module& module_ref, llvm::IRBuilder<>& builder_ref,
-    MathLibraryManager& math_mgr, std::string func_name_in, int approx_math_in)
+    const ExpressionAnalysisResults& analysis_results_in,
+    llvm::LLVMContext& context_ref, llvm::Module& module_ref,
+    llvm::IRBuilder<>& builder_ref, MathLibraryManager& math_mgr,
+    std::string func_name_in, int approx_math_in)
     : tokens(tokens_in), vo(out_vi), vi(in_vi), num_inputs(in_vi.size()),
       width(width_in), height(height_in), mirror_boundary(mirror),
-      prop_map(p_map), cfg_blocks(cfg_blocks_in),
-      label_to_block_idx(label_to_block_idx_in),
-      stack_depth_in(stack_depth_in_in), func_name(std::move(func_name_in)),
-      approx_math(approx_math_in), context(context_ref), module(module_ref),
-      builder(builder_ref), math_manager(math_mgr), func(nullptr),
-      rwptrs_arg(nullptr), strides_arg(nullptr), props_arg(nullptr),
-      alias_scope_domain(nullptr), min_rel_x(0), max_rel_x(0), uses_x(false),
-      uses_y(false) {
+      prop_map(p_map), analysis_results(analysis_results_in),
+      func_name(std::move(func_name_in)), approx_math(approx_math_in),
+      context(context_ref), module(module_ref), builder(builder_ref),
+      math_manager(math_mgr), func(nullptr), rwptrs_arg(nullptr),
+      strides_arg(nullptr), props_arg(nullptr), alias_scope_domain(nullptr),
+      min_rel_x(0), max_rel_x(0), uses_x(false), uses_y(false) {
 
     for (const auto& token : tokens) {
         if (token.type == TokenType::CONSTANT_X)
@@ -654,9 +651,10 @@ void IRGenerator::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
 
     // Create all Basic Blocks
     std::map<int, llvm::BasicBlock*> llvm_blocks;
-    for (size_t i = 0; i < cfg_blocks.size(); ++i) {
+    for (size_t i = 0; i < analysis_results.cfg_blocks.size(); ++i) {
         std::string name = std::format("b{}", i);
-        for (const auto& [label_name, block_idx] : label_to_block_idx) {
+        for (const auto& [label_name, block_idx] :
+             analysis_results.label_to_block_idx) {
             if (block_idx == static_cast<int>(i)) {
                 name = label_name;
                 break;
@@ -672,14 +670,15 @@ void IRGenerator::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
 
     // Initial PHI generation for merge blocks
     std::map<int, std::vector<llvm::Value*>> block_initial_stacks;
-    for (size_t i = 0; i < cfg_blocks.size(); ++i) {
-        if (cfg_blocks[i].predecessors.size() > 1) {
+    for (size_t i = 0; i < analysis_results.cfg_blocks.size(); ++i) {
+        if (analysis_results.cfg_blocks[i].predecessors.size() > 1) {
             builder.SetInsertPoint(llvm_blocks[i]);
             std::vector<llvm::Value*> initial_stack;
-            int depth = stack_depth_in[i];
+            int depth = analysis_results.stack_depth_in[i];
             for (int j = 0; j < depth; ++j) {
                 initial_stack.push_back(builder.CreatePHI(
-                    float_ty, cfg_blocks[i].predecessors.size()));
+                    float_ty,
+                    analysis_results.cfg_blocks[i].predecessors.size()));
             }
             block_initial_stacks[i] = initial_stack;
         }
@@ -688,8 +687,8 @@ void IRGenerator::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
     // Process blocks
     std::map<int, std::vector<llvm::Value*>> block_final_stacks;
 
-    for (size_t i = 0; i < cfg_blocks.size(); ++i) {
-        const auto& block_info = cfg_blocks[i];
+    for (size_t i = 0; i < analysis_results.cfg_blocks.size(); ++i) {
+        const auto& block_info = analysis_results.cfg_blocks[i];
         builder.SetInsertPoint(llvm_blocks[i]);
 
         std::vector<llvm::Value*> rpn_stack;
@@ -1327,10 +1326,10 @@ void IRGenerator::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
     }
 
     // Populate PHI nodes
-    for (size_t i = 0; i < cfg_blocks.size(); ++i) {
-        if (cfg_blocks[i].predecessors.size() > 1) {
+    for (size_t i = 0; i < analysis_results.cfg_blocks.size(); ++i) {
+        if (analysis_results.cfg_blocks[i].predecessors.size() > 1) {
             auto& phis = block_initial_stacks.at(i);
-            for (int pred_idx : cfg_blocks[i].predecessors) {
+            for (int pred_idx : analysis_results.cfg_blocks[i].predecessors) {
                 auto& incoming_stack = block_final_stacks.at(pred_idx);
                 auto* incoming_block = llvm_blocks.at(pred_idx);
                 for (size_t j = 0; j < phis.size(); ++j) {
@@ -1348,8 +1347,9 @@ void IRGenerator::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
     // Final Result PHI
     builder.SetInsertPoint(exit_bb);
     std::vector<std::pair<llvm::Value*, llvm::BasicBlock*>> final_values;
-    for (size_t i = 0; i < cfg_blocks.size(); ++i) {
-        if (cfg_blocks[i].successors.empty()) { // Terminal block
+    for (size_t i = 0; i < analysis_results.cfg_blocks.size(); ++i) {
+        if (analysis_results.cfg_blocks[i]
+                .successors.empty()) { // Terminal block
             final_values.push_back(
                 {block_final_stacks.at(i).back(), llvm_blocks.at(i)});
         }

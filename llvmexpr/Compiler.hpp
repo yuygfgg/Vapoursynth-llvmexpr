@@ -37,9 +37,7 @@ class Compiler {
              int height_in, bool mirror, std::string dump_path,
              const std::map<std::pair<int, std::string>, int>& p_map,
              std::string function_name, int opt_level_in, int approx_math_in,
-             std::vector<CFGBlock>&& cfg_blocks_in,
-             std::map<std::string, int>&& label_to_block_idx_in,
-             std::vector<int>&& stack_depth_in_in);
+             ExpressionAnalysisResults&& analysis_results_in);
 
     CompiledFunction compile();
 
@@ -58,9 +56,7 @@ class Compiler {
     int approx_math;
 
     // Analysis results
-    std::vector<CFGBlock> cfg_blocks;
-    std::map<std::string, int> label_to_block_idx;
-    std::vector<int> stack_depth_in;
+    ExpressionAnalysisResults analysis_results;
 
     CompiledFunction compile_with_approx_math(int actual_approx_math);
 };
