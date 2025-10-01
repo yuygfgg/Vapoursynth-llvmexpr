@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 
-#include "VapourSynth.h"
+#include "VapourSynth4.h"
 
 #include "Jit.hpp"
 #include "Tokenizer.hpp"

@@ -223,8 +223,8 @@ llvm::Value* IRGenerator::generate_load_from_row_ptr(llvm::Value* row_ptr,
         final_x = get_final_coord(coord_x, builder.getInt32(width), use_mirror);
     }
 
-    const VSFormat* format = vinfo->format;
-    int bpp = format->bytesPerSample;
+    const VSVideoFormat& format = vinfo->format;
+    int bpp = format.bytesPerSample;
     int vs_clip_idx = clip_idx + 1;
 
     llvm::Value* x_offset = builder.CreateMul(final_x, builder.getInt32(bpp));
@@ -235,7 +235,7 @@ llvm::Value* IRGenerator::generate_load_from_row_ptr(llvm::Value* row_ptr,
     assumeAligned(pixel_addr, static_cast<unsigned>(pixel_align));
 
     llvm::Value* loaded_val;
-    if (format->sampleType == stInteger) {
+    if (format.sampleType == stInteger) {
         llvm::Type* load_type =
             bpp == 1 ? builder.getInt8Ty()
                      : (bpp == 2 ? builder.getInt16Ty() : builder.getInt32Ty());
@@ -561,8 +561,8 @@ llvm::Value* IRGenerator::generate_pixel_load(int clip_idx, llvm::Value* x,
 
 void IRGenerator::generate_pixel_store(llvm::Value* value_to_store,
                                        llvm::Value* x, llvm::Value* y) {
-    const VSFormat* format = vo->format;
-    int bpp = format->bytesPerSample;
+    const VSVideoFormat& format = vo->format;
+    int bpp = format.bytesPerSample;
     int dst_idx = 0;
 
     llvm::Value* base_ptr = preloaded_base_ptrs[dst_idx];
@@ -578,8 +578,8 @@ void IRGenerator::generate_pixel_store(llvm::Value* value_to_store,
     assumeAligned(pixel_addr, static_cast<unsigned>(pixel_align));
 
     llvm::Value* final_val;
-    if (format->sampleType == stInteger) {
-        int max_val = (1 << format->bitsPerSample) - 1;
+    if (format.sampleType == stInteger) {
+        int max_val = (1 << format.bitsPerSample) - 1;
         llvm::Value* zero_f = llvm::ConstantFP::get(builder.getFloatTy(), 0.0);
         llvm::Value* max_f = llvm::ConstantFP::get(
             builder.getFloatTy(), static_cast<double>(max_val));

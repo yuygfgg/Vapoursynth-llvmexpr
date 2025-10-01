@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 
-#include "VapourSynth.h"
+#include "VapourSynth4.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/LLVMContext.h"
