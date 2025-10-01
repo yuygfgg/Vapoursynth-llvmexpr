@@ -26,36 +26,24 @@
 
 #include "VapourSynth4.h"
 
+#include "Analysis.hpp"
 #include "Jit.hpp"
 #include "Tokenizer.hpp"
 
 class Compiler {
   public:
-    // Constructor for compilation
     Compiler(std::vector<Token>&& tokens_in, const VSVideoInfo* out_vi,
              const std::vector<const VSVideoInfo*>& in_vi, int width_in,
              int height_in, bool mirror, std::string dump_path,
              const std::map<std::pair<int, std::string>, int>& p_map,
-             std::string function_name, int opt_level_in, int approx_math_in);
-
-    // Constructor for validation only
-    Compiler(std::vector<Token>&& tokens_in, const VSVideoInfo* out_vi,
-             const std::vector<const VSVideoInfo*>& in_vi, int width_in,
-             int height_in, bool mirror,
-             const std::map<std::pair<int, std::string>, int>& p_map);
+             std::string function_name, int opt_level_in, int approx_math_in,
+             std::vector<CFGBlock>&& cfg_blocks_in,
+             std::map<std::string, int>&& label_to_block_idx_in,
+             std::vector<int>&& stack_depth_in_in);
 
     CompiledFunction compile();
-    void validate();
 
   private:
-    // Base constructor
-    Compiler(std::vector<Token>&& tokens_in, const VSVideoInfo* out_vi,
-             const std::vector<const VSVideoInfo*>& in_vi, int width_in,
-             int height_in, bool mirror,
-             const std::map<std::pair<int, std::string>, int>& p_map,
-             bool is_validation, std::string dump_path = {},
-             std::string function_name = {}, int opt_level_in = 0,
-             int approx_math_in = 0);
     std::vector<Token> tokens;
     const VSVideoInfo* vo;
     const std::vector<const VSVideoInfo*>& vi;
@@ -66,9 +54,13 @@ class Compiler {
     std::string dump_ir_path;
     const std::map<std::pair<int, std::string>, int>& prop_map;
     std::string func_name;
-    bool validate_only;
     int opt_level;
     int approx_math;
+
+    // Analysis results
+    std::vector<CFGBlock> cfg_blocks;
+    std::map<std::string, int> label_to_block_idx;
+    std::vector<int> stack_depth_in;
 
     CompiledFunction compile_with_approx_math(int actual_approx_math);
 };

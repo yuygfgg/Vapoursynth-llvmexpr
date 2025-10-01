@@ -30,6 +30,7 @@
 #include "VSHelper4.h"
 #include "VapourSynth4.h"
 
+#include "Analysis.hpp"
 #include "Compiler.hpp"
 #include "Jit.hpp"
 #include "Tokenizer.hpp"
@@ -55,6 +56,11 @@ struct ExprData {
 
     std::vector<std::pair<int, std::string>> required_props;
     std::map<std::pair<int, std::string>, int> prop_map;
+
+    std::vector<Token> tokens[3];
+    std::vector<CFGBlock> cfg_blocks[3];
+    std::map<std::string, int> label_to_block_idx[3];
+    std::vector<int> stack_depth_in[3];
 };
 
 std::string
@@ -169,7 +175,7 @@ const VSFrame* VS_CC exprGetFrame(int n, int activationReason,
                     for (int i = 0; i < d->num_inputs; ++i) {
                         vi[i] = vsapi->getVideoInfo(d->nodes[i]);
                     }
-                    
+
                     const std::string key = generate_cache_key(
                         d->expr_strs[plane], &d->vi, vsapi, vi,
                         d->mirror_boundary, d->prop_map, width, height);
@@ -182,10 +188,14 @@ const VSFrame* VS_CC exprGetFrame(int n, int activationReason,
 
                         try {
                             Compiler compiler(
-                                tokenize(d->expr_strs[plane], d->num_inputs),
-                                &d->vi, vi, width, height, d->mirror_boundary,
+                                std::vector<Token>(d->tokens[plane]), &d->vi,
+                                vi, width, height, d->mirror_boundary,
                                 d->dump_ir_path, d->prop_map, func_name,
-                                d->opt_level, d->approx_math);
+                                d->opt_level, d->approx_math,
+                                std::vector<CFGBlock>(d->cfg_blocks[plane]),
+                                std::map<std::string, int>(
+                                    d->label_to_block_idx[plane]),
+                                std::vector<int>(d->stack_depth_in[plane]));
                             jit_cache[key] = compiler.compile();
                         } catch (const std::exception& e) {
                             std::string error_msg = std::format(
@@ -298,9 +308,9 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
             }
             d->plane_op[i] = PO_PROCESS;
             d->expr_strs[i] = expr_strs[i];
-            auto tokens = tokenize(d->expr_strs[i], d->num_inputs);
+            d->tokens[i] = tokenize(d->expr_strs[i], d->num_inputs);
 
-            for (const auto& token : tokens) {
+            for (const auto& token : d->tokens[i]) {
                 if (token.type == TokenType::PROP_ACCESS) {
                     const auto& payload =
                         std::get<TokenPayload_PropAccess>(token.payload);
@@ -315,14 +325,11 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
                 }
             }
 
-            const int w =
-                vi[0]->width >> (i > 0 ? d->vi.format.subSamplingW : 0);
-            const int h =
-                vi[0]->height >> (i > 0 ? d->vi.format.subSamplingH : 0);
-
-            Compiler validator(std::move(tokens), &d->vi, vi, w, h,
-                               d->mirror_boundary, d->prop_map);
-            validator.validate();
+            ExpressionAnalyser analyser(d->tokens[i]);
+            analyser.run();
+            d->cfg_blocks[i] = analyser.getCFGBlocks();
+            d->label_to_block_idx[i] = analyser.getLabelToBlockIdx();
+            d->stack_depth_in[i] = analyser.getStackDepthIn();
         }
 
         d->mirror_boundary = vsapi->mapGetInt(in, "boundary", 0, &err) != 0;
