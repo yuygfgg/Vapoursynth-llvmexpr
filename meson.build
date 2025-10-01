@@ -76,7 +76,14 @@ if static_llvm and host_machine.system() == 'windows'
 endif
 
 sources = [
-  'llvmexpr/llvmexpr.cpp'
+  'llvmexpr/llvmexpr.cpp',
+  'llvmexpr/Tokenizer.cpp',
+  'llvmexpr/Analysis.cpp',
+  'llvmexpr/IRGenerator.cpp',
+  'llvmexpr/Compiler.cpp',
+  'llvmexpr/Jit.cpp',
+  'llvmexpr/utils/Diagnostics.cpp',
+  'llvmexpr/utils/Sorting.cpp'
 ]
 
 shared_module('llvmexpr', sources,

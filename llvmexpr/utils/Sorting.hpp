@@ -20,6 +20,7 @@
 #include <array>
 #include <cstddef>
 #include <utility>
+#include <vector>
 
 using Comparator = std::pair<int, int>;
 
@@ -2112,3 +2113,9 @@ constexpr SortingNetworkView get_optimal_sorting_network(int n) {
     }
     return {};
 }
+
+// Odd-even merge sort network generation (fallback)
+void oem_merge_pairs(std::vector<std::pair<int, int>>& pairs, int lo, int n,
+                     int r);
+void generate_oem_sort_pairs(std::vector<std::pair<int, int>>& pairs, int lo,
+                             int n);

@@ -157,8 +157,9 @@ def generate_cpp_header(networks, output_path, source_url):
         " */",
         "",
         "#include <array>",
-        "#include <utility>",
         "#include <cstddef>",
+        "#include <utility>",
+        "#include <vector>",
         "",
         "using Comparator = std::pair<int, int>;",
         "",
@@ -215,6 +216,12 @@ def generate_cpp_header(networks, output_path, source_url):
             "    return {};",
             "}",
             "",
+            "// Odd-even merge sort network generation (fallback)",
+            "void oem_merge_pairs(std::vector<std::pair<int, int>>& pairs, int lo, int n,",
+            "                     int r);",
+            "void generate_oem_sort_pairs(std::vector<std::pair<int, int>>& pairs, int lo,",
+            "                             int n);",
+            "",
         ]
     )
 
@@ -235,7 +242,7 @@ def generate_cpp_header(networks, output_path, source_url):
 
 def main():
     source_url = "https://bertdobbelaere.github.io/sorting_networks_extended.html"
-    cpp_output_path = os.path.join("..", "llvmexpr", "optimal_sorting_networks.hpp")
+    cpp_output_path = os.path.join("..", "llvmexpr", "utils", "Sorting.hpp")
 
     html_content = fetch_html(source_url)
     networks_data = extract_optimal_networks_data(html_content)
