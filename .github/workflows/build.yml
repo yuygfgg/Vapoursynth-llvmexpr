@@ -141,7 +141,7 @@ jobs:
             library_name: libllvmexpr.so
 
           - name: macOS arm64
-            os: macos-14
+            os: macos-latest
             libc: ''
             artifact_name: llvmexpr-macos-arm64-static-llvm21
             library_name: libllvmexpr.dylib
