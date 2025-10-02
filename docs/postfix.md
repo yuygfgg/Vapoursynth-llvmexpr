@@ -135,7 +135,7 @@ These operators treat any value greater than 0 as `true`. They return `1.0` for 
 
 #### **3.4. Conditional Operator**
 
-- `?`: A ternary operator. `C A B ?` is equivalent to `C ? A : B`. If `C` is true (non-zero), `A` is evaluated and its result is pushed. Otherwise, `B` is evaluated and its result is pushed.
+- `?`: A ternary operator. `C A B ?` is equivalent to `C > 0 ? A : B`. If `C` is greater than 0, `A` is evaluated and its result is pushed. Otherwise, `B` is evaluated and its result is pushed.
   - **Example:** `x 128 > x 0 ?` (If the pixel value is greater than 128, keep it, otherwise set it to 0).
 
 #### **3.5. Min/Max & Clamping**
