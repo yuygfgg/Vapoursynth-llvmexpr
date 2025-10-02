@@ -236,10 +236,16 @@ def test_stack_manipulation() -> None:
     assert res_sort.get_frame(0)[0][0, 0] == pytest.approx(3.0)
 
 
-@pytest.mark.parametrize("n", [i for i in range(1, 65)] + [137, 279])
-def test_large_sort(n: int) -> None:
+_LARGE_SORT_TEST_DATA = []
+_rng = random.Random(42)
+for n in list(range(1, 65)) + [137, 279]:
+    numbers = [_rng.uniform(-1000, 1000) for _ in range(n)]
+    _LARGE_SORT_TEST_DATA.append((n, numbers))
+
+
+@pytest.mark.parametrize("n, numbers", _LARGE_SORT_TEST_DATA)
+def test_large_sort(n: int, numbers: list[float]) -> None:
     c0 = core.std.BlankClip(format=vs.GRAYS, color=0.0)
-    numbers = [random.uniform(-1000, 1000) for _ in range(n)]
     expr = " ".join(map(str, numbers)) + f" sort{n}"
 
     for i in range(n):
