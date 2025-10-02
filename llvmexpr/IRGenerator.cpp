@@ -1259,7 +1259,6 @@ void IRGenerator::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
                     values.push_back(rpn_stack.back());
                     rpn_stack.pop_back();
                 }
-                std::reverse(values.begin(), values.end());
 
                 auto compare_swap = [&](int i_idx, int j_idx) {
                     llvm::Value* val_i = values[i_idx];
