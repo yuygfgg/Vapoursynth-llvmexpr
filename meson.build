@@ -83,7 +83,6 @@ sources = [
   'llvmexpr/Compiler.cpp',
   'llvmexpr/Jit.cpp',
   'llvmexpr/utils/Diagnostics.cpp',
-  'llvmexpr/utils/Sorting.cpp'
 ]
 
 shared_module('llvmexpr', sources,

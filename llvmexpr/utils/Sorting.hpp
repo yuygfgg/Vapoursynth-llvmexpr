@@ -17,6 +17,7 @@
  * along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <utility>
@@ -2114,8 +2115,51 @@ constexpr SortingNetworkView get_optimal_sorting_network(int n) {
     return {};
 }
 
-// Odd-even merge sort network generation (fallback)
-void oem_merge_pairs(std::vector<std::pair<int, int>>& pairs, int lo, int n,
-                     int r);
-void generate_oem_sort_pairs(std::vector<std::pair<int, int>>& pairs, int lo,
-                             int n);
+constexpr void oem_merge_pairs(std::vector<std::pair<int, int>>& pairs, int lo,
+                               int n, int r) {
+    int m = r * 2;
+    if (m < n) {
+        oem_merge_pairs(pairs, lo, n, m);
+        oem_merge_pairs(pairs, lo + r, n, m);
+        for (int i = lo + r; i < lo + n - r; i += m) {
+            pairs.push_back({i, i + r});
+        }
+    } else {
+        pairs.push_back({lo, lo + r});
+    }
+}
+
+constexpr void generate_oem_sort_pairs(std::vector<std::pair<int, int>>& pairs,
+                                       int lo, int n) {
+    if (n > 1) {
+        int m = n / 2;
+        generate_oem_sort_pairs(pairs, lo, m);
+        generate_oem_sort_pairs(pairs, lo + m, m);
+        oem_merge_pairs(pairs, lo, n, 1);
+    }
+}
+
+constexpr void get_sorting_network(int n,
+                                   std::vector<std::pair<int, int>>& out) {
+    out.clear();
+
+    auto optimal = get_optimal_sorting_network(n);
+    if (!optimal.empty()) {
+        out.reserve(optimal.count);
+        for (const auto& comp : optimal) {
+            out.push_back(comp);
+        }
+        return;
+    }
+
+    int p = 1;
+    while (p < n)
+        p <<= 1;
+
+    generate_oem_sort_pairs(out, 0, p);
+
+    auto it = std::remove_if(out.begin(), out.end(), [n](const auto& pair) {
+        return pair.second >= n;
+    });
+    out.erase(it, out.end());
+}

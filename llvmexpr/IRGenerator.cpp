@@ -1271,24 +1271,10 @@ void IRGenerator::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
                         builder.CreateSelect(cond, val_i, val_j); // max
                 };
 
-                const auto network = get_optimal_sorting_network(n);
-                if (!network.empty()) {
-                    for (const auto& pair : network) {
-                        if (pair.second < n) { // Bounds check
-                            compare_swap(pair.first, pair.second);
-                        }
-                    }
-                } else {
-                    std::vector<std::pair<int, int>> pairs;
-                    int p = 1;
-                    while (p < n)
-                        p <<= 1;
-                    generate_oem_sort_pairs(pairs, 0, p);
-                    for (const auto& pair : pairs) {
-                        if (pair.second < n) {
-                            compare_swap(pair.first, pair.second);
-                        }
-                    }
+                std::vector<std::pair<int, int>> network;
+                get_sorting_network(n, network);
+                for (const auto& pair : network) {
+                    compare_swap(pair.first, pair.second);
                 }
 
                 for (int k = n - 1; k >= 0; --k) {
