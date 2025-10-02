@@ -17,6 +17,7 @@
  * along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <array>
 #include <bit>
 #include <format>
 #include <map>
@@ -46,9 +47,8 @@ struct ExprData {
     VSVideoInfo vi = {};
     int num_inputs;
 
-    PlaneOp plane_op[3] = {};
-    std::string expr_strs[3]; // TODO: Remove this since we have tokens
-    CompiledFunction compiled[3];
+    std::array<PlaneOp, 3> plane_op = {};
+    std::array<CompiledFunction, 3> compiled;
     bool mirror_boundary;
     std::string dump_ir_path;
     int opt_level;
@@ -57,8 +57,8 @@ struct ExprData {
     std::vector<std::pair<int, std::string>> required_props;
     std::map<std::pair<int, std::string>, int> prop_map;
 
-    std::vector<Token> tokens[3];
-    ExpressionAnalysisResults analysis_results[3];
+    std::array<std::vector<Token>, 3> tokens;
+    std::array<ExpressionAnalysisResults, 3> analysis_results;
 };
 
 std::string
@@ -174,8 +174,15 @@ const VSFrame* VS_CC exprGetFrame(int n, int activationReason,
                         vi[i] = vsapi->getVideoInfo(d->nodes[i]);
                     }
 
+                    std::string expr_str;
+                    for (const auto& token : d->tokens[plane]) {
+                        if (!expr_str.empty())
+                            expr_str += " ";
+                        expr_str += token.text;
+                    }
+
                     const std::string key = generate_cache_key(
-                        d->expr_strs[plane], &d->vi, vsapi, vi,
+                        expr_str, &d->vi, vsapi, vi,
                         d->mirror_boundary, d->prop_map, width, height);
 
                     std::lock_guard<std::mutex> lock(cache_mutex);
@@ -302,8 +309,7 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
                 continue;
             }
             d->plane_op[i] = PO_PROCESS;
-            d->expr_strs[i] = expr_strs[i];
-            d->tokens[i] = tokenize(d->expr_strs[i], d->num_inputs);
+            d->tokens[i] = tokenize(expr_strs[i], d->num_inputs);
 
             for (const auto& token : d->tokens[i]) {
                 if (token.type == TokenType::PROP_ACCESS) {
