@@ -85,7 +85,7 @@ if static_llvm
       }
     )
     link_args += ['-Wl,-exported_symbols_list,' + exported_symbols.full_path()]
-  elif host_machine.system() == 'windows'
+  elif host_machine.system() == 'windows' and not gcc_syntax
     def_file = configure_file(
       input: 'llvmexpr.def.in',
       output: 'llvmexpr.def',
@@ -93,11 +93,7 @@ if static_llvm
         'exports': 'EXPORTS\nVapourSynthPluginInit2'
       }
     )
-    if gcc_syntax
-      link_args += [def_file.full_path()]
-    else
-      link_args += ['/DEF:' + def_file.full_path()]
-    endif
+    link_args += ['/DEF:' + def_file.full_path()]
   else
     version_script = configure_file(
       input: 'llvmexpr.ver.in',
