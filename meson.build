@@ -94,7 +94,7 @@ if static_llvm
       }
     )
     if gcc_syntax
-      link_args += [def_file]
+      link_args += [def_file.full_path()]
     else
       link_args += ['/DEF:' + def_file.full_path()]
     endif
