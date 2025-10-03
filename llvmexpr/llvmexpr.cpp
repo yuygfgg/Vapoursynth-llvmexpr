@@ -182,8 +182,8 @@ const VSFrame* VS_CC exprGetFrame(int n, int activationReason,
                     }
 
                     const std::string key = generate_cache_key(
-                        expr_str, &d->vi, vsapi, vi,
-                        d->mirror_boundary, d->prop_map, width, height);
+                        expr_str, &d->vi, vsapi, vi, d->mirror_boundary,
+                        d->prop_map, width, height);
 
                     std::lock_guard<std::mutex> lock(cache_mutex);
                     if (!jit_cache.count(key)) {
@@ -371,7 +371,9 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
         deps.push_back({node, rpStrictSpatial});
     }
 
-    vsapi->createVideoFilter(out, "Expr", &d->vi, exprGetFrame, exprFree,
+    VSVideoInfo* vi_ptr = &d->vi;
+
+    vsapi->createVideoFilter(out, "Expr", vi_ptr, exprGetFrame, exprFree,
                              fmParallel, deps.data(), deps.size(), d.release(),
                              core);
 }
