@@ -75,6 +75,37 @@ if static_llvm and host_machine.system() == 'windows'
   link_args += '-static'
 endif
 
+if static_llvm
+  if host_machine.system() == 'darwin'
+    exported_symbols = configure_file(
+      input: 'llvmexpr.exp.in',
+      output: 'llvmexpr.exp',
+      configuration: {
+        'symbol': '_VapourSynthPluginInit2'
+      }
+    )
+    link_args += ['-Wl,-exported_symbols_list,' + 'llvmexpr.exp']
+  elif host_machine.system() == 'windows' and not gcc_syntax
+    plugin_init_def = configure_file(
+      input: 'llvmexpr.def.in',
+      output: 'llvmexpr.def',
+      configuration: {
+        'exports': 'EXPORTS\nVapourSynthPluginInit2'
+      }
+    )
+    link_args += ['/DEF:' + 'llvmexpr.def']
+  else
+    version_script = configure_file(
+      input: 'llvmexpr.ver.in',
+      output: 'llvmexpr.ver',
+      configuration: {
+        'symbol': 'VapourSynthPluginInit2'
+      }
+    )
+    link_args += ['-Wl,--version-script,' + 'llvmexpr.ver']
+  endif
+endif
+
 sources = [
   'llvmexpr/llvmexpr.cpp',
   'llvmexpr/Tokenizer.cpp',
