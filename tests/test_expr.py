@@ -174,15 +174,13 @@ def test_gh_11() -> None:
 
 
 @pytest.mark.parametrize(
-    "val, min_v, max_v, expected_max, expected_min",
+    "val, min_v, max_v",
     [
-        (5.0, 2.0, 8.0, 8.0, 2.0),
-        (1.0, 2.0, 8.0, 2.0, 1.0),
+        (5.0, 2.0, 8.0),
+        (1.0, 2.0, 8.0),
     ],
 )
-def test_min_max_clip(
-    val: float, min_v: float, max_v: float, expected_max: float, expected_min: float
-) -> None:
+def test_min_max_clip(val: float, min_v: float, max_v: float) -> None:
     c = core.std.BlankClip(format=vs.GRAYS, color=val)
     res_max = core.llvmexpr.Expr(c, "x 3 max", vs.GRAYS)
     res_min = core.llvmexpr.Expr(c, "x 3 min", vs.GRAYS)
