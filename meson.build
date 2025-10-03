@@ -106,7 +106,7 @@ if static_llvm
         'symbol': 'VapourSynthPluginInit2'
       }
     )
-    link_args += ['-Wl,--version-script,' + version_script.full_path()]
+    link_args += ['-Wl,--version-script,' + version_script.full_path(), '-Wl,--exclude-libs,ALL']
   endif
 endif
 
