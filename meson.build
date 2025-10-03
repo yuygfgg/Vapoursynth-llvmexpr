@@ -16,7 +16,7 @@
 # along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
 
 project('llvmexpr', 'cpp', 'c',
-  default_options: ['buildtype=release', 'warning_level=2', 'b_lto=true', 'b_ndebug=if-release', 'cpp_std=c++23'],
+  default_options: ['buildtype=release', 'warning_level=2', 'b_lto=true', 'b_ndebug=if-release', 'cpp_std=c++23', 'c_gnu_symbol_visibility=hidden', 'cpp_gnu_symbol_visibility=hidden'],
   license: 'GPL-3.0-or-later',
   meson_version: '>=1.4.0',
   version: '2.3'
@@ -93,7 +93,7 @@ if static_llvm
         'exports': 'EXPORTS\nVapourSynthPluginInit2'
       }
     )
-    link_args += ['/DEF:' + def_file.full_path()]
+    link_args += ['/DEF:' + def_file.full_path(), '/FORCE:MULTIPLE']
   else
     version_script = configure_file(
       input: 'llvmexpr.ver.in',
@@ -120,6 +120,5 @@ shared_module('llvmexpr', sources,
   dependencies: dependencies,
   link_args: link_args,
   install: true,
-  install_dir: install_dir,
-  gnu_symbol_visibility: 'hidden'
+  install_dir: install_dir
 )
