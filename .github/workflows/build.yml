@@ -94,6 +94,16 @@ jobs:
         shell: msys2 {0}
         run: ldd builddir/${{ matrix.library_name }}
 
+      - name: Check exported symbols (Windows)
+        shell: msys2 {0}
+        run: |
+          nm -g builddir/${{ matrix.library_name }} | grep VapourSynthPluginInit2
+          if [ $(nm -g builddir/${{ matrix.library_name }} | grep -v -e ' U ' -e ' w ' | wc -l) -ne 1 ]; then
+            echo "Too many symbols exported!"
+            nm -g builddir/${{ matrix.library_name }}
+            exit 1
+          fi
+
       - name: Install to staging dir (Windows)
         shell: msys2 {0}
         run: |
@@ -337,6 +347,17 @@ jobs:
         shell: msys2 {0}
         run: ldd builddir/${{ matrix.library_name }}
 
+      - name: Check exported symbols (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          nm -g builddir/${{ matrix.library_name }} | grep VapourSynthPluginInit2
+          if [ $(nm -g builddir/${{ matrix.library_name }} | grep -v -e ' U ' -e ' w ' | wc -l) -ne 1 ]; then
+            echo "Too many symbols exported!"
+            nm -g builddir/${{ matrix.library_name }}
+            exit 1
+          fi
+
       - name: Check dependencies (Linux)
         if: runner.os == 'Linux'
         run: ldd builddir/${{ matrix.library_name }}
@@ -344,6 +365,26 @@ jobs:
       - name: Check dependencies (macOS)
         if: runner.os == 'macOS'
         run: otool -L builddir/${{ matrix.library_name }}
+
+      - name: Check exported symbols (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          nm -g builddir/${{ matrix.library_name }} | grep VapourSynthPluginInit2
+          if [ $(nm -D builddir/${{ matrix.library_name }} | grep -v -e ' U ' -e ' w ' | wc -l) -ne 2 ]; then
+            echo "Too many symbols exported!"
+            nm -D builddir/${{ matrix.library_name }}
+            exit 1
+          fi
+
+      - name: Check exported symbols (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          nm -g builddir/${{ matrix.library_name }} | grep _VapourSynthPluginInit2
+          if [ $(nm -g builddir/${{ matrix.library_name }} | grep -v -e ' U ' -e ' w ' | wc -l) -ne 1 ]; then
+            echo "Too many symbols exported!"
+            nm -g builddir/${{ matrix.library_name }}
+            exit 1
+          fi
 
       - name: Install to staging dir (Windows)
         if: runner.os == 'Windows'
