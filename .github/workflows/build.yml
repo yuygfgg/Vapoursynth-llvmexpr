@@ -322,14 +322,16 @@ jobs:
         run: |
           meson setup builddir \
             -Dstatic-llvm=true \
-            --buildtype=release
+            -Denable-sanitizers=true \
+            --buildtype=debug
       - name: Configure (Meson) (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
           meson setup builddir \
             -Dstatic-llvm=true \
-            --buildtype=release
+            -Denable-sanitizers=true \
+            --buildtype=debug
 
       - name: Build (Windows)
         if: runner.os == 'Windows'

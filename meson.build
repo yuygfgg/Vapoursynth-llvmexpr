@@ -27,6 +27,25 @@ cc = meson.get_compiler('c')
 
 gcc_syntax = cxx.get_argument_syntax() == 'gcc'
 
+enable_sanitizers = get_option('enable-sanitizers')
+if enable_sanitizers
+  if gcc_syntax
+    sanitizer_args = [
+      '-fno-omit-frame-pointer',
+      '-fno-optimize-sibling-calls',
+      '-O1'
+    ]
+    add_project_arguments(sanitizer_args, language: ['cpp', 'c'])
+  else
+    sanitizer_args = [
+      '/fsanitize=address',
+      '/Zi',
+      '/Od'
+    ]
+    add_project_arguments(sanitizer_args, language: ['cpp', 'c'])
+  endif
+endif
+
 if gcc_syntax
   vapoursynth_dep = dependency('vapoursynth', version: '>=55').partial_dependency(compile_args: true, includes: true)
   install_dir = vapoursynth_dep.get_variable(pkgconfig: 'libdir') / 'vapoursynth'
