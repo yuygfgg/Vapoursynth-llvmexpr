@@ -23,11 +23,12 @@
 #include <format>
 #include <functional>
 #include <optional>
+#include <ranges>
 #include <regex>
-#include <sstream>
 #include <stdexcept>
+#include <string>
 #include <string_view>
-#include <utility>
+#include <vector>
 
 namespace {
 
@@ -376,12 +377,21 @@ static const std::vector<TokenInfo> token_definitions = {
 
 std::vector<Token> tokenize(const std::string& expr, int num_inputs) {
     std::vector<Token> tokens;
-    std::stringstream ss(expr);
-    std::string str_token;
     int idx = 0;
 
-    while (ss >> str_token) {
+    auto is_space = [](char c) { return std::isspace(c); };
+    auto to_string_view = [](auto r) {
+        return std::string_view(r.begin(), r.end());
+    };
+
+    for (const auto str_token_view :
+         expr | std::views::chunk_by([=](char a, char b) {
+             return is_space(a) == is_space(b);
+         }) | std::views::filter([=](auto r) { return !is_space(r.front()); }) |
+             std::views::transform(to_string_view)) {
         std::optional<Token> parsed_token;
+
+        std::string str_token{str_token_view};
 
         for (const auto& definition : token_definitions) {
             if ((parsed_token = definition.parser(str_token))) {
