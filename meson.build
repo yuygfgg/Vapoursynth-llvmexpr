@@ -18,7 +18,7 @@
 project('llvmexpr', 'cpp', 'c',
   default_options: ['buildtype=release', 'warning_level=2', 'b_lto=true', 'b_ndebug=if-release', 'cpp_std=c++23'],
   license: 'GPL-3.0-or-later',
-  meson_version: '>=0.58.0',
+  meson_version: '>=1.4.0',
   version: '2.3'
 )
 
@@ -84,7 +84,7 @@ if static_llvm
         'symbol': '_VapourSynthPluginInit2'
       }
     )
-    link_args += ['-Wl,-exported_symbols_list,' + 'llvmexpr.exp']
+    link_args += ['-Wl,-exported_symbols_list,' + exported_symbols.full_path()]
   elif host_machine.system() == 'windows' and not gcc_syntax
     plugin_init_def = configure_file(
       input: 'llvmexpr.def.in',
@@ -93,7 +93,7 @@ if static_llvm
         'exports': 'EXPORTS\nVapourSynthPluginInit2'
       }
     )
-    link_args += ['/DEF:' + 'llvmexpr.def']
+    link_args += ['/DEF:' + plugin_init_def.full_path()]
   else
     version_script = configure_file(
       input: 'llvmexpr.ver.in',
@@ -102,7 +102,7 @@ if static_llvm
         'symbol': 'VapourSynthPluginInit2'
       }
     )
-    link_args += ['-Wl,--version-script,' + 'llvmexpr.ver']
+    link_args += ['-Wl,--version-script,' + version_script.full_path()]
   endif
 endif
 
