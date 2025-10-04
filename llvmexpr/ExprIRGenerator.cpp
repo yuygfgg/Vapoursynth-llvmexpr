@@ -67,8 +67,7 @@ void ExprIRGenerator::define_function_signature() {
     props_arg->setName("props");
 
     func->addParamAttr(1, llvm::Attribute::ReadOnly); // strides (int32_t*)
-    // func->addParamAttr(2, llvm::Attribute::ReadOnly); // props (float*)
-    // TODO: Uncomment this for Expr
+    func->addParamAttr(2, llvm::Attribute::ReadOnly); // props (float*)
 }
 
 void ExprIRGenerator::generate_loops() {

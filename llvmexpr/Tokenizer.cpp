@@ -183,21 +183,19 @@ static const std::vector<TokenInfo>& get_token_definitions() {
 
         define_keyword(TokenType::CONSTANT_HEIGHT, "height", {0, 1}),
 
-        define_regex(
-            TokenType::CONSTANT_PLANE_WIDTH, "plane_width", TokenBehavior{0, 1},
-            std::regex(R"(^width\^(\d+)$)"),
-            [](const std::smatch& m) -> Token::PayloadVariant {
-                return TokenPayload_PlaneDim{
-                    .plane_idx = std::stoi(m[1].str())};
-            }),
+        define_regex(TokenType::CONSTANT_PLANE_WIDTH, "plane_width",
+                     TokenBehavior{0, 1}, std::regex(R"(^width\^(\d+)$)"),
+                     [](const std::smatch& m) -> Token::PayloadVariant {
+                         return TokenPayload_PlaneDim{
+                             .plane_idx = std::stoi(m[1].str())};
+                     }),
 
-        define_regex(
-            TokenType::CONSTANT_PLANE_HEIGHT, "plane_height",
-            TokenBehavior{0, 1}, std::regex(R"(^height\^(\d+)$)"),
-            [](const std::smatch& m) -> Token::PayloadVariant {
-                return TokenPayload_PlaneDim{
-                    .plane_idx = std::stoi(m[1].str())};
-            }),
+        define_regex(TokenType::CONSTANT_PLANE_HEIGHT, "plane_height",
+                     TokenBehavior{0, 1}, std::regex(R"(^height\^(\d+)$)"),
+                     [](const std::smatch& m) -> Token::PayloadVariant {
+                         return TokenPayload_PlaneDim{
+                             .plane_idx = std::stoi(m[1].str())};
+                     }),
 
         define_keyword(TokenType::EXIT_NO_WRITE, "^exit^", {0, 1}),
 

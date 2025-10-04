@@ -449,7 +449,6 @@ bool IRGeneratorBase::process_common_token(const Token& token,
         rpn_stack.push_back(llvm::ConstantFP::get(float_ty, payload.value));
         return true;
     }
-    // TODO: add token to fetch plane width and height for SingleExpr.
     case TokenType::CONSTANT_WIDTH:
         rpn_stack.push_back(
             builder.CreateSIToFP(builder.getInt32(width), float_ty));

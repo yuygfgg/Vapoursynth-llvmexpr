@@ -71,7 +71,7 @@ void SingleExprIRGenerator::define_function_signature() {
 }
 
 void SingleExprIRGenerator::
-    generate_loops() { //TODO: rename this. Nothing to do with loops here.
+    generate_loops() { // TODO: rename this. Nothing to do with loops here.
     llvm::BasicBlock* entry_bb =
         llvm::BasicBlock::Create(context, "entry", func);
     builder.SetInsertPoint(entry_bb);
