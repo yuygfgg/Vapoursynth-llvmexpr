@@ -56,15 +56,19 @@ def test_pixel_read_write():
 def test_property_write():
     """Test writing a value to a frame property."""
     clip = core.std.BlankClip()
-    res = core.llvmexpr.SingleExpr(clip, '''123.45 MyTestProp$''')
+    res = core.llvmexpr.SingleExpr(clip, """123.45 MyTestProp$""")
     frame = res.get_frame(0)
     assert frame.props["MyTestProp"] == pytest.approx(123.45)
 
 
 def test_property_read_write():
     """Test reading a frame property, modifying it, and writing to a new property."""
-    clip = core.std.BlankClip(width=1920, height=1080).std.SetFrameProps(_Width=1920, _Height=1080)
-    res = core.llvmexpr.SingleExpr(clip, '''src0._Width 2 / HalfWidth$ src0._Height 2 / HalfHeight$''')
+    clip = core.std.BlankClip(width=1920, height=1080).std.SetFrameProps(
+        _Width=1920, _Height=1080
+    )
+    res = core.llvmexpr.SingleExpr(
+        clip, """src0._Width 2 / HalfWidth$ src0._Height 2 / HalfHeight$"""
+    )
     frame = res.get_frame(0)
     assert frame.props["HalfWidth"] == 1920 / 2
     assert frame.props["HalfHeight"] == 1080 / 2
@@ -90,19 +94,20 @@ def test_disabled_token_error(expr: str):
 def test_loop_avg_brightness():
     """Test a loop that calculates the average brightness of a region."""
     clip = core.std.BlankClip(width=100, height=100, format=vs.GRAY8, color=50)
-    expr = '''
+    expr = """
         0 sum!
         0 i!
+        width^0 height^0 * num_pixels!
         #loop_i
             0 j!
             #loop_j
                 j@ i@ src0^0[] sum@ + sum!
                 j@ 1 + j!  
-            j@ 100 < loop_j#
+            j@ width^0 < loop_j#
             i@ 1 + i!
-        i@ 100 < loop_i#
-        sum@ 10000 / AvgBrightness$
-    '''
+        i@ height^0 < loop_i#
+        sum@ num_pixels@ / AvgBrightness$
+    """
     res = core.llvmexpr.SingleExpr(clip, expr)
     frame = res.get_frame(0)
     assert frame.props["AvgBrightness"] == pytest.approx(50.0)
@@ -110,10 +115,10 @@ def test_loop_avg_brightness():
 
 def test_multi_clip_read():
     """Test reading from multiple input clips."""
-    clip1 = core.std.BlankClip(color=[10,10,10])
-    clip2 = core.std.BlankClip(color=[20,20,20])
+    clip1 = core.std.BlankClip(color=[10, 10, 10])
+    clip2 = core.std.BlankClip(color=[20, 20, 20])
     res = core.llvmexpr.SingleExpr(
-        [clip1, clip2], '''0 0 src0^0[] 0 0 src1^0[] + Sum$'''
+        [clip1, clip2], """0 0 src0^0[] 0 0 src1^0[] + Sum$"""
     )
     frame = res.get_frame(0)
     assert frame.props["Sum"] == 30
@@ -121,7 +126,9 @@ def test_multi_clip_read():
 
 def test_multi_plane_write():
     """Test writing to multiple planes in a YUV clip."""
-    clip = core.std.BlankClip(format=vs.YUV420P8, width=16, height=16, color=[16,128,128])
+    clip = core.std.BlankClip(
+        format=vs.YUV420P8, width=16, height=16, color=[16, 128, 128]
+    )
     res = core.llvmexpr.SingleExpr(clip, "10 0 0 @[]^0 20 1 1 @[]^1 30 2 2 @[]^2")
     frame = res.get_frame(0)
     assert frame[0][0, 0] == 10
@@ -132,23 +139,66 @@ def test_multi_plane_write():
     assert frame[1][0, 0] == 128
     assert frame[2][0, 0] == 128
 
+
 def test_atomic_prop_write():
     """Test that property writes are visible within the same expression."""
     clip = core.std.BlankClip()
-    expr = '''
+    expr = """
         10 MyVar$
         x.MyVar 5 + MyVar$
         x.MyVar 2 * MyVar2$
-    '''
+    """
     res = core.llvmexpr.SingleExpr(clip, expr)
     frame = res.get_frame(0)
     assert frame.props["MyVar"] == pytest.approx(15.0)
     assert frame.props["MyVar2"] == pytest.approx(30.0)
 
+
 def test_empty_expr():
     """Test that an empty expression is valid and does nothing."""
-    clip = core.std.BlankClip(color=[42,42,42])
-    clipb = core.std.BlankClip(color=[22,22,22])
+    clip = core.std.BlankClip(color=[42, 42, 42])
+    clipb = core.std.BlankClip(color=[22, 22, 22])
     res = core.llvmexpr.SingleExpr([clip, clipb], "")
     frame = res.get_frame(0)
     assert frame[0][0, 0] == 42
+
+
+@pytest.mark.parametrize(
+    "format,w,h,w1,h1,w2,h2",
+    [
+        (vs.YUV420P8, 1280, 720, 640, 360, 640, 360),
+        (vs.RGB24, 640, 480, 640, 480, 640, 480),
+        (vs.GRAY8, 1920, 1080, 0, 0, 0, 0),  # only one plane
+    ],
+)
+def test_plane_dimensions(format, w, h, w1, h1, w2, h2):
+    """Test getting plane dimensions."""
+    clip = core.std.BlankClip(format=format, width=w, height=h)
+    expr = """
+        width^0 Plane0Width$
+        height^0 Plane0Height$
+    """
+    if clip.format.num_planes > 1:
+        expr += """
+            width^1 Plane1Width$
+            height^1 Plane1Height$
+            width^2 Plane2Width$
+            height^2 Plane2Height$
+        """
+
+    res = core.llvmexpr.SingleExpr(clip, expr)
+    frame = res.get_frame(0)
+    assert frame.props["Plane0Width"] == w
+    assert frame.props["Plane0Height"] == h
+    if clip.format.num_planes > 1:
+        assert frame.props["Plane1Width"] == w1
+        assert frame.props["Plane1Height"] == h1
+        assert frame.props["Plane2Width"] == w2
+        assert frame.props["Plane2Height"] == h2
+
+
+def test_invalid_plane_dimension():
+    """Test that getting dimension of an invalid plane raises an error."""
+    clip = core.std.BlankClip(format=vs.GRAYS, width=1280, height=720)
+    with pytest.raises(vs.Error, match="Invalid plane index"):
+        core.llvmexpr.SingleExpr(clip, "width^3 prop$")

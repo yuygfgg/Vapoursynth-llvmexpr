@@ -89,8 +89,10 @@ These operators push a specific value onto the stack without needing an operand.
 
 - `pi`: The mathematical constant π (approximately 3.14159).
 - `N`: The current frame number.
-- `width`: The width of the frame.
-- `height`: The height of the frame.
+- `width`: The width of the frame (of the current plane in `Expr`, or the container/luma plane in `SingleExpr`).
+- `height`: The height of the frame (of the current plane in `Expr`, or the container/luma plane in `SingleExpr`).
+- `width^plane_no`: (**SingleExpr only**) The width of the specified plane (`plane_no` is an integer, e.g., `width^0`). This is useful for formats with subsampled chroma.
+- `height^plane_no`: (**SingleExpr only**) The height of the specified plane (e.g., `height^1`). This is useful for formats with subsampled chroma.
 - `X`: (**Expr only**) The current pixel's column coordinate.
 - `Y`: (**Expr only**) The current pixel's row coordinate.
 

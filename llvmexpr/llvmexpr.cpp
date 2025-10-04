@@ -579,7 +579,17 @@ void VS_CC singleExprCreate(const VSMap* in, VSMap* out,
         d->tokens = tokenize(expr_str, d->num_inputs, ExprMode::SINGLE_EXPR);
 
         for (const auto& token : d->tokens) {
-            if (token.type == TokenType::PROP_ACCESS) {
+            if (token.type == TokenType::CONSTANT_PLANE_WIDTH ||
+                token.type == TokenType::CONSTANT_PLANE_HEIGHT) {
+                const auto& payload =
+                    std::get<TokenPayload_PlaneDim>(token.payload);
+                if (payload.plane_idx < 0 ||
+                    payload.plane_idx >= d->vi.format.numPlanes) {
+                    throw std::runtime_error(
+                        std::format("Invalid plane index {} in token '{}'",
+                                    payload.plane_idx, token.text));
+                }
+            } else if (token.type == TokenType::PROP_ACCESS) {
                 const auto& payload =
                     std::get<TokenPayload_PropAccess>(token.payload);
                 auto key = std::make_pair(payload.clip_idx, payload.prop_name);
@@ -663,8 +673,9 @@ VapourSynthPluginInit2(VSPlugin* plugin, const VSPLUGINAPI* vspapi) {
         "clips:vnode[];expr:data[];format:int:opt;boundary:int:opt;"
         "dump_ir:data:opt;opt_level:int:opt;approx_math:int:opt;",
         "clip:vnode;", exprCreate, nullptr, plugin);
-    vspapi->registerFunction("SingleExpr",
-                             "clips:vnode[];expr:data;boundary:int:opt;dump_ir:data:opt;opt_"
-                             "level:int:opt;approx_math:int:opt;",
-                             "clip:vnode;", singleExprCreate, nullptr, plugin);
+    vspapi->registerFunction(
+        "SingleExpr",
+        "clips:vnode[];expr:data;boundary:int:opt;dump_ir:data:opt;opt_"
+        "level:int:opt;approx_math:int:opt;",
+        "clip:vnode;", singleExprCreate, nullptr, plugin);
 }

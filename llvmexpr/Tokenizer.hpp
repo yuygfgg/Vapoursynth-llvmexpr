@@ -31,6 +31,8 @@ enum class TokenType {
     CONSTANT_Y,
     CONSTANT_WIDTH,
     CONSTANT_HEIGHT,
+    CONSTANT_PLANE_WIDTH,
+    CONSTANT_PLANE_HEIGHT,
     CONSTANT_N,
     CONSTANT_PI,
 
@@ -159,13 +161,17 @@ struct TokenPayload_PropStore {
     std::string prop_name;
 };
 
+struct TokenPayload_PlaneDim {
+    int plane_idx;
+};
+
 struct Token {
     using PayloadVariant =
         std::variant<std::monostate, TokenPayload_Number, TokenPayload_Var,
                      TokenPayload_Label, TokenPayload_StackOp,
                      TokenPayload_ClipAccess, TokenPayload_PropAccess,
                      TokenPayload_ClipAccessPlane, TokenPayload_StoreAbsPlane,
-                     TokenPayload_PropStore>;
+                     TokenPayload_PropStore, TokenPayload_PlaneDim>;
 
     TokenType type;
     std::string text;

@@ -183,6 +183,22 @@ static const std::vector<TokenInfo>& get_token_definitions() {
 
         define_keyword(TokenType::CONSTANT_HEIGHT, "height", {0, 1}),
 
+        define_regex(
+            TokenType::CONSTANT_PLANE_WIDTH, "plane_width", TokenBehavior{0, 1},
+            std::regex(R"(^width\^(\d+)$)"),
+            [](const std::smatch& m) -> Token::PayloadVariant {
+                return TokenPayload_PlaneDim{
+                    .plane_idx = std::stoi(m[1].str())};
+            }),
+
+        define_regex(
+            TokenType::CONSTANT_PLANE_HEIGHT, "plane_height",
+            TokenBehavior{0, 1}, std::regex(R"(^height\^(\d+)$)"),
+            [](const std::smatch& m) -> Token::PayloadVariant {
+                return TokenPayload_PlaneDim{
+                    .plane_idx = std::stoi(m[1].str())};
+            }),
+
         define_keyword(TokenType::EXIT_NO_WRITE, "^exit^", {0, 1}),
 
         define_keyword(TokenType::COPYSIGN, "copysign", {2, -1}),
@@ -450,6 +466,8 @@ std::vector<Token> tokenize(const std::string& expr, int num_inputs,
             case TokenType::CLIP_ABS_PLANE:
             case TokenType::STORE_ABS_PLANE:
             case TokenType::PROP_STORE:
+            case TokenType::CONSTANT_PLANE_WIDTH:
+            case TokenType::CONSTANT_PLANE_HEIGHT:
                 if (mode == ExprMode::EXPR)
                     skip = true;
                 break;
