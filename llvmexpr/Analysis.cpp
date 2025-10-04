@@ -25,13 +25,17 @@
 #include <set>
 #include <stdexcept>
 
-ExpressionAnalyser::ExpressionAnalyser(const std::vector<Token>& tokens_in)
-    : tokens(tokens_in) {}
+ExpressionAnalyser::ExpressionAnalyser(const std::vector<Token>& tokens_in,
+                                       int expected_final_depth_in)
+    : tokens(tokens_in), expected_final_depth(expected_final_depth_in) {}
 
 void ExpressionAnalyser::run() { validate_and_build_cfg(); }
 
 void ExpressionAnalyser::validate_and_build_cfg() {
     if (tokens.empty()) {
+        if (expected_final_depth == 0) {
+            return; // SingleExpr
+        }
         throw std::runtime_error("Expression cannot be empty.");
     }
 
@@ -277,13 +281,13 @@ void ExpressionAnalyser::validate_and_build_cfg() {
                 .successors.empty()) { // Reachable terminal block
             int final_depth =
                 results.stack_depth_in[i] + results.cfg_blocks[i].stack_effect;
-            if (final_depth != 1) {
+            if (final_depth != expected_final_depth) {
                 throw std::runtime_error(std::format(
                     "Expression stack not balanced on "
                     "reachable terminal block {}: "
-                    "final depth = {}, expected = 1. start "
+                    "final depth = {}, expected = {}. start "
                     "token '{}' (idx {}).",
-                    i, final_depth,
+                    i, final_depth, expected_final_depth,
                     tokens[results.cfg_blocks[i].start_token_idx].text,
                     results.cfg_blocks[i].start_token_idx));
             }

@@ -449,6 +449,7 @@ bool IRGeneratorBase::process_common_token(const Token& token,
         rpn_stack.push_back(llvm::ConstantFP::get(float_ty, payload.value));
         return true;
     }
+    // TODO: add token to fetch plane width and height for SingleExpr.
     case TokenType::CONSTANT_WIDTH:
         rpn_stack.push_back(
             builder.CreateSIToFP(builder.getInt32(width), float_ty));
@@ -743,19 +744,6 @@ bool IRGeneratorBase::process_common_token(const Token& token,
         return true;
     }
 
-    case TokenType::STORE_ABS: {
-        llvm::Value* coord_y_f = rpn_stack.back();
-        rpn_stack.pop_back();
-        llvm::Value* coord_x_f = rpn_stack.back();
-        rpn_stack.pop_back();
-        llvm::Value* val_to_store = rpn_stack.back();
-        rpn_stack.pop_back();
-        llvm::Value* coord_y = builder.CreateFPToSI(coord_y_f, i32_ty);
-        llvm::Value* coord_x = builder.CreateFPToSI(coord_x_f, i32_ty);
-        generate_pixel_store(val_to_store, coord_x, coord_y);
-        return true;
-    }
-
     // Control Flow (no-op during this pass)
     case TokenType::LABEL_DEF:
     case TokenType::JUMP:
@@ -882,19 +870,6 @@ void IRGeneratorBase::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
                 continue;
             }
 
-            // Property access
-            if (token.type == TokenType::PROP_ACCESS) {
-                const auto& payload =
-                    std::get<TokenPayload_PropAccess>(token.payload);
-                auto key = std::make_pair(payload.clip_idx, payload.prop_name);
-                int prop_idx = prop_map.at(key);
-                llvm::Value* prop_val = builder.CreateLoad(
-                    float_ty, builder.CreateGEP(float_ty, props_arg,
-                                                builder.getInt32(prop_idx)));
-                rpn_stack.push_back(prop_val);
-                continue;
-            }
-
             // Special tokens - delegate to derived class
             if (!process_mode_specific_token(token, rpn_stack, x, y, x_fp, y_fp,
                                              no_x_bounds_check)) {
@@ -942,8 +917,10 @@ void IRGeneratorBase::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
     std::vector<std::pair<llvm::Value*, llvm::BasicBlock*>> final_values;
     for (size_t i = 0; i < analysis_results.cfg_blocks.size(); ++i) {
         if (analysis_results.cfg_blocks[i].successors.empty()) {
-            final_values.push_back(
-                {block_final_stacks.at(i).back(), llvm_blocks.at(i)});
+            auto& stack = block_final_stacks.at(i);
+            if (!stack.empty()) {
+                final_values.push_back({stack.back(), llvm_blocks.at(i)});
+            }
         }
     }
 

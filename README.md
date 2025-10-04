@@ -1,6 +1,10 @@
 # Vapoursynth-llvmexpr
 
-A [VapourSynth](https://www.vapoursynth.com/) filter for evaluating complex, per-pixel mathematical or logical expressions. It utilizes an LLVM-based JIT (Just-In-Time) compiler to translate expressions into native code.
+A [VapourSynth](https://www.vapoursynth.com/) filter for evaluating complex mathematical or logical expressions. It utilizes an LLVM-based JIT (Just-In-Time) compiler to translate expressions into native code.
+
+The plugin provides two main functions:
+*   `llvmexpr.Expr`: Evaluates an expression for **every pixel** in a frame, ideal for spatial filtering and general image manipulation.
+*   `llvmexpr.SingleExpr`: Evaluates an expression only **once per frame**, designed for tasks like calculating frame-wide statistics, reading specific pixels, and writing to frame properties or arbitrary pixel locations.
 
 `llvmexpr.Expr` is designed to be a powerful and feature-rich alternative to `akarin.Expr`. It is (almost) fully compatible with `akarin`'s syntax and extends it with additional features, most notably Turing-complete control flow and advanced math functions. See [Migrating From Akarin](docs/migrating_from_akarin.md) for a detailed comparison.
 
@@ -47,7 +51,11 @@ This project consists of two main parts: the core C++ plugin and a supporting Py
 
 ### 1. `llvmexpr` (C++ VapourSynth Plugin)
 
-This is the core engine of the project. It is a VapourSynth filter that accepts expression strings written in **postfix notation** (also known as Reverse Polish Notation, or RPN). At runtime, it JIT-compiles these expressions into highly efficient machine code and applies them to each pixel of the video frame.
+This is the core engine of the project. It is a VapourSynth filter that accepts expression strings written in **postfix notation** (also known as Reverse Polish Notation, or RPN). At runtime, it JIT-compiles these expressions into highly efficient machine code.
+
+#### `llvmexpr.Expr` (Per-Pixel)
+
+This function applies an expression to each pixel of the video frame.
 
 **Function Signature:**
 ```
@@ -65,6 +73,23 @@ llvmexpr.Expr(clip[] clips, string[] expr[, int format, int boundary=0, string d
   - `0`: Disabled – use precise LLVM intrinsics for all math operations
   - `1`: Enabled – use fast approximate implementations for `exp`, `log`, `sin`, `cos`, `tan`, `acos`, `atan`, `asin`, `atan2`.
   - `2`: Auto (recommended) – first tries with approximate math enabled; if LLVM reports that the inner loop cannot be vectorized, the compiler automatically recompiles the same function with approximate math disabled and JITs that precise version instead.
+
+#### `llvmexpr.SingleExpr` (Per-Frame)
+
+This function executes an expression only once per frame. It is not suitable for typical image filtering but is powerful for tasks that involve reading from arbitrary coordinates, calculating frame-wide metrics, and writing results to other pixels or to frame properties.
+
+**Function Signature:**
+```
+llvmexpr.SingleExpr(clip[] clips, string expr[, int boundary=0, string dump_ir="", int opt_level=5, int approx_math=2])
+```
+
+**Parameters:**
+- `clips`: Input video clips.
+- `expr`: A single expression string in postfix notation. Unlike `Expr`, only one string is accepted for all planes.
+- `boundary`: Boundary handling mode for pixel reads (0=clamp, 1=mirror). This does not affect writes.
+- `dump_ir`: Path to dump LLVM IR for debugging (optional).
+- `opt_level`: Optimization level (> 0, default: 5).
+- `approx_math`: Approximate math mode (default: 2). See description under `Expr` for details.
 
 ### 2. `exprutils` (Python Utility Library)
 

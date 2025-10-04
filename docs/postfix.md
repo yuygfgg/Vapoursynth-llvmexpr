@@ -1,12 +1,33 @@
 ### VapourSynth Expr Syntax Documentation
 
-`llvmexpr.Expr` is a powerful VapourSynth function that evaluates a per-pixel mathematical or logical expression. Its core is the `expr` string, which uses Reverse Polish Notation (RPN). This guide details the syntax of that string.
+`llvmexpr` provides two powerful VapourSynth functions that evaluate mathematical or logical expressions: `Expr` and `SingleExpr`. Their core is the `expr` string, which uses Reverse Polish Notation (RPN). This guide details the syntax of that string, highlighting the differences between the two functions.
 
 ---
 
-### **1. Core Concepts**
+### **1. Core Concepts & Execution Models**
 
-#### **1.1. Reverse Polish Notation (RPN)**
+#### **1.1. `Expr`: Per-Pixel Execution**
+
+`Expr` is the traditional function. It processes a clip pixel-by-pixel. The provided RPN expression is executed once for *every single pixel* of the output frame. This makes it ideal for standard image filtering, such as applying a brightness curve, combining clips, or spatial filtering.
+
+- **Key Characteristics:**
+    - Operates on a "current pixel" concept, with `X` and `Y` coordinates available.
+    - Can have different expressions for each color plane.
+    - The final value on the stack is implicitly written to the current pixel's location.
+
+#### **1.2. `SingleExpr`: Per-Frame Execution**
+
+`SingleExpr` is a specialized variant where the RPN expression is executed only *once for the entire frame*. This model is not suitable for general image processing but excels at tasks that require summarizing or distributing data across a frame.
+
+- **Key Characteristics:**
+    - No "current pixel" concept; `X` and `Y` are unavailable.
+    - A single expression is used for all planes.
+    - All output must be done explicitly by writing to absolute pixel coordinates or by writing to frame properties.
+    - The stack must be empty at the end of execution.
+
+> **Note:** Throughout this document, features specific to one function will be explicitly marked. If not marked, the feature is available in both `Expr` and `SingleExpr`.
+
+#### **1.3. Reverse Polish Notation (RPN)**
 
 Instead of the conventional `A + B`, RPN places operators _after_ their operands: `A B +`. The expression is evaluated using a stack. Values are pushed onto the stack, and operators pop values, perform a calculation, and push the result back onto the stack.
 
@@ -17,9 +38,9 @@ Instead of the conventional `A + B`, RPN places operators _after_ their operands
   4.  `2`: Push 2. Stack: `[8, 2]`
   5.  `*`: Pop 2 and 8, calculate 16, push 16. Stack: `[16]`
 
-The final value on the stack is the result for the pixel.
+In `Expr`, the final value on the stack is the result for the pixel. In `SingleExpr`, the stack must be empty after execution.
 
-#### **1.2. Data Ranges**
+#### **1.4. Data Ranges**
 
 `Expr` does not normalize input clip values. You must account for the native range of the pixel format.
 
@@ -60,7 +81,7 @@ Literals are pushed directly onto the stack.
 - **Hexadecimal:** `0x10` (16), `0xFF` (255).
 - **Octal:** `010` (8). Note that invalid octal numbers like `09` are parsed as floats (`9.0`).
 
-**Example:** `x 128 -` (Subtracts 128 from each pixel value of the first clip).
+**Example:** `x 128 -` (In `Expr`, this subtracts 128 from each pixel value of the first clip).
 
 #### **2.3. Special Constants & Coordinates**
 
@@ -68,10 +89,10 @@ These operators push a specific value onto the stack without needing an operand.
 
 - `pi`: The mathematical constant π (approximately 3.14159).
 - `N`: The current frame number.
-- `X`: The current pixel's column coordinate.
-- `Y`: The current pixel's row coordinate.
 - `width`: The width of the frame.
 - `height`: The height of the frame.
+- `X`: (**Expr only**) The current pixel's column coordinate.
+- `Y`: (**Expr only**) The current pixel's row coordinate.
 
 ---
 
@@ -136,7 +157,7 @@ These operators treat any value greater than 0 as `true`. They return `1.0` for 
 #### **3.4. Conditional Operator**
 
 - `?`: A ternary operator. `C A B ?` is equivalent to `C > 0 ? A : B`. If `C` is greater than 0, `A` is evaluated and its result is pushed. Otherwise, `B` is evaluated and its result is pushed.
-  - **Example:** `x 128 > x 0 ?` (If the pixel value is greater than 128, keep it, otherwise set it to 0).
+  - **Example:** `x 128 > x 0 ?` (If the pixel value is greater than 128, keep it, otherwise set it to 0). This is an `Expr` example.
 
 #### **3.5. Min/Max & Clamping**
 
@@ -146,7 +167,7 @@ These operators treat any value greater than 0 as `true`. They return `1.0` for 
 | `min` | 2 | Returns the smaller of the two values. |
 | `clip` or `clamp` | 3 | `x min_val max_val clip` clamps `x` to the range `[min_val, max_val]`. |
 
-**Example:** `x 16 235 clip` clamps the pixel value to the broadcast-safe range [16, 235].
+**Example:** `x 16 235 clip` clamps the pixel value to the broadcast-safe range [16, 235]. This is an `Expr` example.
 
 #### **3.6. Bitwise Operators**
 
@@ -183,16 +204,18 @@ These operators truncate floating-point values to integers before the operation.
 
 The compiler performs a rigorous static analysis of the control flow. If it detects any path where a variable could be read before it is guaranteed to have been written to, it will raise an error and refuse to compile the expression. This prevents the use of uninitialized variables.
 
-**Example:** `x 2 / my_var! my_var@ my_var@ *` (Calculates `(x/2)^2`).
+**Example:** `x 2 / my_var! my_var@ my_var@ *` (In `Expr`, this calculates `(x/2)^2`).
 
-#### **4.3. Data Access**
+#### **4.3. Data Access & Output**
 
-##### **Pixel Access**
+Both `Expr` and `SingleExpr` can read pixel data and frame properties. However, their methods and capabilities differ significantly due to their execution models.
 
-Access pixels from any clip at absolute or relative coordinates.
+##### **4.3.1. Pixel Access (`Expr` only)**
+
+In `Expr`, you can access pixels from any clip at absolute or relative coordinates.
 
 - **Relative Access:** `clip[relX, relY]:[mode]`
-  - Accesses a pixel relative to the current coordinate. `relX` and `relY` must be integer constants.
+  - Accesses a pixel relative to the current coordinate (`X`, `Y`). `relX` and `relY` must be integer constants.
   - **Example:** `y[-1, 0]` accesses the pixel to the immediate left in the second clip (`y`).
   - **Boundary Suffixes:** If no suffix is provided, the edge behavior is determined by the filter's global `boundary` parameter.
     - `:c`: Forces clamped boundary (edge pixels are repeated).
@@ -208,29 +231,56 @@ Access pixels from any clip at absolute or relative coordinates.
     - `:b`: Uses the behavior from the filter's global `boundary` parameter.
   - **Warning:** Absolute access may not be vectorized by the JIT compiler if coordinates are computed at runtime, which can cause severe performance degradation. Use relative access with constant offsets where possible.
 
-> Note: `X 2 + Y 3 - x[]:b` is roughly equivalent to `x[2,-3]` if the global `boundary` parameter is used for both.
+##### **4.3.2. Pixel & Data I/O (`SingleExpr` only)**
 
-##### **Frame Property Access**
+Since `SingleExpr` has no concept of a "current pixel," all data I/O must be explicit and use absolute coordinates.
 
-- `clip.PropertyName`: Loads a scalar numerical frame property. `clip` can be any clip identifier (`x`, `y`, `srcN`, etc.).
+- **Absolute Pixel Reading:** `absX absY clip^plane []`
+  - A new token `clip^plane` is used to specify both the clip and the plane index (`0` for Y, `1` for U, `2` for V, etc.).
+  - The `[]` operator then pops `absY` and `absX` from the stack and pushes the pixel value from the specified location. If the coordinates are floating-point values, they are rounded to the nearest integer (with ties to even).
+  - **Boundary Handling:** The boundary behavior is controlled by the filter's global `boundary` parameter, which can be set to clamp (0, default) or mirror (1).
+  - **Example:** `100 200 src0^0 []` reads the pixel at coordinate (100, 200) from the first clip's (`src0`) luma plane (`^0`) and pushes it onto the stack.
+
+- **Absolute Pixel Writing:** `value absX absY @[]^plane`
+  - This is the primary way to modify the output frame in `SingleExpr`.
+  - The operator is suffixed with the target plane index (`^plane`). It pops a `value`, `absX` coordinate, and `absY` coordinate from the stack and writes the value to that location in the output frame's specified plane. If the coordinates are floating-point values, they are rounded to the nearest integer (with ties to even).
+  - **Boundary Handling Warning:** Pixel writes perform **no boundary checking**. Writing to coordinates outside the valid frame dimensions (e.g., `[-1, -1]` or `[width, height]`) is a memory error. This leads to **undefined behavior** and can crash the process, corrupt the output frame, or cause other unpredictable issues. It is the expression author's responsibility to ensure all write coordinates are within the valid `[0, width-1]` and `[0, height-1]` range for each plane.
+  - **Example:** `255 0 0 @[]^0` writes the value `255` to the top-left pixel (0, 0) of the first plane.
+  - **Important:** If a pixel is not explicitly written to, its value is copied from the first input clip (`src0`).
+
+##### **4.3.3. Frame Property Access**
+
+- **Reading (Both `Expr` and `SingleExpr`):** `clip.PropertyName`
+  - Loads a scalar numerical frame property. `clip` can be any clip identifier (`x`, `y`, `srcN`, etc.).
   - **Example:** `x.PlaneStatsAverage` pushes the value of the `PlaneStatsAverage` property from the first clip's frame properties.
   - If the property is not a scalar numerical property, its value will be its first byte.
   - If the property does not exist, its value will be `NaN` (Not a Number).
 
-#### 4.4. Direct Output Control
+- **Writing (`SingleExpr` only):** `value prop_name$`
+  - The `$` operator, suffixed with a property name, writes a value to that frame property on the output frame.
+  - It pops one value from the stack and assigns it to the property `prop_name`.
+  - If the property already exists, it is overwritten. This is useful for calculating and passing metadata.
+  - **Atomicity:** Property writes are atomic. A subsequent read within the same expression will see the newly written value.
+  - **Example:** `x.PlaneStatsMax 2 / MyNewProp$` reads `PlaneStatsMax` from clip `x`, divides it by 2, and writes the result to a new property named `MyNewProp`.
 
-These operators provide fine-grained control over pixel output, allowing expressions to write to arbitrary locations or to conditionally skip writing altogether.
+#### **4.4. `Expr`-Specific Output Control**
+
+These operators provide fine-grained control over the default per-pixel output behavior in `Expr`. They are not available in `SingleExpr`.
 
 | Operator | Operands | Description |
 | :--- | :--- | :--- |
-| `@[]` | 3 | `val absX absY @[]` pops a value `val` and two coordinates `absX`, `absY`, and writes `val` to the output pixel at `[absX, absY]`. This allows an expression for one pixel to write to another. If the coordinates are not integers, they will be truncated to integers. |
-| `^exit^` | 0 | Pushes a special marker value onto the stack. If, after the entire expression is evaluated, this marker is the *only* item remaining on the stack, the default write to the current pixel `[X, Y]` is suppressed. This is useful in expressions that only use `@[]` to write to other pixels. |
+| `@[]` | 3 | `val absX absY @[]` pops a value `val` and two coordinates `absX`, `absY`, and writes `val` to the output pixel at `[absX, absY]` *in the current plane*. This allows an expression for one pixel to write to another. If the coordinates are not integers, they will be truncated to integers. |
+| `^exit^` | 0 | Pushes a special marker value onto the stack. If, after the entire `Expr` expression is evaluated for a pixel, this marker is the *only* item remaining on the stack, the default write to the current pixel `[X, Y]` is suppressed. This is useful in expressions that only use `@[]` to write to other pixels. |
 
-**Undefined Behavior Warning:**
+**Stack Requirements at Exit:**
+- **`Expr`:** The stack must contain exactly one value, which becomes the output for the current pixel. Alternatively, it can contain only the `^exit^` marker to suppress output.
+- **`SingleExpr`:** The stack must be **empty** at the end of execution. Any leftover values will result in an error.
 
-The behavior of memory writes is undefined under the following conditions:
+**Undefined Behavior Warning (`Expr`):**
+
+The behavior of memory writes in `Expr` is undefined under the following conditions:
 - If a pixel receives more than one write from any source (default write or `@[]`) during the processing of a single frame.
-- If a pixel is not written to at all.
+- If a pixel is not written to at all (and `^exit^` was not used).
 
 For example, an expression like `val x y @[] ^exit^` is valid: it writes `val` to `[x, y]` and then suppresses the default write. An expression like `val x y @[]` is **invalid** because it leaves the stack empty; it should be `val x y @[] ^exit^` to be valid if no default write is desired. If a default write is also desired, one could do `val x y @[] some_other_val`.
 

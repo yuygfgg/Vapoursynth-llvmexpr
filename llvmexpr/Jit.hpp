@@ -33,7 +33,7 @@
 #include "llvm/TargetParser/Triple.h"
 
 using ProcessProc = void (*)(uint8_t** rwptrs, const int* strides,
-                             const float* props);
+                             float* props);
 
 struct CompiledFunction {
     ProcessProc func_ptr = nullptr;

@@ -39,10 +39,13 @@ enum class TokenType {
     VAR_LOAD,  // my_var@
 
     // Data Access
-    CLIP_REL,    // src[x,y]
-    CLIP_ABS,    // src[]
-    CLIP_CUR,    // src
-    PROP_ACCESS, // src.prop
+    CLIP_REL,        // src[x,y]
+    CLIP_ABS,        // src[]
+    CLIP_CUR,        // src
+    PROP_ACCESS,     // src.prop
+    CLIP_ABS_PLANE,  // src^plane[]
+    STORE_ABS_PLANE, // @[]^plane
+    PROP_STORE,      // prop$
 
     // Binary Operators
     ADD,
@@ -143,11 +146,26 @@ struct TokenPayload_PropAccess {
     std::string prop_name;
 };
 
+struct TokenPayload_ClipAccessPlane {
+    int clip_idx;
+    int plane_idx;
+};
+
+struct TokenPayload_StoreAbsPlane {
+    int plane_idx;
+};
+
+struct TokenPayload_PropStore {
+    std::string prop_name;
+};
+
 struct Token {
     using PayloadVariant =
         std::variant<std::monostate, TokenPayload_Number, TokenPayload_Var,
                      TokenPayload_Label, TokenPayload_StackOp,
-                     TokenPayload_ClipAccess, TokenPayload_PropAccess>;
+                     TokenPayload_ClipAccess, TokenPayload_PropAccess,
+                     TokenPayload_ClipAccessPlane, TokenPayload_StoreAbsPlane,
+                     TokenPayload_PropStore>;
 
     TokenType type;
     std::string text;
@@ -162,10 +180,14 @@ struct TokenBehavior {
 using DynamicBehaviorFn = TokenBehavior (*)(const Token&);
 using BehaviorResolver = std::variant<TokenBehavior, DynamicBehaviorFn>;
 
+enum class ExprMode {
+    EXPR,
+    SINGLE_EXPR,
+};
+
 // Public interface
-std::vector<Token> tokenize(const std::string& expr, int num_inputs);
+std::vector<Token> tokenize(const std::string& expr, int num_inputs,
+                            ExprMode mode = ExprMode::EXPR);
 TokenBehavior get_token_behavior(const Token& token);
 
 #endif // LLVMEXPR_TOKENIZER_HPP
-
-

@@ -61,12 +61,31 @@ struct ExprData {
     std::array<ExpressionAnalysisResults, 3> analysis_results;
 };
 
-std::string
-generate_cache_key(const std::string& expr, const VSVideoInfo* vo,
-                   const VSAPI* vsapi,
-                   const std::vector<const VSVideoInfo*>& vi, bool mirror,
-                   const std::map<std::pair<int, std::string>, int>& prop_map,
-                   int plane_width, int plane_height) {
+struct SingleExprData {
+    std::vector<VSNode*> nodes;
+    VSVideoInfo vi = {};
+    int num_inputs;
+
+    CompiledFunction compiled;
+    bool mirror_boundary;
+    std::string dump_ir_path;
+    int opt_level;
+    int approx_math;
+
+    std::vector<std::pair<int, std::string>> required_props;
+    std::map<std::pair<int, std::string>, int> prop_map;
+    std::vector<std::string> output_props;
+    std::map<std::string, int> output_prop_map;
+
+    std::vector<Token> tokens;
+    ExpressionAnalysisResults analysis_results;
+};
+
+std::string generate_cache_key(
+    const std::string& expr, const VSVideoInfo* vo, const VSAPI* vsapi,
+    const std::vector<const VSVideoInfo*>& vi, bool mirror,
+    const std::map<std::pair<int, std::string>, int>& prop_map, int plane_width,
+    int plane_height, const std::vector<std::string>& output_props = {}) {
     auto get_vf_name = [&](const VSVideoFormat* vf) {
         std::array<char, 32> vf_name_buffer{};
         if (!vsapi->getVideoFormatName(vf, vf_name_buffer.data())) {
@@ -84,6 +103,10 @@ generate_cache_key(const std::string& expr, const VSVideoInfo* vo,
 
     for (const auto& [key, val] : prop_map) {
         result += std::format("|prop{}={}.{}", val, key.first, key.second);
+    }
+
+    for (const auto& prop : output_props) {
+        result += std::format("|out_prop={}", prop);
     }
 
     return result;
@@ -309,7 +332,8 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
                 continue;
             }
             d->plane_op[i] = PO_PROCESS;
-            d->tokens[i] = tokenize(expr_strs[i], d->num_inputs);
+            d->tokens[i] =
+                tokenize(expr_strs[i], d->num_inputs, ExprMode::EXPR);
 
             for (const auto& token : d->tokens[i]) {
                 if (token.type == TokenType::PROP_ACCESS) {
@@ -378,6 +402,255 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
                              core);
 }
 
+void VS_CC singleExprFree(void* instanceData, [[maybe_unused]] VSCore* core,
+                          const VSAPI* vsapi) {
+    SingleExprData* d = static_cast<SingleExprData*>(instanceData);
+    for (auto* node : d->nodes) {
+        vsapi->freeNode(node);
+    }
+    delete d;
+}
+
+const VSFrame* VS_CC singleExprGetFrame(int n, int activationReason,
+                                        void* instanceData,
+                                        [[maybe_unused]] void** frameData,
+                                        VSFrameContext* frameCtx, VSCore* core,
+                                        const VSAPI* vsapi) {
+    SingleExprData* d = static_cast<SingleExprData*>(instanceData);
+
+    if (activationReason == arInitial) {
+        for (int i = 0; i < d->num_inputs; ++i) {
+            vsapi->requestFrameFilter(n, d->nodes[i], frameCtx);
+        }
+    } else if (activationReason == arAllFramesReady) {
+        std::vector<const VSFrame*> src_frames(d->num_inputs);
+        for (int i = 0; i < d->num_inputs; ++i) {
+            src_frames[i] = vsapi->getFrameFilter(n, d->nodes[i], frameCtx);
+        }
+
+        const VSFrame* plane_src[3] = {src_frames[0], src_frames[0],
+                                       src_frames[0]};
+        int planes[3] = {0, 1, 2};
+        VSFrame* dst_frame =
+            vsapi->newVideoFrame2(&d->vi.format, d->vi.width, d->vi.height,
+                                  plane_src, planes, src_frames[0], core);
+
+        int num_planes = d->vi.format.numPlanes;
+        std::vector<uint8_t*> rwptrs((d->num_inputs + 1) * num_planes);
+        std::vector<int> strides((d->num_inputs + 1) * num_planes);
+        std::vector<float> props(1 + d->required_props.size() +
+                                 d->output_props.size());
+        props[0] = static_cast<float>(n);
+
+        for (size_t i = 0; i < d->required_props.size(); ++i) {
+            const auto& prop_info = d->required_props[i];
+            int clip_idx = prop_info.first;
+            const std::string& prop_name = prop_info.second;
+            int prop_array_idx = i + 1;
+
+            const VSMap* props_map =
+                vsapi->getFramePropertiesRO(src_frames[clip_idx]);
+            int err = 0;
+            int type = vsapi->mapGetType(props_map, prop_name.c_str());
+
+            if (type == ptInt) {
+                props[prop_array_idx] = static_cast<float>(
+                    vsapi->mapGetInt(props_map, prop_name.c_str(), 0, &err));
+            } else if (type == ptFloat) {
+                props[prop_array_idx] = static_cast<float>(
+                    vsapi->mapGetFloat(props_map, prop_name.c_str(), 0, &err));
+            } else {
+                err = 1;
+            }
+
+            if (err) {
+                props[prop_array_idx] = std::bit_cast<float>(PROP_NAN_PAYLOAD);
+            }
+        }
+
+        for (int i = 0; i <= d->num_inputs; ++i) {
+            for (int p = 0; p < num_planes; ++p) {
+                rwptrs[i * num_planes + p] =
+                    (i == 0) ? vsapi->getWritePtr(dst_frame, p)
+                             : const_cast<uint8_t*>(
+                                   vsapi->getReadPtr(src_frames[i - 1], p));
+                strides[i * num_planes + p] =
+                    (i == 0) ? vsapi->getStride(dst_frame, p)
+                             : vsapi->getStride(src_frames[i - 1], p);
+            }
+        }
+
+        if (!d->compiled.func_ptr) {
+            std::vector<const VSVideoInfo*> vi(d->num_inputs);
+            for (int i = 0; i < d->num_inputs; ++i) {
+                vi[i] = vsapi->getVideoInfo(d->nodes[i]);
+            }
+
+            std::string expr_str;
+            for (const auto& token : d->tokens) {
+                if (!expr_str.empty())
+                    expr_str += " ";
+                expr_str += token.text;
+            }
+
+            const std::string key = generate_cache_key(
+                expr_str, &d->vi, vsapi, vi, d->mirror_boundary, d->prop_map,
+                d->vi.width, d->vi.height, d->output_props);
+
+            std::lock_guard<std::mutex> lock(cache_mutex);
+            if (!jit_cache.count(key)) {
+                size_t key_hash = std::hash<std::string>{}(key);
+                std::string func_name =
+                    std::format("process_single_expr_{}", key_hash);
+
+                try {
+                    Compiler compiler(
+                        std::vector<Token>(d->tokens), &d->vi, vi, d->vi.width,
+                        d->vi.height, d->mirror_boundary, d->dump_ir_path,
+                        d->prop_map, func_name, d->opt_level, d->approx_math,
+                        ExpressionAnalysisResults(d->analysis_results),
+                        ExprMode::SINGLE_EXPR, d->output_props);
+                    jit_cache[key] = compiler.compile();
+                } catch (const std::exception& e) {
+                    for (const auto& frame : src_frames) {
+                        vsapi->freeFrame(frame);
+                    }
+                    vsapi->freeFrame(dst_frame);
+                    throw;
+                }
+            }
+            d->compiled = jit_cache.at(key);
+        }
+
+        d->compiled.func_ptr(rwptrs.data(), strides.data(), props.data());
+
+        VSMap* dst_props = vsapi->getFramePropertiesRW(dst_frame);
+        for (size_t i = 0; i < d->output_props.size(); ++i) {
+            const auto& prop_name = d->output_props[i];
+            float value = props[1 + d->required_props.size() + i];
+            vsapi->mapSetFloat(dst_props, prop_name.c_str(), value, maReplace);
+        }
+
+        for (const auto& frame : src_frames) {
+            vsapi->freeFrame(frame);
+        }
+        return dst_frame;
+    }
+
+    return nullptr;
+}
+
+void VS_CC singleExprCreate(const VSMap* in, VSMap* out,
+                            [[maybe_unused]] void* userData, VSCore* core,
+                            const VSAPI* vsapi) {
+    auto d = std::make_unique<SingleExprData>();
+    int err = 0;
+
+    try {
+        d->num_inputs = vsapi->mapNumElements(in, "clips");
+        if (d->num_inputs == 0)
+            throw std::runtime_error("At least one clip must be provided.");
+        d->nodes.resize(d->num_inputs);
+        for (int i = 0; i < d->num_inputs; ++i) {
+            d->nodes[i] = vsapi->mapGetNode(in, "clips", i, &err);
+        }
+
+        std::vector<const VSVideoInfo*> vi(d->num_inputs);
+        for (int i = 0; i < d->num_inputs; ++i) {
+            vi[i] = vsapi->getVideoInfo(d->nodes[i]);
+            if (!vsh::isConstantVideoFormat(vi[i]))
+                throw std::runtime_error(
+                    "Only constant format clips are supported.");
+        }
+        for (int i = 1; i < d->num_inputs; ++i) {
+            if (vi[i]->width != vi[0]->width ||
+                vi[i]->height != vi[0]->height) {
+                throw std::runtime_error(
+                    "All clips must have the same dimensions.");
+            }
+        }
+
+        d->vi = *vi[0];
+
+        const char* expr_str = vsapi->mapGetData(in, "expr", 0, &err);
+        if (err)
+            throw std::runtime_error("An expression must be provided.");
+
+        d->tokens = tokenize(expr_str, d->num_inputs, ExprMode::SINGLE_EXPR);
+
+        for (const auto& token : d->tokens) {
+            if (token.type == TokenType::PROP_ACCESS) {
+                const auto& payload =
+                    std::get<TokenPayload_PropAccess>(token.payload);
+                auto key = std::make_pair(payload.clip_idx, payload.prop_name);
+                if (d->prop_map.find(key) == d->prop_map.end()) {
+                    d->prop_map[key] =
+                        1 + d->required_props.size(); // 0 is for frame number N
+                    d->required_props.push_back(key);
+                }
+            } else if (token.type == TokenType::PROP_STORE) {
+                const auto& payload =
+                    std::get<TokenPayload_PropStore>(token.payload);
+                if (d->output_prop_map.find(payload.prop_name) ==
+                    d->output_prop_map.end()) {
+                    d->output_prop_map[payload.prop_name] =
+                        d->output_props.size();
+                    d->output_props.push_back(payload.prop_name);
+                }
+            }
+        }
+
+        ExpressionAnalyser analyser(d->tokens, 0);
+        analyser.run();
+        d->analysis_results = analyser.getResults();
+
+        d->mirror_boundary = vsapi->mapGetInt(in, "boundary", 0, &err) != 0;
+
+        const char* dump_path = vsapi->mapGetData(in, "dump_ir", 0, &err);
+        if (!err && dump_path) {
+            d->dump_ir_path = dump_path;
+        }
+
+        d->opt_level = vsapi->mapGetInt(in, "opt_level", 0, &err);
+        if (err) {
+            d->opt_level = 5;
+        }
+        if (d->opt_level <= 0) {
+            throw std::runtime_error("opt_level must be greater than 0.");
+        }
+
+        d->approx_math = vsapi->mapGetInt(in, "approx_math", 0, &err);
+        if (err) {
+            d->approx_math = 2; // Default to auto mode
+        }
+        if (d->approx_math < 0 || d->approx_math > 2) {
+            throw std::runtime_error(
+                "approx_math must be 0 (disabled), 1 (enabled), or 2 (auto).");
+        }
+
+    } catch (const std::exception& e) {
+        for (auto* node : d->nodes) {
+            if (node)
+                vsapi->freeNode(node);
+        }
+        vsapi->mapSetError(out,
+                           std::format("SingleExpr: {}", e.what()).c_str());
+        return;
+    }
+
+    std::vector<VSFilterDependency> deps;
+    deps.reserve(d->nodes.size());
+    for (auto* node : d->nodes) {
+        deps.push_back({node, rpStrictSpatial});
+    }
+
+    VSVideoInfo* vi_ptr = &d->vi;
+
+    vsapi->createVideoFilter(out, "SingleExpr", vi_ptr, singleExprGetFrame,
+                             singleExprFree, fmParallel, deps.data(),
+                             deps.size(), d.release(), core);
+}
+
 } // anonymous namespace
 
 VS_EXTERNAL_API(void)
@@ -390,4 +663,8 @@ VapourSynthPluginInit2(VSPlugin* plugin, const VSPLUGINAPI* vspapi) {
         "clips:vnode[];expr:data[];format:int:opt;boundary:int:opt;"
         "dump_ir:data:opt;opt_level:int:opt;approx_math:int:opt;",
         "clip:vnode;", exprCreate, nullptr, plugin);
+    vspapi->registerFunction("SingleExpr",
+                             "clips:vnode[];expr:data;boundary:int:opt;dump_ir:data:opt;opt_"
+                             "level:int:opt;approx_math:int:opt;",
+                             "clip:vnode;", singleExprCreate, nullptr, plugin);
 }

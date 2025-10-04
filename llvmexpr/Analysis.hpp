@@ -57,7 +57,8 @@ struct ExpressionAnalysisResults {
 
 class ExpressionAnalyser {
   public:
-    ExpressionAnalyser(const std::vector<Token>& tokens);
+    ExpressionAnalyser(const std::vector<Token>& tokens,
+                       int expected_final_depth = 1);
 
     // Run the analysis
     void run();
@@ -68,6 +69,7 @@ class ExpressionAnalyser {
   private:
     const std::vector<Token>& tokens;
     ExpressionAnalysisResults results;
+    int expected_final_depth;
 
     void validate_and_build_cfg();
 };

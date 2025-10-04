@@ -67,7 +67,8 @@ void ExprIRGenerator::define_function_signature() {
     props_arg->setName("props");
 
     func->addParamAttr(1, llvm::Attribute::ReadOnly); // strides (int32_t*)
-    func->addParamAttr(2, llvm::Attribute::ReadOnly); // props (float*)
+    // func->addParamAttr(2, llvm::Attribute::ReadOnly); // props (float*)
+    // TODO: Uncomment this for Expr
 }
 
 void ExprIRGenerator::generate_loops() {
@@ -378,6 +379,30 @@ bool ExprIRGenerator::process_mode_specific_token(
     case TokenType::EXIT_NO_WRITE: {
         rpn_stack.push_back(llvm::ConstantFP::get(
             float_ty, std::bit_cast<float>(EXIT_NAN_PAYLOAD)));
+        return true;
+    }
+
+    case TokenType::PROP_ACCESS: {
+        const auto& payload = std::get<TokenPayload_PropAccess>(token.payload);
+        auto key = std::make_pair(payload.clip_idx, payload.prop_name);
+        int prop_idx = prop_map.at(key);
+        llvm::Value* prop_val = builder.CreateLoad(
+            float_ty,
+            builder.CreateGEP(float_ty, props_arg, builder.getInt32(prop_idx)));
+        rpn_stack.push_back(prop_val);
+        return true;
+    }
+
+    case TokenType::STORE_ABS: {
+        llvm::Value* coord_y_f = rpn_stack.back();
+        rpn_stack.pop_back();
+        llvm::Value* coord_x_f = rpn_stack.back();
+        rpn_stack.pop_back();
+        llvm::Value* val_to_store = rpn_stack.back();
+        rpn_stack.pop_back();
+        llvm::Value* coord_y = builder.CreateFPToSI(coord_y_f, i32_ty);
+        llvm::Value* coord_x = builder.CreateFPToSI(coord_x_f, i32_ty);
+        generate_pixel_store(val_to_store, coord_x, coord_y);
         return true;
     }
 

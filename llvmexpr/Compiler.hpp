@@ -37,7 +37,9 @@ class Compiler {
              int height_in, bool mirror, std::string dump_path,
              const std::map<std::pair<int, std::string>, int>& p_map,
              std::string function_name, int opt_level_in, int approx_math_in,
-             ExpressionAnalysisResults&& analysis_results_in);
+             ExpressionAnalysisResults&& analysis_results_in,
+             ExprMode mode = ExprMode::EXPR,
+             const std::vector<std::string>& output_props = {});
 
     CompiledFunction compile();
 
@@ -54,6 +56,8 @@ class Compiler {
     std::string func_name;
     int opt_level;
     int approx_math;
+    ExprMode expr_mode;
+    const std::vector<std::string>& output_props;
 
     // Analysis results
     ExpressionAnalysisResults analysis_results;

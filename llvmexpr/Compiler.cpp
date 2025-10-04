@@ -36,6 +36,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include "ExprIRGenerator.hpp"
+#include "SingleExprIRGenerator.hpp"
 #include "utils/Diagnostics.hpp"
 
 Compiler::Compiler(std::vector<Token>&& tokens_in, const VSVideoInfo* out_vi,
@@ -44,12 +45,14 @@ Compiler::Compiler(std::vector<Token>&& tokens_in, const VSVideoInfo* out_vi,
                    const std::map<std::pair<int, std::string>, int>& p_map,
                    std::string function_name, int opt_level_in,
                    int approx_math_in,
-                   ExpressionAnalysisResults&& analysis_results_in)
+                   ExpressionAnalysisResults&& analysis_results_in,
+                   ExprMode mode, const std::vector<std::string>& output_props)
     : tokens(std::move(tokens_in)), vo(out_vi), vi(in_vi),
       num_inputs(in_vi.size()), width(width_in), height(height_in),
       mirror_boundary(mirror), dump_ir_path(std::move(dump_path)),
       prop_map(p_map), func_name(std::move(function_name)),
-      opt_level(opt_level_in), approx_math(approx_math_in),
+      opt_level(opt_level_in), approx_math(approx_math_in), expr_mode(mode),
+      output_props(output_props),
       analysis_results(std::move(analysis_results_in)) {}
 
 CompiledFunction Compiler::compile() {
@@ -61,10 +64,12 @@ CompiledFunction Compiler::compile() {
 
 CompiledFunction Compiler::compile_with_approx_math(int actual_approx_math) {
     bool needs_nans = false;
-    for (const auto& token : tokens) {
-        if (token.type == TokenType::EXIT_NO_WRITE) {
-            needs_nans = true;
-            break;
+    if (expr_mode == ExprMode::EXPR) {
+        for (const auto& token : tokens) {
+            if (token.type == TokenType::EXIT_NO_WRITE) {
+                needs_nans = true;
+                break;
+            }
         }
     }
 
@@ -93,11 +98,19 @@ CompiledFunction Compiler::compile_with_approx_math(int actual_approx_math) {
     MathLibraryManager math_manager(module.get(), *context);
 
     // Create IR generator and generate code
-    ExprIRGenerator ir_gen(tokens, vo, vi, width, height, mirror_boundary,
-                           prop_map, analysis_results, *context, *module,
-                           builder, math_manager, func_name,
-                           actual_approx_math);
-    ir_gen.generate();
+    std::unique_ptr<IRGeneratorBase> ir_gen;
+    if (expr_mode == ExprMode::EXPR) {
+        ir_gen = std::make_unique<ExprIRGenerator>(
+            tokens, vo, vi, width, height, mirror_boundary, prop_map,
+            analysis_results, *context, *module, builder, math_manager,
+            func_name, actual_approx_math);
+    } else {
+        ir_gen = std::make_unique<SingleExprIRGenerator>(
+            tokens, vo, vi, mirror_boundary, prop_map, output_props,
+            analysis_results, *context, *module, builder, math_manager,
+            func_name, actual_approx_math);
+    }
+    ir_gen->generate();
 
     // Get the generated function and set attributes
     llvm::Function* func = module->getFunction(func_name);
@@ -213,7 +226,8 @@ CompiledFunction Compiler::compile_with_approx_math(int actual_approx_math) {
         Compiler fallback_compiler(std::vector<Token>(tokens), vo, vi, width,
                                    height, mirror_boundary, dump_ir_path,
                                    prop_map, func_name, opt_level, approx_math,
-                                   ExpressionAnalysisResults(analysis_results));
+                                   ExpressionAnalysisResults(analysis_results),
+                                   expr_mode, output_props);
         return fallback_compiler.compile_with_approx_math(0);
     }
 

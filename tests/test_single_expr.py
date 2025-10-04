@@ -1,0 +1,154 @@
+"""
+Copyright (C) 2025 yuygfgg
+
+This file is part of Vapoursynth-llvmexpr.
+
+Vapoursynth-llvmexpr is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+Vapoursynth-llvmexpr is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
+import pytest
+import vapoursynth as vs
+import numpy as np
+
+core = vs.core
+
+
+def test_simple_pixel_write():
+    """Test writing a single pixel value."""
+    clip = core.std.BlankClip(width=100, height=100, format=vs.GRAY8, color=0)
+    res = core.llvmexpr.SingleExpr(clip, "128 50 60 @[]^0")
+    frame = res.get_frame(0)
+    assert frame[0][60, 50] == 128
+    assert frame[0][0, 0] == 0
+    assert res.format.name == "Gray8"
+
+
+def test_pixel_read_write():
+    """Test reading a pixel from a source and writing it to a destination."""
+    clip = core.std.BlankClip(width=100, height=100, format=vs.GRAY8, color=0)
+
+    def modify_frame(n, f):
+        fout = f.copy()
+        arr = np.asarray(fout[0])
+        for y in range(100):
+            for x in range(100):
+                arr[y, x] = (x + y) % 256
+        return fout
+
+    clip = core.std.ModifyFrame(clip, clip, modify_frame)
+
+    res = core.llvmexpr.SingleExpr(clip, "10 20 src0^0[] 30 40 @[]^0")
+    frame = res.get_frame(0)
+    assert frame[0][40, 30] == 30
+
+
+def test_property_write():
+    """Test writing a value to a frame property."""
+    clip = core.std.BlankClip()
+    res = core.llvmexpr.SingleExpr(clip, '''123.45 MyTestProp$''')
+    frame = res.get_frame(0)
+    assert frame.props["MyTestProp"] == pytest.approx(123.45)
+
+
+def test_property_read_write():
+    """Test reading a frame property, modifying it, and writing to a new property."""
+    clip = core.std.BlankClip(width=1920, height=1080).std.SetFrameProps(_Width=1920, _Height=1080)
+    res = core.llvmexpr.SingleExpr(clip, '''src0._Width 2 / HalfWidth$ src0._Height 2 / HalfHeight$''')
+    frame = res.get_frame(0)
+    assert frame.props["HalfWidth"] == 1920 / 2
+    assert frame.props["HalfHeight"] == 1080 / 2
+
+
+def test_stack_not_empty_error():
+    """Test that an expression leaving items on the stack raises an error."""
+    clip = core.std.BlankClip()
+    with pytest.raises(vs.Error, match="Expression stack not balanced"):
+        core.llvmexpr.SingleExpr(clip, "1 2 +")
+
+
+@pytest.mark.parametrize(
+    "expr", ["X", "Y", "x", "y", "z", "a", "x[1,0]", "^exit^", "@[]"]
+)
+def test_disabled_token_error(expr: str):
+    """Test that using tokens disabled in SingleExpr raises an error."""
+    clip = core.std.BlankClip()
+    with pytest.raises(vs.Error, match="Invalid token"):
+        core.llvmexpr.SingleExpr(clip, expr)
+
+
+def test_loop_avg_brightness():
+    """Test a loop that calculates the average brightness of a region."""
+    clip = core.std.BlankClip(width=100, height=100, format=vs.GRAY8, color=50)
+    expr = '''
+        0 sum!
+        0 i!
+        #loop_i
+            0 j!
+            #loop_j
+                j@ i@ src0^0[] sum@ + sum!
+                j@ 1 + j!  
+            j@ 100 < loop_j#
+            i@ 1 + i!
+        i@ 100 < loop_i#
+        sum@ 10000 / AvgBrightness$
+    '''
+    res = core.llvmexpr.SingleExpr(clip, expr)
+    frame = res.get_frame(0)
+    assert frame.props["AvgBrightness"] == pytest.approx(50.0)
+
+
+def test_multi_clip_read():
+    """Test reading from multiple input clips."""
+    clip1 = core.std.BlankClip(color=[10,10,10])
+    clip2 = core.std.BlankClip(color=[20,20,20])
+    res = core.llvmexpr.SingleExpr(
+        [clip1, clip2], '''0 0 src0^0[] 0 0 src1^0[] + Sum$'''
+    )
+    frame = res.get_frame(0)
+    assert frame.props["Sum"] == 30
+
+
+def test_multi_plane_write():
+    """Test writing to multiple planes in a YUV clip."""
+    clip = core.std.BlankClip(format=vs.YUV420P8, width=16, height=16, color=[16,128,128])
+    res = core.llvmexpr.SingleExpr(clip, "10 0 0 @[]^0 20 1 1 @[]^1 30 2 2 @[]^2")
+    frame = res.get_frame(0)
+    assert frame[0][0, 0] == 10
+    assert frame[1][1, 1] == 20
+    assert frame[2][2, 2] == 30
+
+    assert frame[0][1, 1] == 16
+    assert frame[1][0, 0] == 128
+    assert frame[2][0, 0] == 128
+
+def test_atomic_prop_write():
+    """Test that property writes are visible within the same expression."""
+    clip = core.std.BlankClip()
+    expr = '''
+        10 MyVar$
+        x.MyVar 5 + MyVar$
+        x.MyVar 2 * MyVar2$
+    '''
+    res = core.llvmexpr.SingleExpr(clip, expr)
+    frame = res.get_frame(0)
+    assert frame.props["MyVar"] == pytest.approx(15.0)
+    assert frame.props["MyVar2"] == pytest.approx(30.0)
+
+def test_empty_expr():
+    """Test that an empty expression is valid and does nothing."""
+    clip = core.std.BlankClip(color=[42,42,42])
+    clipb = core.std.BlankClip(color=[22,22,22])
+    res = core.llvmexpr.SingleExpr([clip, clipb], "")
+    frame = res.get_frame(0)
+    assert frame[0][0, 0] == 42
