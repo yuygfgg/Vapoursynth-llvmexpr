@@ -35,7 +35,7 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "IRGenerator.hpp"
+#include "ExprIRGenerator.hpp"
 #include "utils/Diagnostics.hpp"
 
 Compiler::Compiler(std::vector<Token>&& tokens_in, const VSVideoInfo* out_vi,
@@ -93,9 +93,10 @@ CompiledFunction Compiler::compile_with_approx_math(int actual_approx_math) {
     MathLibraryManager math_manager(module.get(), *context);
 
     // Create IR generator and generate code
-    IRGenerator ir_gen(tokens, vo, vi, width, height, mirror_boundary, prop_map,
-                       analysis_results, *context, *module, builder,
-                       math_manager, func_name, actual_approx_math);
+    ExprIRGenerator ir_gen(tokens, vo, vi, width, height, mirror_boundary,
+                           prop_map, analysis_results, *context, *module,
+                           builder, math_manager, func_name,
+                           actual_approx_math);
     ir_gen.generate();
 
     // Get the generated function and set attributes

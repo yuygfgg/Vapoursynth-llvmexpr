@@ -17,8 +17,8 @@
  * along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef LLVMEXPR_IRGENERATOR_HPP
-#define LLVMEXPR_IRGENERATOR_HPP
+#ifndef LLVMEXPR_IRGENERATORBASE_HPP
+#define LLVMEXPR_IRGENERATORBASE_HPP
 
 #include <map>
 #include <string>
@@ -35,21 +35,24 @@
 #include "Tokenizer.hpp"
 #include "utils/Math.hpp"
 
-class IRGenerator {
+class IRGeneratorBase {
   public:
-    IRGenerator(const std::vector<Token>& tokens_in, const VSVideoInfo* out_vi,
-                const std::vector<const VSVideoInfo*>& in_vi, int width_in,
-                int height_in, bool mirror,
-                const std::map<std::pair<int, std::string>, int>& p_map,
-                const ExpressionAnalysisResults& analysis_results_in,
-                llvm::LLVMContext& context_ref, llvm::Module& module_ref,
-                llvm::IRBuilder<>& builder_ref, MathLibraryManager& math_mgr,
-                std::string func_name_in, int approx_math_in);
+    IRGeneratorBase(const std::vector<Token>& tokens_in,
+                    const VSVideoInfo* out_vi,
+                    const std::vector<const VSVideoInfo*>& in_vi, int width_in,
+                    int height_in, bool mirror,
+                    const std::map<std::pair<int, std::string>, int>& p_map,
+                    const ExpressionAnalysisResults& analysis_results_in,
+                    llvm::LLVMContext& context_ref, llvm::Module& module_ref,
+                    llvm::IRBuilder<>& builder_ref,
+                    MathLibraryManager& math_mgr, std::string func_name_in,
+                    int approx_math_in);
 
-    // Main generation method
+    virtual ~IRGeneratorBase() = default;
+
     void generate();
 
-  private:
+  protected:
     // Input parameters
     const std::vector<Token>& tokens;
     const VSVideoInfo* vo;
@@ -63,39 +66,36 @@ class IRGenerator {
     std::string func_name;
     int approx_math;
 
-    // LLVM objects (references)
     llvm::LLVMContext& context;
     llvm::Module& module;
     llvm::IRBuilder<>& builder;
     MathLibraryManager& math_manager;
 
-    // Function and arguments
     llvm::Function* func;
     llvm::Value* rwptrs_arg;
     llvm::Value* strides_arg;
     llvm::Value* props_arg;
 
-    // Loop-invariant caches
     std::vector<llvm::Value*> preloaded_base_ptrs;
     std::vector<llvm::Value*> preloaded_strides;
 
-    // Alias scope metadata
     llvm::MDNode* alias_scope_domain;
     std::vector<llvm::MDNode*> alias_scopes;
     std::vector<llvm::MDNode*> alias_scope_lists;
     std::vector<llvm::MDNode*> noalias_scope_lists;
 
-    // Row ptr cache
     std::vector<RelYAccess> unique_rel_y_accesses;
     std::map<RelYAccess, llvm::Value*> row_ptr_cache;
     int min_rel_x;
     int max_rel_x;
 
-    // Flags
     bool uses_x;
     bool uses_y;
 
-    // Helper methods
+    virtual void define_function_signature() = 0;
+
+    virtual void generate_loops() = 0;
+
     llvm::AllocaInst* createAllocaInEntry(llvm::Type* type,
                                           const std::string& name);
 
@@ -109,32 +109,47 @@ class IRGenerator {
     void setMemoryInstAttrs(MemInstT* inst, unsigned alignment,
                             int rwptr_index);
 
-    void define_function_signature();
     void collect_rel_y_accesses();
     void collect_rel_x_accesses();
+
     llvm::Value* get_final_coord(llvm::Value* coord, llvm::Value* max_dim,
                                  bool use_mirror);
+
     llvm::Value* generate_load_from_row_ptr(llvm::Value* row_ptr, int clip_idx,
                                             llvm::Value* x, int rel_x,
                                             bool use_mirror,
                                             bool no_x_bounds_check);
+
     void add_loop_metadata(llvm::BranchInst* loop_br);
-    void generate_loops();
-    void generate_x_loop_body(llvm::Value* x_var, llvm::Value* x_fp_var,
-                              llvm::Value* y_var, llvm::Value* y_fp_var,
-                              bool no_x_bounds_check);
+
+    llvm::Value* generate_pixel_load(int clip_idx, llvm::Value* x,
+                                     llvm::Value* y, bool mirror);
+
+    void generate_pixel_store(llvm::Value* value_to_store, llvm::Value* x,
+                              llvm::Value* y);
+
     void generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
                                  llvm::Value* x_fp, llvm::Value* y_fp,
                                  bool no_x_bounds_check);
-    llvm::Value* generate_pixel_load(int clip_idx, llvm::Value* x,
-                                     llvm::Value* y, bool mirror);
-    void generate_pixel_store(llvm::Value* value_to_store, llvm::Value* x,
-                              llvm::Value* y);
+
+    bool process_common_token(const Token& token,
+                              std::vector<llvm::Value*>& rpn_stack,
+                              llvm::Type* float_ty, llvm::Type* i32_ty,
+                              bool use_approx_math);
+
+    virtual bool process_mode_specific_token(
+        const Token& token, std::vector<llvm::Value*>& rpn_stack,
+        llvm::Value* x, llvm::Value* y, llvm::Value* x_fp, llvm::Value* y_fp,
+        bool no_x_bounds_check) = 0;
+
+    virtual void finalize_and_store_result(llvm::Value* result_val,
+                                           llvm::Value* x, llvm::Value* y) = 0;
 };
 
 template <typename... Args>
-llvm::Value* IRGenerator::createIntrinsicCall(llvm::Intrinsic::ID intrinsic_id,
-                                              Args... args) {
+llvm::Value*
+IRGeneratorBase::createIntrinsicCall(llvm::Intrinsic::ID intrinsic_id,
+                                     Args... args) {
     static_assert(sizeof...(Args) >= 1, "At least one argument required");
     llvm::SmallVector<llvm::Value*, 4> arg_vec{args...};
     auto* callee = llvm::Intrinsic::getOrInsertDeclaration(
@@ -145,8 +160,8 @@ llvm::Value* IRGenerator::createIntrinsicCall(llvm::Intrinsic::ID intrinsic_id,
 }
 
 template <typename MemInstT>
-void IRGenerator::setMemoryInstAttrs(MemInstT* inst, unsigned alignment,
-                                     int rwptr_index) {
+void IRGeneratorBase::setMemoryInstAttrs(MemInstT* inst, unsigned alignment,
+                                         int rwptr_index) {
     inst->setAlignment(llvm::Align(alignment));
     inst->setMetadata(llvm::LLVMContext::MD_alias_scope,
                       alias_scope_lists[rwptr_index]);
@@ -154,4 +169,4 @@ void IRGenerator::setMemoryInstAttrs(MemInstT* inst, unsigned alignment,
                       noalias_scope_lists[rwptr_index]);
 }
 
-#endif // LLVMEXPR_IRGENERATOR_HPP
+#endif // LLVMEXPR_IRGENERATORBASE_HPP
