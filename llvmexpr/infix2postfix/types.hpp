@@ -9,46 +9,46 @@ namespace infix2postfix {
 
 enum class TokenType {
     // Keywords
-    If,
-    Else,
-    While,
-    Goto,
-    Function,
-    Return,
+    If,       // if
+    Else,     // else
+    While,    // while
+    Goto,     // goto
+    Function, // function
+    Return,   // return
 
     // Operators
-    Plus,
-    Minus,
-    Star,
-    Slash,
-    Percent,
+    Plus,       // +
+    Minus,      // -
+    Star,       // *
+    Slash,      // /
+    Percent,    // %
     StarStar,   // **
     LogicalAnd, // &&
     LogicalOr,  // ||
-    BitAnd,
-    BitOr,
-    BitXor,
-    BitNot, // &, |, ^, ~
-    Eq,
-    Ne,
-    Lt,
-    Le,
-    Gt,
-    Ge,     // ==, !=, <, <=, >, >=
-    Assign, // =
-    Question,
-    Colon, // ? :
-    Not,   // !
+    BitAnd,     // &
+    BitOr,      // |
+    BitXor,     // ^
+    BitNot,     // ~
+    Eq,         // ==
+    Ne,         // !=
+    Lt,         // <
+    Le,         // <=
+    Gt,         // >
+    Ge,         // >=
+    Assign,     // =
+    Question,   // ?
+    Colon,      // :
+    Not,        // !
 
     // Punctuation
-    LParen,
-    RParen,
-    LBrace,
-    RBrace,
-    LBracket,
-    RBracket,
-    Comma,
-    Dot,
+    LParen,   // (
+    RParen,   // )
+    LBrace,   // {
+    RBrace,   // }
+    LBracket, // [
+    RBracket, // ]
+    Comma,    // ,
+    Dot,      // .
 
     // Literals
     Identifier,

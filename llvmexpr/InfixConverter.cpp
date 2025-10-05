@@ -25,7 +25,8 @@
 #include "infix2postfix/Parser.hpp"
 #include "infix2postfix/Tokenizer.hpp"
 
-std::string convertInfixToPostfixExpr(const std::string& infix_expr) {
+std::string convertInfixToPostfixExpr(const std::string& infix_expr,
+                                      int num_inputs) {
     try {
         infix2postfix::Tokenizer tokenizer(infix_expr);
         auto tokens = tokenizer.tokenize();
@@ -33,7 +34,8 @@ std::string convertInfixToPostfixExpr(const std::string& infix_expr) {
         infix2postfix::Parser parser(tokens);
         auto ast = parser.parse();
 
-        infix2postfix::CodeGenerator generator(infix2postfix::Mode::Expr);
+        infix2postfix::CodeGenerator generator(infix2postfix::Mode::Expr,
+                                               num_inputs);
         return generator.generate(ast.get());
     } catch (const std::exception& e) {
         throw std::runtime_error(
@@ -41,7 +43,8 @@ std::string convertInfixToPostfixExpr(const std::string& infix_expr) {
     }
 }
 
-std::string convertInfixToPostfixSingle(const std::string& infix_expr) {
+std::string convertInfixToPostfixSingle(const std::string& infix_expr,
+                                        int num_inputs) {
     try {
         infix2postfix::Tokenizer tokenizer(infix_expr);
         auto tokens = tokenizer.tokenize();
@@ -49,7 +52,8 @@ std::string convertInfixToPostfixSingle(const std::string& infix_expr) {
         infix2postfix::Parser parser(tokens);
         auto ast = parser.parse();
 
-        infix2postfix::CodeGenerator generator(infix2postfix::Mode::Single);
+        infix2postfix::CodeGenerator generator(infix2postfix::Mode::Single,
+                                               num_inputs);
         return generator.generate(ast.get());
     } catch (const std::exception& e) {
         throw std::runtime_error(

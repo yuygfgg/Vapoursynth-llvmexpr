@@ -6,16 +6,14 @@
 namespace infix2postfix {
 
 int compute_postfix_stack_effect(const std::string& postfix_expr,
-                                 PostfixMode mode, int line) {
+                                 PostfixMode mode, int line, int num_inputs) {
     ::ExprMode expr_mode = (mode == PostfixMode::EXPR)
                                ? ::ExprMode::EXPR
                                : ::ExprMode::SINGLE_EXPR;
 
     std::vector<::Token> tokens;
     try {
-        tokens = ::tokenize(postfix_expr,
-                            114514, // TODO: handle num_inputs correctly
-                            expr_mode);
+        tokens = ::tokenize(postfix_expr, num_inputs, expr_mode);
     } catch (const std::exception& e) {
         throw std::runtime_error(
             std::format("Line {}: Failed to tokenize postfix expression: {}",

@@ -26,7 +26,8 @@ bool is_constant_infix_internal(const std::string& s) {
 }
 } // namespace
 
-CodeGenerator::CodeGenerator(Mode mode) : mode(mode) {}
+CodeGenerator::CodeGenerator(Mode mode, int num_inputs)
+    : mode(mode), num_inputs(num_inputs) {}
 
 std::string CodeGenerator::generate(Program* program) {
     std::string result;
@@ -322,7 +323,7 @@ std::string CodeGenerator::visit(AssignStmt& stmt) {
 
     std::string var_name = stmt.name.value;
     std::string renamed_var = rename_variable(var_name);
-    
+
     std::string s = std::format("{} {}!", value_code, renamed_var);
     check_stack_effect(s, 0, stmt.line);
 
@@ -485,7 +486,7 @@ int CodeGenerator::compute_stack_effect(const std::string& s, int line) {
         (mode == Mode::Expr) ? PostfixMode::EXPR : PostfixMode::SINGLE_EXPR;
 
     try {
-        return compute_postfix_stack_effect(s, postfix_mode, line);
+        return compute_postfix_stack_effect(s, postfix_mode, line, num_inputs);
     } catch (const std::exception& e) {
         throw CodeGenError(e.what(), line);
     }

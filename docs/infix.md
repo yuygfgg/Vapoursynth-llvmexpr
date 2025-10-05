@@ -182,10 +182,10 @@ Write a frame property using the `set_prop()` built-in function.
 - `value`: The value to write, which can be the result of an expression.
 
 ```c
-// Write a simple value
+# Write a simple value
 set_prop(MyProperty, 123.456);
 
-// Write computed value
+# Write computed value
 w = frame.width[0];
 h = frame.height[0];
 avg = (dyn(x, 0, 0, 0) + dyn(x, w-1, h-1, 0)) / 2;
@@ -222,8 +222,8 @@ In `SingleExpr` mode, all data I/O is explicit and uses absolute coordinates.
 Access the width and height of specific planes using `frame.width[N]` and `frame.height[N]`.
 
 ```c
-w0 = frame.width[0];   // Width of plane 0 (luma)
-h1 = frame.height[1];  // Height of plane 1 (chroma U)
+w0 = frame.width[0];   # Width of plane 0 (luma)
+h1 = frame.height[1];  # Height of plane 1 (chroma U)
 ```
 **Postfix output:** `width^0`, `height^1`
 **Note:** The plane index `N` must be an integer constant.
@@ -320,7 +320,7 @@ The `store()` function has different signatures for `Expr` and `SingleExpr` mode
 
 ```
 function functionName(param1, param2) {
-    // Body of the function
+    # Body of the function
     local_var = param1 * param2
     return local_var + 10
 }

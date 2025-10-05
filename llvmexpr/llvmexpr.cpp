@@ -325,7 +325,8 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
         for (int i = 0; i < nexpr; ++i) {
             std::string input_expr = vsapi->mapGetData(in, "expr", i, &err);
             if (use_infix && !input_expr.empty()) {
-                expr_strs[i] = convertInfixToPostfixExpr(input_expr);
+                expr_strs[i] =
+                    convertInfixToPostfixExpr(input_expr, d->num_inputs);
             } else {
                 expr_strs[i] = input_expr;
             }
@@ -588,7 +589,8 @@ void VS_CC singleExprCreate(const VSMap* in, VSMap* out,
 
         std::string processed_expr;
         if (use_infix) {
-            processed_expr = convertInfixToPostfixSingle(expr_str);
+            processed_expr =
+                convertInfixToPostfixSingle(expr_str, d->num_inputs);
         } else {
             processed_expr = expr_str;
         }

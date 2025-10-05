@@ -118,8 +118,8 @@ std::unique_ptr<Stmt> Parser::parseExprStatement() {
     if (peek().type == TokenType::Identifier) {
         Token name = peek();
         if (peek(1).type == TokenType::Assign) {
-            advance(); // consume identifier
-            advance(); // consume '='
+            advance(); // identifier
+            advance(); // '='
             auto value = parseTernary();
             return std::make_unique<AssignStmt>(name, std::move(value));
         }
@@ -381,7 +381,7 @@ std::unique_ptr<Expr> Parser::finishCall(std::unique_ptr<Expr> callee) {
         return std::make_unique<CallExpr>(var->name, std::move(args), suffix);
     }
     error(peek(), "Invalid call target.");
-    return nullptr; // unreachable
+    std::unreachable();
 }
 
 std::unique_ptr<Expr> Parser::parsePrimary() {

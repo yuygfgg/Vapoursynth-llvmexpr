@@ -22,8 +22,10 @@
 
 #include <string>
 
-std::string convertInfixToPostfixExpr(const std::string& infix_expr);
+std::string convertInfixToPostfixExpr(const std::string& infix_expr,
+                                      int num_inputs);
 
-std::string convertInfixToPostfixSingle(const std::string& infix_expr);
+std::string convertInfixToPostfixSingle(const std::string& infix_expr,
+                                        int num_inputs);
 
 #endif

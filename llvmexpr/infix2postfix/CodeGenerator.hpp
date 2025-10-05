@@ -18,7 +18,7 @@ class CodeGenError : public std::runtime_error {
 
 class CodeGenerator : public ExprVisitor, public StmtVisitor {
   public:
-    CodeGenerator(Mode mode);
+    CodeGenerator(Mode mode, int num_inputs);
     std::string generate(Program* program);
 
     // Expr visitors
@@ -63,6 +63,7 @@ class CodeGenerator : public ExprVisitor, public StmtVisitor {
     void define_variable_in_current_scope(const std::string& var_name);
 
     Mode mode;
+    int num_inputs;
     int label_counter = 0;
     std::map<std::string, FunctionSignature> functions;
     std::map<std::string, FunctionDef*> function_defs;

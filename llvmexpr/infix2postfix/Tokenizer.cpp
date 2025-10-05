@@ -35,9 +35,9 @@ Token Tokenizer::nextToken() {
         return identifier();
     if (std::isdigit(c))
         return number();
-    if (c == '$') { // Constants or variables starting with $
+    if (c == '$') {
         if (std::isalpha(peek()) || peek() == '_') {
-            advance(); // the char after $
+            advance();
             return identifier();
         }
     }
@@ -141,8 +141,7 @@ char Tokenizer::advance() {
 }
 
 Token Tokenizer::makeToken(TokenType type, const std::string& value) const {
-    return {type,
-            value.empty() ? source.substr(start, current - start) : value,
+    return {type, value.empty() ? source.substr(start, current - start) : value,
             line};
 }
 

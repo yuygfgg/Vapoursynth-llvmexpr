@@ -118,11 +118,27 @@ These are fundamental features in `llvmexpr` that enable entirely new types of o
     *   `absX absY clip[]:c`: Forces clamped boundary for absolute access (default when not specified, same as akarin.Expr).
 *   **Relaxed Offset Range for Static Pixel Access:**: While `akarin.Expr` requires `-width < relX < width && -height < relY < height` in `x[relX,relY]` syntax, `llvmexpr` allows `relX` and `relY` to be any integer value.
 
-#### 3. Core Engine and Usability Enhancements
+#### 3. Infix (C-Style) Syntax Support
 
-*   **`exprutils` Python Library:** A companion library is provided to improve the user experience:
-    *   **`infix2postfix`:** A transpiler to convert C-style infix expressions into the RPN format.
-    *   **`postfix2infix`:** A reverse transpiler for debugging and understanding RPN expressions.
+`llvmexpr` introduces a major usability enhancement not available in `akarin.Expr`: support for C-style infix notation.
+
+*   **`infix=1` Parameter:** By setting `infix=1`, you can write expressions in a familiar, algebraic style. The plugin automatically converts these expressions to its internal postfix representation at runtime.
+*   **Improved Readability:** Infix notation makes complex mathematical and logical expressions significantly easier to write, read, and maintain compared to RPN.
+*   **`akarin.Expr` Compatibility:** `akarin.Expr` exclusively uses postfix (RPN) syntax. This feature is unique to `llvmexpr`.
+
+**Example:**
+
+An expression to calculate the Euclidean distance in RPN would be:
+```
+x X - 2 pow y Y - 2 pow + sqrt
+```
+
+With `infix=1`, the same logic can be expressed more intuitively:
+```c
+RESULT = sqrt(pow($x - $X, 2) + pow($y - $Y, 2))
+```
+
+#### 4. Core Engine and Usability Enhancements
 *   **Advanced Function Parameters:** Offers more fine-grained control over compilation and execution:
     *   `dump_ir`: Dumps the intermediate LLVM IR for debugging and performance analysis.
     *   `opt_level`: Provides explicit control over the LLVM optimization level.

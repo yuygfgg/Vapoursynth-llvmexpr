@@ -74,7 +74,7 @@ int main(int argc, char* argv[]) {
         Parser parser(tokens);
         auto ast = parser.parse();
 
-        CodeGenerator generator(mode);
+        CodeGenerator generator(mode, 114514); // 1919810
         std::string postfix_code = generator.generate(ast.get());
 
         std::ofstream out_stream(output_file);

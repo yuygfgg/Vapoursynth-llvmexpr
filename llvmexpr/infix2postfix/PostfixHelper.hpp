@@ -11,7 +11,7 @@ enum class PostfixMode {
 };
 
 int compute_postfix_stack_effect(const std::string& postfix_expr,
-                                 PostfixMode mode, int line);
+                                 PostfixMode mode, int line, int num_inputs);
 
 } // namespace infix2postfix
 
