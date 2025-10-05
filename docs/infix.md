@@ -1,9 +1,27 @@
+# Infix Syntax Documentation for llvmexpr
+
 ## 1. Introduction
 
-The `exprutils` module implements a simple domain-specific language designed to be transpiled into postfix notation (Reverse Polish Notation) for use with VapourSynth's `llvmexpr` plugin.
+The language provides a familiar C-style infix syntax that supports variables, operators, user-defined functions, and special constructs for video processing. It is designed to be expressive and readable, abstracting away the complexities of writing raw postfix expressions.
 
-The language provides a familiar C-style infix syntax that supports variables, operators, user-defined functions, and special constructs for video processing.
-It is designed to be expressive and readable, abstracting away the complexities of writing raw postfix expressions.
+The infix transpiler supports two distinct execution models, corresponding to VapourSynth's `Expr` and `SingleExpr` functions.
+
+### 1.1. `Expr` Mode: Per-Pixel Execution
+
+This is the traditional model. The script is executed once for *every single pixel* of the output frame. It is ideal for standard image filtering, such as applying a brightness curve, combining clips, or spatial filtering.
+
+- **Key Characteristics:**
+    - Operates on a "current pixel" concept, with `$X` and `$Y` coordinates available.
+    - The final value assigned to the special `RESULT` variable is implicitly written to the current pixel's location.
+
+### 1.2. `SingleExpr` Mode: Per-Frame Execution
+
+This is a specialized model where the script is executed only *once for the entire frame*. This model is not suitable for general image processing but excels at tasks that require summarizing or distributing data across a frame, such as calculating average brightness or copying frame properties.
+
+- **Key Characteristics:**
+    - No "current pixel" concept; `$X` and `$Y` are unavailable.
+    - All output must be performed explicitly by writing to absolute pixel coordinates (`store()`) or by writing to frame properties (`set_prop()`).
+    - The special `RESULT` variable has no effect on the output frame.
 
 ## 2. Lexical Structure
 
@@ -66,14 +84,16 @@ my_var = 10 * 2
 my_func(my_var)
 ```
 
-### 3.2. Final Result
+### 3.2. Final Result (`Expr` mode)
 
-To produce a final output from the script, a value must be assigned to the special variable `RESULT`. This assignment is typically the last statement in the global scope.
+In `Expr` mode, the final output for each pixel is determined by the value assigned to the special `RESULT` variable. This assignment is typically the last statement in the global scope.
 
 ```
 # ... calculations ...
 RESULT = final_value
 ```
+
+In `SingleExpr` mode, assigning to `RESULT` has no effect. Output in this mode is handled explicitly via the `store()` and `set_prop()` functions.
 
 ## 4. Variables and Constants
 
@@ -90,14 +110,14 @@ Constants represent fixed values and are **always** identified by a `$` prefix. 
 
 The language provides several built-in constants.
 
-| Constant  | Description                                                 |
-| :-------- | :---------------------------------------------------------- |
-| `$pi`     | The value of π.                                             |
-| `$N`      | The current frame number (0-based).                         |
-| `$X`      | The current column coordinate (chroma-subsampling counted). |
-| `$Y`      | The current row coordinate (chroma-subsampling counted).    |
-| `$width`  | The width of the video plane (chroma-subsampling counted).  |
-| `$height` | The height of the video plane (chroma-subsampling counted). |
+| Constant  | Description                                                                                             | Availability |
+| :-------- | :------------------------------------------------------------------------------------------------------ | :----------- |
+| `$pi`     | The value of π.                                                                                         | Both         |
+| `$N`      | The current frame number (0-based).                                                                     | Both         |
+| `$X`      | The current column coordinate (chroma-subsampling counted).                                             | `Expr` only  |
+| `$Y`      | The current row coordinate (chroma-subsampling counted).                                                | `Expr` only  |
+| `$width`  | The width of the video plane. In `Expr`, this is the width of the current plane. In `SingleExpr`, this is the width of the luma plane.  | Both         |
+| `$height` | The height of the video plane. In `Expr`, this is the height of the current plane. In `SingleExpr`, this is the height of the luma plane. | Both         |
 
 ### 4.4. Source Clips
 
@@ -140,13 +160,89 @@ Operators are left-associative, except for the unary and ternary operators. The 
 Note: Bitwise operators operates on integer values. When operating on floating-point values, operands are first rounded to the nearest integer.
 Note: Logical operators treat any value greater than 0 as `true`. They return `1.0` for true and `0.0` for false.
 
-## 6. Functions
+## 6. Data Access
 
-### 6.1. Function Calls
+Data access methods for pixels and frame properties differ significantly between `Expr` and `SingleExpr` modes.
+
+### 6.1. Frame Property Access
+
+#### Reading (Both Modes)
+
+Read a property from a clip's frame properties using `clip.propname` syntax.
+
+- **Syntax:** `clip.propname`
+- `clip` must be a valid source clip identifier (e.g., `a`, `src1`). The `$` prefix is optional. For example: `$a.propname` or `src1._Matrix`.
+
+#### Writing (`SingleExpr` only)
+
+Write a frame property using the `set_prop()` built-in function.
+
+- **Signature:** `set_prop(property_name, value)`
+- `property_name`: Property name as an identifier (not a string).
+- `value`: The value to write, which can be the result of an expression.
+
+```c
+// Write a simple value
+set_prop(MyProperty, 123.456);
+
+// Write computed value
+w = frame.width[0];
+h = frame.height[0];
+avg = (dyn(x, 0, 0, 0) + dyn(x, w-1, h-1, 0)) / 2;
+set_prop(AverageValue, avg);
+```
+**Postfix output:** `123.456 MyProperty$`, `avg AverageValue$`
+
+### 6.2. Pixel Access (`Expr` mode)
+
+In `Expr` mode, you can access pixels from source clips relative to the current pixel or at absolute coordinates.
+
+#### Static Relative Pixel Access
+
+Access a pixel at a fixed, constant offset from the current coordinate (`$X`, `$Y`).
+
+- **Syntax:** `$clip[offsetX, offsetY]` or `$clip[offsetX, offsetY]:m` or `$clip[offsetX, offsetY]:c`
+- `$clip` must be a source clip constant.
+- `offsetX` and `offsetY` must be integer literals.
+- **Boundary Suffixes:**
+  - `:c`: Forces clamped boundary (edge pixels are repeated).
+  - `:m`: Forces mirrored boundary.
+  - If omitted, the filter's global boundary parameter is used.
+
+#### Dynamic Absolute Pixel Access
+
+Access a pixel at a dynamically calculated coordinate using the 3-argument `dyn()` function. See section 7.2 for details.
+
+### 6.3. Pixel and Data I/O (`SingleExpr` mode)
+
+In `SingleExpr` mode, all data I/O is explicit and uses absolute coordinates.
+
+#### Plane-Specific Dimensions
+
+Access the width and height of specific planes using `frame.width[N]` and `frame.height[N]`.
+
+```c
+w0 = frame.width[0];   // Width of plane 0 (luma)
+h1 = frame.height[1];  // Height of plane 1 (chroma U)
+```
+**Postfix output:** `width^0`, `height^1`
+**Note:** The plane index `N` must be an integer constant.
+
+#### Absolute Pixel Reading
+
+Read pixels from specific coordinates and planes using the 4-argument version of `dyn()`. See section 7.2 for details.
+
+#### Absolute Pixel Writing
+
+Write values to specific output frame locations using the 4-argument version of `store()`. See section 7.2 for details.
+
+## 7. Functions
+
+### 7.1. Function Calls
 
 Functions are called using standard syntax: `functionName(argument1, argument2, ...)`
 
-### 6.2. Built-in Functions
+### 7.2. Built-in Functions
 
 | Function                          | Arity               | Description                                                   |
 | :-------------------------------- | :------------------ | :------------------------------------------------------------ |
@@ -163,9 +259,6 @@ Functions are called using standard syntax: `functionName(argument1, argument2, 
 | `copysign`                        | 2                   | Magnitude of first operand, sign of second.                   |
 | `clamp`                           | 3                   | `clamp(x, lo, hi)`; clamps to `[lo, hi]`.                     |
 | `fma`                             | 3                   | Fused multiply-add: `(a * b) + c`.                            |
-| `dyn`                             | 3                   | Dynamic absolute pixel access. See Section 8.                 |
-| `store`                           | 3                   | `store(val, x, y)`; writes `val` to `[trunc(x), trunc(y)]`.   |
-| `exit`                            | 0                   | Suppresses default pixel write.                               |
 | `nth_N`                           | `M` (where `M ≥ N`) | `nth_3(a, b, c, d)` returns the 3rd smallest of the 4 values. |
 
 Notes:
@@ -173,7 +266,55 @@ Notes:
 - All built-ins are recognized by name and arity; wrong arity will raise a syntax error.
 - `nth_N(...)` supports any `N ≥ 1`. It sorts its `M` arguments internally and returns the `N`-th smallest. This compiles to stack ops using `sortM`/`dropK` under the hood.
 
-### 6.3. User-Defined Functions
+### 7.3. Mode-Specific Functions
+
+#### `dyn()` - Dynamic Pixel Access
+
+The `dyn()` function has different signatures for `Expr` and `SingleExpr` modes.
+
+- **`Expr` mode:** `dyn($clip, x_expr, y_expr)` or `dyn($clip, x_expr, y_expr):b|:m|:c`
+  - Accesses a pixel at a dynamically calculated coordinate.
+  - `$clip` must be a source clip constant.
+  - `x_expr` and `y_expr` can be any valid expressions. If the coordinates are not integers, they will be rounded half to even.
+  - `dyn($src0, $X + 2, $Y + 3):b` is equivalent to `$src0[2, 3]`.
+  - **Boundary Suffixes:**
+    - `:b`: Use the filter's global boundary parameter.
+    - `:c`: Forces clamped boundary (default when omitted).
+    - `:m`: Forces mirrored boundary.
+
+- **`SingleExpr` mode:** `dyn(clip, x, y, plane)`
+  - Reads a pixel from an absolute coordinate on a specific plane.
+  - **Signature:** `dyn(clip, x, y, plane)`
+    - `clip`: Clip identifier (x, y, z, or srcN).
+    - `x`, `y`: Absolute coordinates (can be expressions).
+    - `plane`: Plane index (must be an integer constant).
+  - **Example:** `val = dyn(x, 100, 200, 0);`
+  - **Postfix output:** `100 200 x^0 []`
+
+#### `store()` - Pixel Writing
+
+The `store()` function has different signatures for `Expr` and `SingleExpr` modes.
+
+- **`Expr` mode:** `store(val, x, y)`
+  - Writes `val` to the output pixel at `[trunc(x), trunc(y)]`.
+  - This allows an expression for one pixel to write to another location.
+
+- **`SingleExpr` mode:** `store(x, y, plane, value)`
+  - Writes a value to an absolute coordinate on a specific output plane.
+  - **Signature:** `store(x, y, plane, value)`
+    - `x`, `y`: Absolute coordinates (can be expressions).
+    - `plane`: Plane index (must be an integer constant).
+    - `value`: Value to write (can be an expression).
+  - **Example:** `store(0, 0, 0, 255);`
+  - **Postfix output:** `255 0 0 @[]^0`
+  - **Warning:** No boundary checking is performed. Writing outside valid frame dimensions causes undefined behavior.
+
+#### `exit()` (`Expr` only)
+
+- **Signature:** `exit()`
+- Suppresses the default pixel write to the current coordinate (`$X`, `$Y`). This is useful when an expression only writes to other pixels using `store()`.
+
+### 7.4. User-Defined Functions
 
 - **Definition:**
 
@@ -190,13 +331,13 @@ function functionName(param1, param2) {
 - **Inlining:** Function calls are effectively inlined at compile time. Recursion is not supported.
 - **Nesting:** Function definitions cannot be nested.
 
-### 6.4. Standard Library
+### 7.5. Standard Library
 
 Additional higher-level helpers can be provided via user-defined libraries, but most common math primitives (listed above) are available as built-ins.
 
-## 7. Scope and Globals
+## 8. Scope and Globals
 
-### 7.1. Scopes
+### 8.1. Scopes
 
 - **Global Scope:** Variables defined at the top level of the script.
 - **Function Scope:** Each function has its own local scope. This includes its parameters and any variables assigned within its body.
@@ -212,7 +353,7 @@ if ($x > 10) {
 # because 'a' is not defined in the global scope.
 # RESULT = a
 ```
-### 7.2. Global Variable Access
+### 8.2. Global Variable Access
 
 By default, functions operate in an isolated scope and cannot access global variables. This behavior can be modified with a global declaration placed immediately before a function definition.
 
@@ -234,43 +375,9 @@ RESULT = useGlobal(5) # Evaluates to 105
 
 - Any global variable a function depends on must be defined before that function is called.
 
-## 8. Data Access
+## 9. Control Flow (if/else/while and Labels)
 
-### 8.1. Frame Property Access
-
-Read a property from a clip's frame properties.
-
-- **Syntax:** `clip.propname`
-- `clip` must be a valid source clip identifier (e.g., `$a`, `$src1`), but the `$` prefix is optional. For example: `$a.propname` or `src1._Matrix`.
-
-### 8.2. Static Relative Pixel Access
-
-Access a pixel from a source clip at a fixed, constant offset from the current coordinate (`X`, `Y`).
-
-- **Syntax:** `$clip[offsetX, offsetY]` or `$clip[offsetX, offsetY]:m` or `$clip[offsetX, offsetY]:c`
-- `$clip` must be a source clip constant.
-- `offsetX` and `offsetY` must be integer literals.
-- **Boundary Suffixes:**
-  - `:c`: Forces clamped boundary (edge pixels are repeated).
-  - `:m`: Forces mirrored boundary.
-  - If omitted, the filter's global boundary parameter is used.
-
-### 8.3. Dynamic Absolute Pixel Access
-
-Access a pixel from a source clip at a dynamically calculated coordinate. This is achieved via the `dyn` built-in function.
-
-- **Syntax:** `dyn($clip, x_expr, y_expr)` or `dyn($clip, x_expr, y_expr):b|:m|:c`
-- `$clip` must be a source clip constant.
-- `x_expr` and `y_expr` can be any valid expressions that evaluate to the desired coordinates. If the coordinates are not integers, they will be rounded half to even.
-- `dyn($src0, $X + 2, $Y + 3):b` is equivalent to `$src0[2, 3]`.
-- **Boundary Suffixes:**
-  - `:b`: Use the filter's global boundary parameter.
-  - `:c`: Forces clamped boundary (default when omitted).
-  - `:m`: Forces mirrored boundary.
-
-## 9. Control Flow (if/else/goto and Labels)
-
-The infix syntax supports structured conditionals and low-level jumps at both global and function scope. These compile to RPN labels and conditional jumps.
+The infix syntax supports structured conditionals, loops, and low-level jumps at both global and function scope. These compile to RPN labels and jumps.
 
 ### 9.1. If / Else Blocks
 
@@ -292,16 +399,6 @@ if (condition) {
 
 - **Define a label:** `label_name:` (at the start of a line)
 - **Unconditional jump:** `goto label_name`
-- **Conditional jump:** `if (condition) goto label_name`
-
-> **Warning: Difference in Conditional Logic**
->
-> There is a critical difference between the two forms of `if`:
->
-> - **`if (condition) { ... }` (block):** The block is executed if the `condition` evaluates to any **non-zero** value (positive or negative). This behavior is consistent with standard C/C++.
-> - **`if (condition) goto label` (direct jump):** The jump is only executed if the `condition` evaluates to a value that is strictly **greater than zero (`> 0`)**.
->
-> Be mindful of this distinction when working with negative numbers in conditional jumps.
 
 Constraints and rules:
 
@@ -335,27 +432,4 @@ while (counter > 0) {
     counter = counter - 1
 }
 RESULT = counter # will be 0
-```
-
-### 9.4. Examples
-
-Simple conditional assignment:
-
-```
-# Keep bright pixels, zero otherwise
-if ($x > 128) {
-    RESULT = $x
-} else {
-    RESULT = 0
-}
-```
-
-Countdown using a label and conditional goto within the same block:
-
-```
-counter = 4
-loop:
-counter = counter - 1
-if (counter) goto loop
-RESULT = counter
 ```

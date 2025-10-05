@@ -33,6 +33,7 @@
 
 #include "Analysis.hpp"
 #include "Compiler.hpp"
+#include "InfixConverter.hpp"
 #include "Jit.hpp"
 #include "Tokenizer.hpp"
 
@@ -318,9 +319,16 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
             throw std::runtime_error(
                 "At least one expression must be provided.");
 
+        bool use_infix = vsapi->mapGetInt(in, "infix", 0, &err) != 0;
+
         std::string expr_strs[3];
         for (int i = 0; i < nexpr; ++i) {
-            expr_strs[i] = vsapi->mapGetData(in, "expr", i, &err);
+            std::string input_expr = vsapi->mapGetData(in, "expr", i, &err);
+            if (use_infix && !input_expr.empty()) {
+                expr_strs[i] = convertInfixToPostfixExpr(input_expr);
+            } else {
+                expr_strs[i] = input_expr;
+            }
         }
         for (int i = nexpr; i < d->vi.format.numPlanes; ++i) {
             expr_strs[i] = expr_strs[nexpr - 1];
@@ -576,7 +584,17 @@ void VS_CC singleExprCreate(const VSMap* in, VSMap* out,
         if (err)
             throw std::runtime_error("An expression must be provided.");
 
-        d->tokens = tokenize(expr_str, d->num_inputs, ExprMode::SINGLE_EXPR);
+        bool use_infix = vsapi->mapGetInt(in, "infix", 0, &err) != 0;
+
+        std::string processed_expr;
+        if (use_infix) {
+            processed_expr = convertInfixToPostfixSingle(expr_str);
+        } else {
+            processed_expr = expr_str;
+        }
+
+        d->tokens =
+            tokenize(processed_expr, d->num_inputs, ExprMode::SINGLE_EXPR);
 
         for (const auto& token : d->tokens) {
             if (token.type == TokenType::CONSTANT_PLANE_WIDTH ||
@@ -671,11 +689,11 @@ VapourSynthPluginInit2(VSPlugin* plugin, const VSPLUGINAPI* vspapi) {
     vspapi->registerFunction(
         "Expr",
         "clips:vnode[];expr:data[];format:int:opt;boundary:int:opt;"
-        "dump_ir:data:opt;opt_level:int:opt;approx_math:int:opt;",
+        "dump_ir:data:opt;opt_level:int:opt;approx_math:int:opt;infix:int:opt;",
         "clip:vnode;", exprCreate, nullptr, plugin);
     vspapi->registerFunction(
         "SingleExpr",
         "clips:vnode[];expr:data;boundary:int:opt;dump_ir:data:opt;opt_"
-        "level:int:opt;approx_math:int:opt;",
+        "level:int:opt;approx_math:int:opt;infix:int:opt;",
         "clip:vnode;", singleExprCreate, nullptr, plugin);
 }

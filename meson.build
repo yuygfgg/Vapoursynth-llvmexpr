@@ -135,6 +135,11 @@ sources = [
   'llvmexpr/Compiler.cpp',
   'llvmexpr/Jit.cpp',
   'llvmexpr/utils/Diagnostics.cpp',
+  'llvmexpr/InfixConverter.cpp',
+  'llvmexpr/infix2postfix/Tokenizer.cpp',
+  'llvmexpr/infix2postfix/Parser.cpp',
+  'llvmexpr/infix2postfix/CodeGenerator.cpp',
+  'llvmexpr/infix2postfix/PostfixHelper.cpp',
 ]
 
 shared_module('llvmexpr', sources,
@@ -142,4 +147,19 @@ shared_module('llvmexpr', sources,
   link_args: link_args,
   install: true,
   install_dir: install_dir
+)
+
+# Build infix2postfix tool
+infix2postfix_sources = [
+  'llvmexpr/infix2postfix/main.cpp',
+  'llvmexpr/infix2postfix/Tokenizer.cpp',
+  'llvmexpr/infix2postfix/Parser.cpp',
+  'llvmexpr/infix2postfix/CodeGenerator.cpp',
+  'llvmexpr/infix2postfix/PostfixHelper.cpp',
+  'llvmexpr/Tokenizer.cpp',  # Need main project's tokenizer for PostfixHelper
+]
+
+executable('infix2postfix', infix2postfix_sources,
+  dependencies: [llvm_dep],
+  install: false
 )

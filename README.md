@@ -47,24 +47,24 @@ Performance ratios (relative to 'llvmexpr'):
 
 ## Core Components
 
-This project consists of two main parts: the core C++ plugin and a supporting Python utility library.
+The `llvmexpr` plugin is a VapourSynth filter that accepts expression strings. At runtime, it JIT-compiles these expressions into highly efficient machine code.
 
-### 1. `llvmexpr` (C++ VapourSynth Plugin)
+The plugin supports two syntax modes:
+- **Postfix notation** (RPN - Reverse Polish Notation): The default, direct format
+- **Infix notation** (C-style): Enabled via the `infix` parameter, expressions are automatically converted to postfix internally
 
-This is the core engine of the project. It is a VapourSynth filter that accepts expression strings written in **postfix notation** (also known as Reverse Polish Notation, or RPN). At runtime, it JIT-compiles these expressions into highly efficient machine code.
-
-#### `llvmexpr.Expr` (Per-Pixel)
+### `llvmexpr.Expr` (Per-Pixel)
 
 This function applies an expression to each pixel of the video frame.
 
 **Function Signature:**
 ```
-llvmexpr.Expr(clip[] clips, string[] expr[, int format, int boundary=0, string dump_ir="", int opt_level=5, int approx_math=2])
+llvmexpr.Expr(clip[] clips, string[] expr[, int format, int boundary=0, string dump_ir="", int opt_level=5, int approx_math=2, int infix=0])
 ```
 
 **Parameters:**
 - `clips`: Input video clips
-- `expr`: Expression strings in postfix notation (one per plane)
+- `expr`: Expression strings (one per plane). Format depends on `infix` parameter
 - `format`: Output format (optional)
 - `boundary`: Boundary handling mode (0=clamp, 1=mirror)
 - `dump_ir`: Path to dump LLVM IR for debugging (optional)
@@ -73,34 +73,31 @@ llvmexpr.Expr(clip[] clips, string[] expr[, int format, int boundary=0, string d
   - `0`: Disabled – use precise LLVM intrinsics for all math operations
   - `1`: Enabled – use fast approximate implementations for `exp`, `log`, `sin`, `cos`, `tan`, `acos`, `atan`, `asin`, `atan2`.
   - `2`: Auto (recommended) – first tries with approximate math enabled; if LLVM reports that the inner loop cannot be vectorized, the compiler automatically recompiles the same function with approximate math disabled and JITs that precise version instead.
+- `infix`: Expression format (default: 0)
+  - `0`: Postfix notation (RPN)
+  - `1`: Infix notation (C-style) - automatically converted to postfix
 
-#### `llvmexpr.SingleExpr` (Per-Frame)
+### `llvmexpr.SingleExpr` (Per-Frame)
 
 This function executes an expression only once per frame. It is not suitable for typical image filtering but is powerful for tasks that involve reading from arbitrary coordinates, calculating frame-wide metrics, and writing results to other pixels or to frame properties.
 
 **Function Signature:**
 ```
-llvmexpr.SingleExpr(clip[] clips, string expr[, int boundary=0, string dump_ir="", int opt_level=5, int approx_math=2])
+llvmexpr.SingleExpr(clip[] clips, string expr[, int boundary=0, string dump_ir="", int opt_level=5, int approx_math=2, int infix=0])
 ```
 
 **Parameters:**
 - `clips`: Input video clips.
-- `expr`: A single expression string in postfix notation. Unlike `Expr`, only one string is accepted for all planes.
+- `expr`: A single expression string. Unlike `Expr`, only one string is accepted for all planes. Format depends on `infix` parameter
 - `boundary`: Boundary handling mode for pixel reads (0=clamp, 1=mirror). This does not affect writes.
 - `dump_ir`: Path to dump LLVM IR for debugging (optional).
 - `opt_level`: Optimization level (> 0, default: 5).
 - `approx_math`: Approximate math mode (default: 2). See description under `Expr` for details.
+- `infix`: Expression format (default: 0)
+  - `0`: Postfix notation (RPN)
+  - `1`: Infix notation (C-style) - automatically converted to postfix
 
-### 2. `exprutils` (Python Utility Library)
-
-This is a companion Python library designed to assist with writing expressions. It provides:
-
-*   **`infix2postfix`**: A transpiler that converts C-style **infix expressions** into the postfix format required by the C++ plugin.
-*   **`postfix2infix`**: A reverse converter for debugging or understanding existing postfix expressions; Its output is guaranteed to be compatible with the `infix2postfix` transpiler.
-
-The `exprutils` library provides an alternative way to generate the expression strings used by the `llvmexpr` plugin.
-
-#### Examples
+### Examples
 
 See [examples](examples) for examples of infix code.
 
@@ -110,7 +107,7 @@ See [examples](examples) for examples of infix code.
 
 ## Documentation
 
-*   **[Infix Syntax](docs/infix.md)**: Describes the C-style syntax for use with the `exprutils.infix2postfix` transpiler.
+*   **[Infix Syntax](docs/infix.md)**: Describes the C-style syntax for use with the `infix=1` parameter or the `infix2postfix` CLI tool.
 *   **[Postfix Syntax](docs/postfix.md)**: The core RPN syntax and operator reference for the `llvmexpr` plugin.
 
 ## Dependencies
@@ -122,8 +119,6 @@ See [examples](examples) for examples of infix code.
 
 ## Building and installing
 
-### Build and install the plugin
-
 1.  **Configure the build directory:**
     ```sh
     meson setup builddir
@@ -134,11 +129,7 @@ See [examples](examples) for examples of infix code.
     ninja -C builddir install
     ```
 
-### Install the python library
-
-```sh
-pip install .
-```
+This will build and install the VapourSynth plugin. The `infix2postfix` CLI tool will be built in the `builddir` directory but not installed.
 
 ## Testing
 
@@ -149,3 +140,18 @@ This project uses pytest for testing.
 ```sh
 pytest .
 ```
+
+### infix2postfix CLI Tool
+
+A command-line tool for converting infix expressions to postfix format is available after building:
+
+```sh
+builddir/infix2postfix input.expr -m expr -o output.expr
+```
+
+**Parameters:**
+- First argument: Input file containing infix expression
+- `-m`: Mode (`expr` for per-pixel expressions, `single` for per-frame expressions)
+- `-o`: Output file for the converted postfix expression
+
+Alternatively, you can use the `infix=1` parameter directly in the VapourSynth plugin to convert expressions at runtime.
