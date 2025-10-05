@@ -227,7 +227,7 @@ jobs:
         run: |
           git clone https://github.com/vapoursynth/vapoursynth --depth=1
           cp vapoursynth/include/*.h llvmexpr
-          sed -i -e '/#include <V/y|<>|""|' llvmexpr/llvmexpr.cpp
+          find llvmexpr -type f \( -name "*.cpp" -o -name "*.hpp" \) -exec sed -i -e '/#include [<"]VapourSynth/s|<VapourSynth|"VapourSynth|; /#include [<"]VapourSynth/s|\.h>|.h"|' {} \;
           
       - name: Create fake VapourSynth pkg-config file (Linux)
         if: runner.os == 'Linux'
