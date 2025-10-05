@@ -227,7 +227,25 @@ jobs:
         run: |
           git clone https://github.com/vapoursynth/vapoursynth --depth=1
           cp vapoursynth/include/*.h llvmexpr
-          find llvmexpr -type f \( -name "*.cpp" -o -name "*.hpp" \) -exec sed -i -e '/#include [<"]VapourSynth/s|<VapourSynth|"VapourSynth|; /#include [<"]VapourSynth/s|\.h>|.h"|' {} \;
+          
+          find llvmexpr -type f \( -name "*.cpp" -o -name "*.hpp" \) | while read -r file; do
+            # Get the directory of the file, e.g., llvmexpr/jit
+            dir=$(dirname "$file")
+            
+            if [ "$dir" == "llvmexpr" ]; then
+              sed -i 's|#include [<"]VapourSynth4\.h[">]|#include "VapourSynth4.h"|g' "$file"
+              continue
+            fi
+
+            relative_path=${dir#llvmexpr/}
+            
+            depth=$(echo "$relative_path" | tr -cd '/' | wc -c)
+            depth=$((depth + 1))
+            
+            prefix=$(printf '../'%.0s $(seq 1 $depth))
+            
+            sed -i "s|#include [<\"].*VapourSynth4\.h[>\"]|#include \"${prefix}VapourSynth4.h\"|g" "$file"
+          done
           
       - name: Create fake VapourSynth pkg-config file (Linux)
         if: runner.os == 'Linux'
