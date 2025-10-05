@@ -31,11 +31,11 @@
 #include "VSHelper4.h"
 #include "VapourSynth4.h"
 
-#include "Analysis.hpp"
-#include "Compiler.hpp"
-#include "InfixConverter.hpp"
-#include "Jit.hpp"
-#include "Tokenizer.hpp"
+#include "frontend/Analysis.hpp"
+#include "frontend/InfixConverter.hpp"
+#include "frontend/Tokenizer.hpp"
+#include "jit/Compiler.hpp"
+#include "jit/Jit.hpp"
 
 constexpr uint32_t PROP_NAN_PAYLOAD = 0x7FC0BEEF; // qNaN with payload 0xBEEF
 
@@ -325,8 +325,8 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
         for (int i = 0; i < nexpr; ++i) {
             std::string input_expr = vsapi->mapGetData(in, "expr", i, &err);
             if (use_infix && !input_expr.empty()) {
-                expr_strs[i] =
-                    convertInfixToPostfixExpr(input_expr, d->num_inputs);
+                expr_strs[i] = convertInfixToPostfix(input_expr, d->num_inputs,
+                                                     infix2postfix::Mode::Expr);
             } else {
                 expr_strs[i] = input_expr;
             }
@@ -589,8 +589,8 @@ void VS_CC singleExprCreate(const VSMap* in, VSMap* out,
 
         std::string processed_expr;
         if (use_infix) {
-            processed_expr =
-                convertInfixToPostfixSingle(expr_str, d->num_inputs);
+            processed_expr = convertInfixToPostfix(expr_str, d->num_inputs,
+                                                   infix2postfix::Mode::Single);
         } else {
             processed_expr = expr_str;
         }

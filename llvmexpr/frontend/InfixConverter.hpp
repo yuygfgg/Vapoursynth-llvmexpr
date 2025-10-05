@@ -20,12 +20,10 @@
 #ifndef LLVMEXPR_INFIXCONVERTER_HPP
 #define LLVMEXPR_INFIXCONVERTER_HPP
 
+#include "infix2postfix/types.hpp"
 #include <string>
 
-std::string convertInfixToPostfixExpr(const std::string& infix_expr,
-                                      int num_inputs);
-
-std::string convertInfixToPostfixSingle(const std::string& infix_expr,
-                                        int num_inputs);
+std::string convertInfixToPostfix(const std::string& infix_expr, int num_inputs,
+                                  infix2postfix::Mode mode);
 
 #endif

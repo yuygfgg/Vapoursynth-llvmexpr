@@ -163,7 +163,7 @@ std::string CodeGenerator::visit(CallExpr& expr) {
         }
         if (expr.args.size() != 2)
             throw CodeGenError("set_prop() requires 2 arguments: "
-                               "set_prop(\"property_name\", value)",
+                               "set_prop(property_name, value)",
                                expr.line);
 
         auto prop_name = dynamic_cast<VariableExpr*>(expr.args[0].get());

@@ -127,19 +127,19 @@ endif
 
 sources = [
   'llvmexpr/llvmexpr.cpp',
-  'llvmexpr/Tokenizer.cpp',
-  'llvmexpr/Analysis.cpp',
-  'llvmexpr/ExprIRGenerator.cpp',
-  'llvmexpr/SingleExprIRGenerator.cpp',
-  'llvmexpr/IRGeneratorBase.cpp',
-  'llvmexpr/Compiler.cpp',
-  'llvmexpr/Jit.cpp',
+  'llvmexpr/frontend/Tokenizer.cpp',
+  'llvmexpr/frontend/Analysis.cpp',
+  'llvmexpr/frontend/InfixConverter.cpp',
+  'llvmexpr/frontend/infix2postfix/Tokenizer.cpp',
+  'llvmexpr/frontend/infix2postfix/Parser.cpp',
+  'llvmexpr/frontend/infix2postfix/CodeGenerator.cpp',
+  'llvmexpr/frontend/infix2postfix/PostfixHelper.cpp',
+  'llvmexpr/ir/ExprIRGenerator.cpp',
+  'llvmexpr/ir/SingleExprIRGenerator.cpp',
+  'llvmexpr/ir/IRGeneratorBase.cpp',
+  'llvmexpr/jit/Compiler.cpp',
+  'llvmexpr/jit/Jit.cpp',
   'llvmexpr/utils/Diagnostics.cpp',
-  'llvmexpr/InfixConverter.cpp',
-  'llvmexpr/infix2postfix/Tokenizer.cpp',
-  'llvmexpr/infix2postfix/Parser.cpp',
-  'llvmexpr/infix2postfix/CodeGenerator.cpp',
-  'llvmexpr/infix2postfix/PostfixHelper.cpp',
 ]
 
 shared_module('llvmexpr', sources,
@@ -151,12 +151,12 @@ shared_module('llvmexpr', sources,
 
 # Build infix2postfix tool
 infix2postfix_sources = [
-  'llvmexpr/infix2postfix/main.cpp',
-  'llvmexpr/infix2postfix/Tokenizer.cpp',
-  'llvmexpr/infix2postfix/Parser.cpp',
-  'llvmexpr/infix2postfix/CodeGenerator.cpp',
-  'llvmexpr/infix2postfix/PostfixHelper.cpp',
-  'llvmexpr/Tokenizer.cpp',  # Need main project's tokenizer for PostfixHelper
+  'llvmexpr/frontend/infix2postfix/main.cpp',
+  'llvmexpr/frontend/infix2postfix/Tokenizer.cpp',
+  'llvmexpr/frontend/infix2postfix/Parser.cpp',
+  'llvmexpr/frontend/infix2postfix/CodeGenerator.cpp',
+  'llvmexpr/frontend/infix2postfix/PostfixHelper.cpp',
+  'llvmexpr/frontend/Tokenizer.cpp',  # Need main project's tokenizer for PostfixHelper
 ]
 
 executable('infix2postfix', infix2postfix_sources,

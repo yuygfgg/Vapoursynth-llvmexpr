@@ -26,9 +26,9 @@
 
 #include "VapourSynth4.h"
 
-#include "Analysis.hpp"
+#include "../frontend/Analysis.hpp"
 #include "Jit.hpp"
-#include "Tokenizer.hpp"
+#include "../frontend/Tokenizer.hpp"
 
 class Compiler {
   public:

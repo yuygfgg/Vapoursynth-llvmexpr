@@ -32,7 +32,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/TargetParser/Host.h"
 
-#include "utils/Sorting.hpp"
+#include "../utils/Sorting.hpp"
 
 constexpr unsigned ALIGNMENT = 32; // Vapoursynth should guarantee this
 
