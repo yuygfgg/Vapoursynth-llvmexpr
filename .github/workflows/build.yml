@@ -229,7 +229,6 @@ jobs:
           cp vapoursynth/include/*.h llvmexpr
           
           find llvmexpr -type f \( -name "*.cpp" -o -name "*.hpp" \) | while read -r file; do
-            # Get the directory of the file, e.g., llvmexpr/jit
             dir=$(dirname "$file")
             
             if [ "$dir" == "llvmexpr" ]; then

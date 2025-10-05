@@ -43,44 +43,142 @@ namespace {
 
 enum PlaneOp { PO_PROCESS, PO_COPY };
 
-struct ExprData {
+struct BaseExprData {
     std::vector<VSNode*> nodes;
     VSVideoInfo vi = {};
-    int num_inputs;
-
-    std::array<PlaneOp, 3> plane_op = {};
-    std::array<CompiledFunction, 3> compiled;
-    bool mirror_boundary;
+    int num_inputs = 0;
+    bool mirror_boundary = false;
     std::string dump_ir_path;
-    int opt_level;
-    int approx_math;
-
+    int opt_level = 5;
+    int approx_math = 2;
     std::vector<std::pair<int, std::string>> required_props;
     std::map<std::pair<int, std::string>, int> prop_map;
+};
 
+struct ExprData : BaseExprData {
+    std::array<PlaneOp, 3> plane_op = {};
+    std::array<CompiledFunction, 3> compiled;
     std::array<std::vector<Token>, 3> tokens;
     std::array<ExpressionAnalysisResults, 3> analysis_results;
 };
 
-struct SingleExprData {
-    std::vector<VSNode*> nodes;
-    VSVideoInfo vi = {};
-    int num_inputs;
-
+struct SingleExprData : BaseExprData {
     CompiledFunction compiled;
-    bool mirror_boundary;
-    std::string dump_ir_path;
-    int opt_level;
-    int approx_math;
-
-    std::vector<std::pair<int, std::string>> required_props;
-    std::map<std::pair<int, std::string>, int> prop_map;
     std::vector<std::string> output_props;
     std::map<std::string, int> output_prop_map;
-
     std::vector<Token> tokens;
     ExpressionAnalysisResults analysis_results;
 };
+
+void validateAndInitClips(BaseExprData* d, const VSMap* in,
+                          const VSAPI* vsapi) {
+    int err = 0;
+    d->num_inputs = vsapi->mapNumElements(in, "clips");
+    if (d->num_inputs == 0)
+        throw std::runtime_error("At least one clip must be provided.");
+
+    d->nodes.resize(d->num_inputs);
+    for (int i = 0; i < d->num_inputs; ++i) {
+        d->nodes[i] = vsapi->mapGetNode(in, "clips", i, &err);
+    }
+
+    std::vector<const VSVideoInfo*> vi(d->num_inputs);
+    for (int i = 0; i < d->num_inputs; ++i) {
+        vi[i] = vsapi->getVideoInfo(d->nodes[i]);
+        if (!vsh::isConstantVideoFormat(vi[i]))
+            throw std::runtime_error(
+                "Only constant format clips are supported.");
+    }
+
+    for (int i = 1; i < d->num_inputs; ++i) {
+        if (vi[i]->width != vi[0]->width || vi[i]->height != vi[0]->height) {
+            throw std::runtime_error(
+                "All clips must have the same dimensions.");
+        }
+    }
+
+    d->vi = *vi[0];
+}
+
+void parseCommonParams(BaseExprData* d, const VSMap* in, const VSAPI* vsapi) {
+    int err = 0;
+
+    d->mirror_boundary = vsapi->mapGetInt(in, "boundary", 0, &err) != 0;
+
+    const char* dump_path = vsapi->mapGetData(in, "dump_ir", 0, &err);
+    if (!err && dump_path) {
+        d->dump_ir_path = dump_path;
+    }
+
+    d->opt_level = vsapi->mapGetInt(in, "opt_level", 0, &err);
+    if (err) {
+        d->opt_level = 5;
+    }
+    if (d->opt_level <= 0) {
+        throw std::runtime_error("opt_level must be greater than 0.");
+    }
+
+    d->approx_math = vsapi->mapGetInt(in, "approx_math", 0, &err);
+    if (err) {
+        d->approx_math = 2; // Default to auto mode
+    }
+    if (d->approx_math < 0 || d->approx_math > 2) {
+        throw std::runtime_error(
+            "approx_math must be 0 (disabled), 1 (enabled), or 2 (auto).");
+    }
+}
+
+void readFrameProperties(
+    std::vector<float>& props, const std::vector<const VSFrame*>& src_frames,
+    const std::vector<std::pair<int, std::string>>& required_props, int n,
+    const VSAPI* vsapi) {
+
+    props[0] = static_cast<float>(n);
+
+    for (size_t i = 0; i < required_props.size(); ++i) {
+        const auto& prop_info = required_props[i];
+        int clip_idx = prop_info.first;
+        const std::string& prop_name = prop_info.second;
+        int prop_array_idx = i + 1;
+
+        const VSMap* props_map =
+            vsapi->getFramePropertiesRO(src_frames[clip_idx]);
+        int err = 0;
+        int type = vsapi->mapGetType(props_map, prop_name.c_str());
+
+        if (type == ptInt) {
+            props[prop_array_idx] = static_cast<float>(
+                vsapi->mapGetInt(props_map, prop_name.c_str(), 0, &err));
+        } else if (type == ptFloat) {
+            props[prop_array_idx] = static_cast<float>(
+                vsapi->mapGetFloat(props_map, prop_name.c_str(), 0, &err));
+        } else if (type == ptData) {
+            if (vsapi->mapGetDataSize(props_map, prop_name.c_str(), 0, &err) >
+                    0 &&
+                !err)
+                props[prop_array_idx] = static_cast<float>(vsapi->mapGetData(
+                    props_map, prop_name.c_str(), 0, &err)[0]);
+            else
+                err = 1;
+        } else {
+            err = 1;
+        }
+
+        if (err) {
+            props[prop_array_idx] = std::bit_cast<float>(PROP_NAN_PAYLOAD);
+        }
+    }
+}
+
+template <typename T>
+void genericFree(void* instanceData, [[maybe_unused]] VSCore* core,
+                 const VSAPI* vsapi) {
+    T* d = static_cast<T*>(instanceData);
+    for (auto* node : d->nodes) {
+        vsapi->freeNode(node);
+    }
+    delete d;
+}
 
 std::string generate_cache_key(
     const std::string& expr, const VSVideoInfo* vo, const VSAPI* vsapi,
@@ -142,42 +240,8 @@ const VSFrame* VS_CC exprGetFrame(int n, int activationReason,
         std::vector<uint8_t*> rwptrs(d->num_inputs + 1);
         std::vector<int> strides(d->num_inputs + 1);
         std::vector<float> props(1 + d->required_props.size());
-        props[0] = static_cast<float>(n);
 
-        for (size_t i = 0; i < d->required_props.size(); ++i) {
-            const auto& prop_info = d->required_props[i];
-            int clip_idx = prop_info.first;
-            const std::string& prop_name = prop_info.second;
-            int prop_array_idx = i + 1;
-
-            const VSMap* props_map =
-                vsapi->getFramePropertiesRO(src_frames[clip_idx]);
-            int err = 0;
-            int type = vsapi->mapGetType(props_map, prop_name.c_str());
-
-            if (type == ptInt) {
-                props[prop_array_idx] = static_cast<float>(
-                    vsapi->mapGetInt(props_map, prop_name.c_str(), 0, &err));
-            } else if (type == ptFloat) {
-                props[prop_array_idx] = static_cast<float>(
-                    vsapi->mapGetFloat(props_map, prop_name.c_str(), 0, &err));
-            } else if (type == ptData) {
-                if (vsapi->mapGetDataSize(props_map, prop_name.c_str(), 0,
-                                          &err) > 0 &&
-                    !err)
-                    props[prop_array_idx] =
-                        static_cast<float>(vsapi->mapGetData(
-                            props_map, prop_name.c_str(), 0, &err)[0]);
-                else
-                    err = 1;
-            } else {
-                err = 1;
-            }
-
-            if (err) {
-                props[prop_array_idx] = std::bit_cast<float>(PROP_NAN_PAYLOAD);
-            }
-        }
+        readFrameProperties(props, src_frames, d->required_props, n, vsapi);
 
         for (int plane = 0; plane < d->vi.format.numPlanes; ++plane) {
             if (d->plane_op[plane] == PO_PROCESS) {
@@ -254,11 +318,7 @@ const VSFrame* VS_CC exprGetFrame(int n, int activationReason,
 
 void VS_CC exprFree(void* instanceData, [[maybe_unused]] VSCore* core,
                     const VSAPI* vsapi) {
-    ExprData* d = static_cast<ExprData*>(instanceData);
-    for (auto* node : d->nodes) {
-        vsapi->freeNode(node);
-    }
-    delete d;
+    genericFree<ExprData>(instanceData, core, vsapi);
 }
 
 void VS_CC exprCreate(const VSMap* in, VSMap* out,
@@ -268,30 +328,7 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
     int err = 0;
 
     try {
-        d->num_inputs = vsapi->mapNumElements(in, "clips");
-        if (d->num_inputs == 0)
-            throw std::runtime_error("At least one clip must be provided.");
-        d->nodes.resize(d->num_inputs);
-        for (int i = 0; i < d->num_inputs; ++i) {
-            d->nodes[i] = vsapi->mapGetNode(in, "clips", i, &err);
-        }
-
-        std::vector<const VSVideoInfo*> vi(d->num_inputs);
-        for (int i = 0; i < d->num_inputs; ++i) {
-            vi[i] = vsapi->getVideoInfo(d->nodes[i]);
-            if (!vsh::isConstantVideoFormat(vi[i]))
-                throw std::runtime_error(
-                    "Only constant format clips are supported.");
-        }
-        for (int i = 1; i < d->num_inputs; ++i) {
-            if (vi[i]->width != vi[0]->width ||
-                vi[i]->height != vi[0]->height) {
-                throw std::runtime_error(
-                    "All clips must have the same dimensions.");
-            }
-        }
-
-        d->vi = *vi[0];
+        validateAndInitClips(d.get(), in, vsapi);
         const int format_id =
             static_cast<int>(vsapi->mapGetInt(in, "format", 0, &err));
         if (!err) {
@@ -364,30 +401,7 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
             d->analysis_results[i] = analyser.getResults();
         }
 
-        d->mirror_boundary = vsapi->mapGetInt(in, "boundary", 0, &err) != 0;
-
-        const char* dump_path = vsapi->mapGetData(in, "dump_ir", 0, &err);
-        if (!err && dump_path) {
-            d->dump_ir_path = dump_path;
-        }
-
-        d->opt_level = vsapi->mapGetInt(in, "opt_level", 0, &err);
-        if (err) {
-            d->opt_level = 5;
-        }
-        if (d->opt_level <= 0) {
-            throw std::runtime_error("opt_level must be greater than 0.");
-        }
-
-        d->approx_math = vsapi->mapGetInt(in, "approx_math", 0, &err);
-        if (err) {
-            d->approx_math = 2; // Default to auto mode
-        }
-        if (d->approx_math < 0 || d->approx_math > 2) {
-            throw std::runtime_error(
-                "approx_math must be 0 (disabled), 1 (enabled), or 2 (auto).");
-        }
-        // TODO: should we enable approx math only for NEON and x86_64?
+        parseCommonParams(d.get(), in, vsapi);
 
     } catch (const std::exception& e) {
         for (auto* node : d->nodes) {
@@ -413,11 +427,7 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
 
 void VS_CC singleExprFree(void* instanceData, [[maybe_unused]] VSCore* core,
                           const VSAPI* vsapi) {
-    SingleExprData* d = static_cast<SingleExprData*>(instanceData);
-    for (auto* node : d->nodes) {
-        vsapi->freeNode(node);
-    }
-    delete d;
+    genericFree<SingleExprData>(instanceData, core, vsapi);
 }
 
 const VSFrame* VS_CC singleExprGetFrame(int n, int activationReason,
@@ -449,33 +459,8 @@ const VSFrame* VS_CC singleExprGetFrame(int n, int activationReason,
         std::vector<int> strides((d->num_inputs + 1) * num_planes);
         std::vector<float> props(1 + d->required_props.size() +
                                  d->output_props.size());
-        props[0] = static_cast<float>(n);
 
-        for (size_t i = 0; i < d->required_props.size(); ++i) {
-            const auto& prop_info = d->required_props[i];
-            int clip_idx = prop_info.first;
-            const std::string& prop_name = prop_info.second;
-            int prop_array_idx = i + 1;
-
-            const VSMap* props_map =
-                vsapi->getFramePropertiesRO(src_frames[clip_idx]);
-            int err = 0;
-            int type = vsapi->mapGetType(props_map, prop_name.c_str());
-
-            if (type == ptInt) {
-                props[prop_array_idx] = static_cast<float>(
-                    vsapi->mapGetInt(props_map, prop_name.c_str(), 0, &err));
-            } else if (type == ptFloat) {
-                props[prop_array_idx] = static_cast<float>(
-                    vsapi->mapGetFloat(props_map, prop_name.c_str(), 0, &err));
-            } else {
-                err = 1;
-            }
-
-            if (err) {
-                props[prop_array_idx] = std::bit_cast<float>(PROP_NAN_PAYLOAD);
-            }
-        }
+        readFrameProperties(props, src_frames, d->required_props, n, vsapi);
 
         for (int i = 0; i <= d->num_inputs; ++i) {
             for (int p = 0; p < num_planes; ++p) {
@@ -556,30 +541,7 @@ void VS_CC singleExprCreate(const VSMap* in, VSMap* out,
     int err = 0;
 
     try {
-        d->num_inputs = vsapi->mapNumElements(in, "clips");
-        if (d->num_inputs == 0)
-            throw std::runtime_error("At least one clip must be provided.");
-        d->nodes.resize(d->num_inputs);
-        for (int i = 0; i < d->num_inputs; ++i) {
-            d->nodes[i] = vsapi->mapGetNode(in, "clips", i, &err);
-        }
-
-        std::vector<const VSVideoInfo*> vi(d->num_inputs);
-        for (int i = 0; i < d->num_inputs; ++i) {
-            vi[i] = vsapi->getVideoInfo(d->nodes[i]);
-            if (!vsh::isConstantVideoFormat(vi[i]))
-                throw std::runtime_error(
-                    "Only constant format clips are supported.");
-        }
-        for (int i = 1; i < d->num_inputs; ++i) {
-            if (vi[i]->width != vi[0]->width ||
-                vi[i]->height != vi[0]->height) {
-                throw std::runtime_error(
-                    "All clips must have the same dimensions.");
-            }
-        }
-
-        d->vi = *vi[0];
+        validateAndInitClips(d.get(), in, vsapi);
 
         const char* expr_str = vsapi->mapGetData(in, "expr", 0, &err);
         if (err)
@@ -634,29 +596,7 @@ void VS_CC singleExprCreate(const VSMap* in, VSMap* out,
         analyser.run();
         d->analysis_results = analyser.getResults();
 
-        d->mirror_boundary = vsapi->mapGetInt(in, "boundary", 0, &err) != 0;
-
-        const char* dump_path = vsapi->mapGetData(in, "dump_ir", 0, &err);
-        if (!err && dump_path) {
-            d->dump_ir_path = dump_path;
-        }
-
-        d->opt_level = vsapi->mapGetInt(in, "opt_level", 0, &err);
-        if (err) {
-            d->opt_level = 5;
-        }
-        if (d->opt_level <= 0) {
-            throw std::runtime_error("opt_level must be greater than 0.");
-        }
-
-        d->approx_math = vsapi->mapGetInt(in, "approx_math", 0, &err);
-        if (err) {
-            d->approx_math = 2; // Default to auto mode
-        }
-        if (d->approx_math < 0 || d->approx_math > 2) {
-            throw std::runtime_error(
-                "approx_math must be 0 (disabled), 1 (enabled), or 2 (auto).");
-        }
+        parseCommonParams(d.get(), in, vsapi);
 
     } catch (const std::exception& e) {
         for (auto* node : d->nodes) {
