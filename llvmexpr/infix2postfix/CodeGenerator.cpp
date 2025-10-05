@@ -320,15 +320,18 @@ std::string CodeGenerator::visit(AssignStmt& stmt) {
 
     std::string value_code = generate(stmt.value.get());
 
-    std::string s = std::format("{} {}!", value_code, stmt.name.value);
+    std::string var_name = stmt.name.value;
+    std::string renamed_var = rename_variable(var_name);
+    
+    std::string s = std::format("{} {}!", value_code, renamed_var);
     check_stack_effect(s, 0, stmt.line);
 
-    define_variable_in_current_scope(stmt.name.value);
+    define_variable_in_current_scope(renamed_var);
 
     if (current_function == nullptr) {
-        defined_globals.insert(stmt.name.value);
+        defined_globals.insert(var_name);
     } else {
-        local_scope_vars.insert(stmt.name.value);
+        local_scope_vars.insert(var_name);
     }
     return s;
 }

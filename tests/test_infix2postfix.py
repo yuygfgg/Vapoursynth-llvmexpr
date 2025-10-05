@@ -428,14 +428,15 @@ RESULT = sum
         infix = """
 <global<global_var>>
 function test_function(x) {
-    return x + global_var
+    d = x + global_var
+    return d
 }
 global_var = 1
 RESULT = test_function(10)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert output.strip() == "1 global_var! 10 __internal_func_test_function_x! __internal_func_test_function_x@ global_var@ + RESULT! RESULT@"
+        assert output.strip() == "1 global_var! 10 __internal_func_test_function_x! __internal_func_test_function_x@ global_var@ + __internal_func_test_function_d! __internal_func_test_function_d@ RESULT! RESULT@"
     
     def test_function_variable_scope(self):
         """Test function variable scope."""
