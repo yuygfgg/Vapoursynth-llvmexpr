@@ -97,6 +97,10 @@ std::string CodeGenerator::visit(NumberExpr& expr) { return expr.value.value; }
 std::string CodeGenerator::visit(VariableExpr& expr) {
     std::string name = expr.name.value;
 
+    if (param_substitutions.count(name)) {
+        return generate(param_substitutions.at(name));
+    }
+
     if (name.starts_with("$")) {
         std::string base_name = name.substr(1);
 
@@ -201,12 +205,19 @@ std::string CodeGenerator::visit(CallExpr& expr) {
             return name;
         };
 
+        Expr* arg0 = expr.args[0].get();
+        if (auto* var = dynamic_cast<VariableExpr*>(arg0)) {
+            if (param_substitutions.count(var->name.value)) {
+                arg0 = param_substitutions.at(var->name.value);
+            }
+        }
+
         if (mode == Mode::Expr) {
             if (expr.args.size() != 3)
                 throw CodeGenError(
                     "dyn() requires 3 arguments in Expr mode: dyn(clip, x, y)",
                     expr.line);
-            auto clip = dynamic_cast<VariableExpr*>(expr.args[0].get());
+            auto clip = dynamic_cast<VariableExpr*>(arg0);
             std::string clip_name = get_clip_name(clip, expr.line);
             return std::format("{} {} {}[]{}", generate(expr.args[1].get()),
                                generate(expr.args[2].get()), clip_name,
@@ -216,7 +227,7 @@ std::string CodeGenerator::visit(CallExpr& expr) {
                 throw CodeGenError("dyn() requires 4 arguments in SingleExpr "
                                    "mode: dyn(clip, x, y, plane)",
                                    expr.line);
-            auto clip = dynamic_cast<VariableExpr*>(expr.args[0].get());
+            auto clip = dynamic_cast<VariableExpr*>(arg0);
             std::string clip_name = get_clip_name(clip, expr.line);
             auto plane = dynamic_cast<NumberExpr*>(expr.args[3].get());
             if (!plane)
@@ -272,7 +283,29 @@ std::string CodeGenerator::visit(CallExpr& expr) {
 }
 
 std::string CodeGenerator::visit(PropAccessExpr& expr) {
-    return std::format("{}.{}", expr.clip.value, expr.prop.value);
+    std::string clip_name = expr.clip.value;
+    if (param_substitutions.count(clip_name)) {
+        auto* subst_expr = param_substitutions.at(clip_name);
+        if (auto* var_expr = dynamic_cast<VariableExpr*>(subst_expr)) {
+            clip_name = var_expr->name.value;
+        } else {
+            throw CodeGenError(
+                std::format("Parameter '{}' is used as a clip for property "
+                            "access but was not a clip constant.",
+                            expr.clip.value),
+                expr.line);
+        }
+    }
+    if (clip_name.starts_with("$")) {
+        clip_name = clip_name.substr(1);
+    } else {
+        throw CodeGenError(
+            std::format("Clip '{}' is used as a property access target but "
+                        "was not a clip constant.",
+                        expr.clip.value),
+            expr.line);
+    }
+    return std::format("{}.{}", clip_name, expr.prop.value);
 }
 
 std::string CodeGenerator::visit(StaticRelPixelAccessExpr& expr) {
@@ -284,6 +317,19 @@ std::string CodeGenerator::visit(StaticRelPixelAccessExpr& expr) {
                            expr.line);
     }
     std::string clip_name = expr.clip.value;
+    if (param_substitutions.count(clip_name)) {
+        auto* subst_expr = param_substitutions.at(clip_name);
+        if (auto* var_expr = dynamic_cast<VariableExpr*>(subst_expr)) {
+            clip_name = var_expr->name.value;
+        } else {
+            throw CodeGenError(
+                std::format("Parameter '{}' is used as a clip for pixel "
+                            "access but was not a clip constant.",
+                            expr.clip.value),
+                expr.line);
+        }
+    }
+
     if (clip_name.starts_with("$")) {
         clip_name = clip_name.substr(1);
     }
@@ -541,8 +587,10 @@ std::string CodeGenerator::inline_function_call(
     auto saved_local_vars = local_scope_vars;
     auto saved_all_defined = all_defined_vars_in_scope;
     auto saved_scope_stack = scope_stack;
+    auto saved_param_substitutions = param_substitutions;
     const FunctionSignature* saved_current_function = current_function;
 
+    param_substitutions.clear();
     std::map<std::string, std::string> param_map;
     std::set<std::string> effective_globals;
     std::set<std::string> new_local_vars;
@@ -569,26 +617,43 @@ std::string CodeGenerator::inline_function_call(
         std::string renamed_param =
             std::format("__internal_func_{}_{}", func_name, param_name);
 
-        // Restore scope temporarily to generate argument value
-        auto temp_all_defined = all_defined_vars_in_scope;
-        auto temp_scope_stack = scope_stack;
-        all_defined_vars_in_scope = saved_all_defined;
-        scope_stack = saved_scope_stack;
-
-        // Generate argument value
-        std::string arg_value = generate(args[i].get());
-
-        // Restore function scope
-        all_defined_vars_in_scope = temp_all_defined;
-        scope_stack = temp_scope_stack;
-
         if (!effective_globals.count(param_name)) {
-            param_assignments +=
-                std::format("{} {}! ", arg_value, renamed_param);
-            param_map[param_name] = renamed_param;
-            new_local_vars.insert(param_name);
-            // Define parameter in function scope
-            all_defined_vars_in_scope.insert(renamed_param);
+            auto* arg_expr = args[i].get();
+            bool is_const_arg = false;
+            if (auto* var_expr = dynamic_cast<VariableExpr*>(arg_expr)) {
+                if (var_expr->name.value.starts_with("$")) {
+                    is_const_arg = true;
+                }
+            } else if (dynamic_cast<NumberExpr*>(arg_expr)) {
+                is_const_arg = true;
+            }
+
+            if (is_const_arg) {
+                param_substitutions[param_name] = arg_expr;
+                param_map[param_name] = param_name;
+                new_local_vars.insert(param_name);
+                all_defined_vars_in_scope.insert(param_name);
+            } else {
+                // Restore scope temporarily to generate argument value
+                auto temp_all_defined = all_defined_vars_in_scope;
+                auto temp_scope_stack = scope_stack;
+                all_defined_vars_in_scope = saved_all_defined;
+                scope_stack = saved_scope_stack;
+
+                // Generate argument value
+                std::string arg_value = generate(args[i].get());
+
+                // Restore function scope
+                all_defined_vars_in_scope = temp_all_defined;
+                scope_stack = temp_scope_stack;
+
+                param_assignments +=
+                    std::format("{} {}! ", arg_value, renamed_param);
+                param_map[param_name] = renamed_param;
+                new_local_vars.insert(param_name);
+                // Define parameter in function scope
+                all_defined_vars_in_scope.insert(renamed_param);
+            }
         } else {
             param_map[param_name] = param_name;
         }
@@ -667,6 +732,7 @@ std::string CodeGenerator::inline_function_call(
     local_scope_vars = saved_local_vars;
     all_defined_vars_in_scope = saved_all_defined;
     scope_stack = saved_scope_stack;
+    param_substitutions = saved_param_substitutions;
     current_function = saved_current_function;
 
     std::string inlined_code = param_assignments + result;

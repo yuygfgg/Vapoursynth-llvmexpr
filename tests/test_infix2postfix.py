@@ -436,7 +436,22 @@ RESULT = test_function(10)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert output.strip() == "1 global_var! 10 __internal_func_test_function_x! __internal_func_test_function_x@ global_var@ + __internal_func_test_function_d! __internal_func_test_function_d@ RESULT! RESULT@"
+        assert output.strip() == "1 global_var! 10 global_var@ + __internal_func_test_function_d! __internal_func_test_function_d@ RESULT! RESULT@"
+        
+    def test_function_param_substitution(self):
+        """Test function parameter substitution."""
+        infix = """
+function test_function(x, clip, a) {
+    return x + x + clip.prop + dyn(a, 1, 1)
+}
+RESULT = test_function(10, $src0, $x)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "src0.prop" in output
+        assert "x[]" in output
+        assert "$" not in output
+        assert "a[]" not in output
     
     def test_function_variable_scope(self):
         """Test function variable scope."""

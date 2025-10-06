@@ -171,7 +171,7 @@ Data access methods for pixels and frame properties differ significantly between
 Read a property from a clip's frame properties using `clip.propname` syntax.
 
 - **Syntax:** `clip.propname`
-- `clip` must be a valid source clip identifier (e.g., `a`, `src1`). The `$` prefix is optional. For example: `$a.propname` or `src1._Matrix`.
+- `clip` must be a valid source clip identifier (e.g., `a`, `src1`). The `$` prefix is required. For example: `$a.propname` or `$src1._Matrix`.
 
 #### Writing (`SingleExpr` only)
 

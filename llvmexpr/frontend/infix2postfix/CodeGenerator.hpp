@@ -71,6 +71,7 @@ class CodeGenerator : public ExprVisitor, public StmtVisitor {
     std::set<std::string> defined_globals;
     std::set<std::string> local_scope_vars;
     std::map<std::string, std::string> var_rename_map;
+    std::map<std::string, Expr*> param_substitutions;
     std::set<std::string> literals_in_scope;
     bool has_result = false;
 
