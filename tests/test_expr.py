@@ -350,9 +350,9 @@ boundary_test_cases = [
     pytest.param("x[-1,-1]:m", 0, 0, 0, 0.0, id="override_clamp_with_mirror"),
     pytest.param("x[-1,-1]:c", 1, 0, 0, 0.0, id="override_mirror_with_clamp"),
     # More mirror tests
-    # pytest.param("x[4,4]", 1, 0, 0, 15.0, id="mirror_param_far_coord1"),
-    # pytest.param("x[5,5]", 1, 0, 0, 10.0, id="mirror_param_far_coord2"),
-    # pytest.param("x[-4,-4]", 1, 0, 0, 15.0, id="mirror_param_far_coord3"),
+    pytest.param("x[4,4]", 1, 0, 0, 15.0, id="mirror_param_far_coord1"),
+    pytest.param("x[5,5]", 1, 0, 0, 10.0, id="mirror_param_far_coord2"),
+    pytest.param("x[-4,-4]", 1, 0, 0, 15.0, id="mirror_param_far_coord3"),
 ]
 
 
