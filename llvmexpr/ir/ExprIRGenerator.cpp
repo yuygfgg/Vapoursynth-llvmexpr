@@ -157,8 +157,7 @@ void ExprIRGenerator::generate_loops() {
     // Pre-calculate and cache row pointers
     row_ptr_cache.clear();
     for (const auto& access : unique_rel_y_accesses) {
-        const VSVideoInfo* vinfo = vi[access.clip_idx];
-        llvm::Value* clip_height = builder.getInt32(vinfo->height);
+        llvm::Value* clip_height = builder.getInt32(height);
         llvm::Value* coord_y =
             builder.CreateAdd(y_val, builder.getInt32(access.rel_y));
         llvm::Value* final_y =

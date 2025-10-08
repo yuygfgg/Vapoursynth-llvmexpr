@@ -133,30 +133,21 @@ llvm::Value* IRGeneratorBase::get_final_coord(llvm::Value* coord,
 
     llvm::Value* result;
     if (use_mirror) {
-        // idx = abs(idx); N = 2*(len-1); if (N==0) N=1; r = idx % N;
-        // result = (len-1) - abs(r - (len-1))
-        llvm::Function* abs_func = llvm::Intrinsic::getOrInsertDeclaration(
-            &module, llvm::Intrinsic::abs, {builder.getInt32Ty()});
-        auto abs_coord =
-            builder.CreateCall(abs_func, {coord, builder.getInt1(false)});
+        auto period = builder.CreateMul(max_dim, builder.getInt32(2));
 
-        auto dim_minus_1 = builder.CreateSub(max_dim, one);
-        auto twice_dim_minus_1 =
-            builder.CreateMul(dim_minus_1, builder.getInt32(2));
+        auto modulo_coord = builder.CreateSRem(coord, period);
 
-        // base = base | (base==0 ? 1 : 0)
-        auto base_is_zero = builder.CreateICmpEQ(twice_dim_minus_1, zero);
-        auto one_if_zero =
-            builder.CreateZExt(base_is_zero, builder.getInt32Ty());
-        auto safe_mod_base = builder.CreateOr(twice_dim_minus_1, one_if_zero);
+        auto is_negative = builder.CreateICmpSLT(modulo_coord, zero);
+        auto adjusted_modulo = builder.CreateAdd(modulo_coord, period);
+        modulo_coord =
+            builder.CreateSelect(is_negative, adjusted_modulo, modulo_coord);
 
-        auto rem = builder.CreateURem(abs_coord, safe_mod_base);
+        auto in_first_half = builder.CreateICmpSLT(modulo_coord, max_dim);
+        auto period_minus_1 = builder.CreateSub(period, one);
+        auto mirrored_coord = builder.CreateSub(period_minus_1, modulo_coord);
 
-        // result = (len-1) - abs(rem - (len-1))
-        auto diff = builder.CreateSub(rem, dim_minus_1);
-        auto abs_diff =
-            builder.CreateCall(abs_func, {diff, builder.getInt1(false)});
-        result = builder.CreateSub(dim_minus_1, abs_diff);
+        result =
+            builder.CreateSelect(in_first_half, modulo_coord, mirrored_coord);
     } else { // Clamping
         // clamp(coord, 0, max_dim - 1)
         auto dim_minus_1 = builder.CreateSub(max_dim, one);
