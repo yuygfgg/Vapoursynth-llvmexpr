@@ -133,6 +133,7 @@ sources = [
   'llvmexpr/frontend/infix2postfix/Tokenizer.cpp',
   'llvmexpr/frontend/infix2postfix/Parser.cpp',
   'llvmexpr/frontend/infix2postfix/CodeGenerator.cpp',
+  'llvmexpr/frontend/infix2postfix/PostfixBuilder.cpp',
   'llvmexpr/frontend/infix2postfix/PostfixHelper.cpp',
   'llvmexpr/ir/ExprIRGenerator.cpp',
   'llvmexpr/ir/SingleExprIRGenerator.cpp',
@@ -155,6 +156,7 @@ infix2postfix_sources = [
   'llvmexpr/frontend/infix2postfix/Tokenizer.cpp',
   'llvmexpr/frontend/infix2postfix/Parser.cpp',
   'llvmexpr/frontend/infix2postfix/CodeGenerator.cpp',
+  'llvmexpr/frontend/infix2postfix/PostfixBuilder.cpp',
   'llvmexpr/frontend/infix2postfix/PostfixHelper.cpp',
   'llvmexpr/frontend/Tokenizer.cpp',  # Need main project's tokenizer for PostfixHelper
 ]

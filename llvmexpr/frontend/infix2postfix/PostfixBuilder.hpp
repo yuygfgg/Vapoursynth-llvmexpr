@@ -1,0 +1,62 @@
+#ifndef LLVMEXPR_INFIX2POSTFIX_POSTFIXBUILDER_HPP
+#define LLVMEXPR_INFIX2POSTFIX_POSTFIXBUILDER_HPP
+
+#include "types.hpp"
+#include <string>
+#include <vector>
+
+namespace infix2postfix {
+
+class PostfixBuilder {
+  public:
+    PostfixBuilder() = default;
+
+    // General
+    void add_op(TokenType type);
+    void add_unary_op(TokenType type);
+    void add_ternary_op();
+    void add_function_call(const std::string& func_name);
+    void append(const PostfixBuilder& other);
+    std::string get_expression() const;
+    void clear();
+    bool empty() const;
+
+    // Literals & Variables
+    void add_number(const std::string& num_literal);
+    void add_constant(const std::string& const_name);
+    void add_variable_load(const std::string& var_name);
+    void add_variable_store(const std::string& var_name);
+
+    // Control Flow
+    void add_label(const std::string& label_name);
+    void add_conditional_jump(const std::string& label_name);
+    void add_unconditional_jump(const std::string& label_name);
+    void prefix_labels(const std::string& prefix);
+
+    // Data Access & I/O
+    void add_prop_access(const std::string& clip_name,
+                         const std::string& prop_name);
+    void add_set_prop(const std::string& prop_name);
+    void add_static_pixel_access(const std::string& clip_name,
+                                 const std::string& x, const std::string& y,
+                                 const std::string& suffix);
+    void add_dyn_pixel_access_expr(const std::string& clip_name,
+                                   const std::string& suffix);
+    void add_dyn_pixel_access_single(const std::string& clip_name,
+                                     const std::string& plane);
+    void add_store_expr();
+    void add_store_single(const std::string& plane);
+    void add_frame_dimension(const std::string& dim, const std::string& plane);
+    void add_exit_marker();
+
+    // For raw/unstructured parts
+    void add_raw(const std::string& raw_string);
+
+  private:
+    void push_token(const std::string& token);
+    std::vector<std::string> tokens;
+};
+
+} // namespace infix2postfix
+
+#endif

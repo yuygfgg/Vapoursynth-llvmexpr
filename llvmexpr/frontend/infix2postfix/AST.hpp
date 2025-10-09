@@ -1,6 +1,7 @@
 #ifndef LLVMEXPR_INFIX2POSTFIX_AST_HPP
 #define LLVMEXPR_INFIX2POSTFIX_AST_HPP
 
+#include "PostfixBuilder.hpp"
 #include "types.hpp"
 #include <memory>
 #include <string>
@@ -30,29 +31,29 @@ struct GlobalDecl;
 
 struct ExprVisitor {
     virtual ~ExprVisitor() = default;
-    virtual std::string visit(NumberExpr& expr) = 0;
-    virtual std::string visit(VariableExpr& expr) = 0;
-    virtual std::string visit(UnaryExpr& expr) = 0;
-    virtual std::string visit(BinaryExpr& expr) = 0;
-    virtual std::string visit(TernaryExpr& expr) = 0;
-    virtual std::string visit(CallExpr& expr) = 0;
-    virtual std::string visit(PropAccessExpr& expr) = 0;
-    virtual std::string visit(StaticRelPixelAccessExpr& expr) = 0;
-    virtual std::string visit(FrameDimensionExpr& expr) = 0;
+    virtual PostfixBuilder visit(NumberExpr& expr) = 0;
+    virtual PostfixBuilder visit(VariableExpr& expr) = 0;
+    virtual PostfixBuilder visit(UnaryExpr& expr) = 0;
+    virtual PostfixBuilder visit(BinaryExpr& expr) = 0;
+    virtual PostfixBuilder visit(TernaryExpr& expr) = 0;
+    virtual PostfixBuilder visit(CallExpr& expr) = 0;
+    virtual PostfixBuilder visit(PropAccessExpr& expr) = 0;
+    virtual PostfixBuilder visit(StaticRelPixelAccessExpr& expr) = 0;
+    virtual PostfixBuilder visit(FrameDimensionExpr& expr) = 0;
 };
 
 struct StmtVisitor {
     virtual ~StmtVisitor() = default;
-    virtual std::string visit(ExprStmt& stmt) = 0;
-    virtual std::string visit(AssignStmt& stmt) = 0;
-    virtual std::string visit(BlockStmt& stmt) = 0;
-    virtual std::string visit(IfStmt& stmt) = 0;
-    virtual std::string visit(WhileStmt& stmt) = 0;
-    virtual std::string visit(ReturnStmt& stmt) = 0;
-    virtual std::string visit(LabelStmt& stmt) = 0;
-    virtual std::string visit(GotoStmt& stmt) = 0;
-    virtual std::string visit(FunctionDef& stmt) = 0;
-    virtual std::string visit(GlobalDecl& stmt) = 0;
+    virtual PostfixBuilder visit(ExprStmt& stmt) = 0;
+    virtual PostfixBuilder visit(AssignStmt& stmt) = 0;
+    virtual PostfixBuilder visit(BlockStmt& stmt) = 0;
+    virtual PostfixBuilder visit(IfStmt& stmt) = 0;
+    virtual PostfixBuilder visit(WhileStmt& stmt) = 0;
+    virtual PostfixBuilder visit(ReturnStmt& stmt) = 0;
+    virtual PostfixBuilder visit(LabelStmt& stmt) = 0;
+    virtual PostfixBuilder visit(GotoStmt& stmt) = 0;
+    virtual PostfixBuilder visit(FunctionDef& stmt) = 0;
+    virtual PostfixBuilder visit(GlobalDecl& stmt) = 0;
 };
 
 struct Node {
@@ -61,11 +62,11 @@ struct Node {
 };
 
 struct Expr : public Node {
-    virtual std::string accept(ExprVisitor& visitor) = 0;
+    virtual PostfixBuilder accept(ExprVisitor& visitor) = 0;
 };
 
 struct Stmt : public Node {
-    virtual std::string accept(StmtVisitor& visitor) = 0;
+    virtual PostfixBuilder accept(StmtVisitor& visitor) = 0;
 };
 
 struct NumberExpr : public Expr {
@@ -73,7 +74,7 @@ struct NumberExpr : public Expr {
     explicit NumberExpr(Token val) : value(std::move(val)) {
         line = value.line;
     }
-    std::string accept(ExprVisitor& visitor) override {
+    PostfixBuilder accept(ExprVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };
@@ -81,7 +82,7 @@ struct NumberExpr : public Expr {
 struct VariableExpr : public Expr {
     Token name;
     explicit VariableExpr(Token n) : name(std::move(n)) { line = name.line; }
-    std::string accept(ExprVisitor& visitor) override {
+    PostfixBuilder accept(ExprVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };
@@ -93,7 +94,7 @@ struct UnaryExpr : public Expr {
         : op(std::move(o)), right(std::move(r)) {
         line = op.line;
     }
-    std::string accept(ExprVisitor& visitor) override {
+    PostfixBuilder accept(ExprVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };
@@ -106,7 +107,7 @@ struct BinaryExpr : public Expr {
         : left(std::move(l)), op(std::move(o)), right(std::move(r)) {
         line = op.line;
     }
-    std::string accept(ExprVisitor& visitor) override {
+    PostfixBuilder accept(ExprVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };
@@ -122,7 +123,7 @@ struct TernaryExpr : public Expr {
         if (cond)
             line = cond->line;
     }
-    std::string accept(ExprVisitor& visitor) override {
+    PostfixBuilder accept(ExprVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };
@@ -137,7 +138,7 @@ struct CallExpr : public Expr {
           boundary_suffix(std::move(suffix)) {
         line = callee_token.line;
     }
-    std::string accept(ExprVisitor& visitor) override {
+    PostfixBuilder accept(ExprVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };
@@ -148,7 +149,7 @@ struct PropAccessExpr : public Expr {
     PropAccessExpr(Token c, Token p) : clip(std::move(c)), prop(std::move(p)) {
         line = clip.line;
     }
-    std::string accept(ExprVisitor& visitor) override {
+    PostfixBuilder accept(ExprVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };
@@ -163,7 +164,7 @@ struct StaticRelPixelAccessExpr : public Expr {
           boundary_suffix(std::move(suffix)) {
         line = clip.line;
     }
-    std::string accept(ExprVisitor& visitor) override {
+    PostfixBuilder accept(ExprVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };
@@ -176,7 +177,7 @@ struct FrameDimensionExpr : public Expr {
           plane_index(std::move(plane)) {
         line = keyword.line;
     }
-    std::string accept(ExprVisitor& visitor) override {
+    PostfixBuilder accept(ExprVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };
@@ -187,7 +188,7 @@ struct ExprStmt : public Stmt {
         if (expr)
             line = expr->line;
     }
-    std::string accept(StmtVisitor& visitor) override {
+    PostfixBuilder accept(StmtVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };
@@ -199,7 +200,7 @@ struct AssignStmt : public Stmt {
         : name(std::move(n)), value(std::move(v)) {
         line = name.line;
     }
-    std::string accept(StmtVisitor& visitor) override {
+    PostfixBuilder accept(StmtVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };
@@ -211,7 +212,7 @@ struct BlockStmt : public Stmt {
         if (!statements.empty())
             line = statements.front()->line;
     }
-    std::string accept(StmtVisitor& visitor) override {
+    PostfixBuilder accept(StmtVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };
@@ -227,7 +228,7 @@ struct IfStmt : public Stmt {
         if (condition)
             line = condition->line;
     }
-    std::string accept(StmtVisitor& visitor) override {
+    PostfixBuilder accept(StmtVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };
@@ -240,7 +241,7 @@ struct WhileStmt : public Stmt {
         if (condition)
             line = condition->line;
     }
-    std::string accept(StmtVisitor& visitor) override {
+    PostfixBuilder accept(StmtVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };
@@ -252,7 +253,7 @@ struct ReturnStmt : public Stmt {
         : keyword(std::move(kw)), value(std::move(v)) {
         line = keyword.line;
     }
-    std::string accept(StmtVisitor& visitor) override {
+    PostfixBuilder accept(StmtVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };
@@ -260,7 +261,7 @@ struct ReturnStmt : public Stmt {
 struct LabelStmt : public Stmt {
     Token name;
     explicit LabelStmt(Token n) : name(std::move(n)) { line = name.line; }
-    std::string accept(StmtVisitor& visitor) override {
+    PostfixBuilder accept(StmtVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };
@@ -273,7 +274,7 @@ struct GotoStmt : public Stmt {
         : keyword(std::move(kw)), label(std::move(l)), condition(std::move(c)) {
         line = keyword.line;
     }
-    std::string accept(StmtVisitor& visitor) override {
+    PostfixBuilder accept(StmtVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };
@@ -286,7 +287,7 @@ struct GlobalDecl : public Stmt {
         : keyword(std::move(t)), mode(m), globals(std::move(g)) {
         line = keyword.line;
     }
-    std::string accept(StmtVisitor& visitor) override {
+    PostfixBuilder accept(StmtVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };
@@ -302,7 +303,7 @@ struct FunctionDef : public Stmt {
           global_decl(std::move(g)) {
         line = name.line;
     }
-    std::string accept(StmtVisitor& visitor) override {
+    PostfixBuilder accept(StmtVisitor& visitor) override {
         return visitor.visit(*this);
     }
 };

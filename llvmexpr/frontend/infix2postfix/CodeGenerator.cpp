@@ -30,7 +30,6 @@ CodeGenerator::CodeGenerator(Mode mode, int num_inputs)
     : mode(mode), num_inputs(num_inputs) {}
 
 std::string CodeGenerator::generate(Program* program) {
-    std::string result;
     for (const auto& stmt : program->statements) {
         if (auto* func_def = dynamic_cast<FunctionDef*>(stmt.get())) {
             FunctionSignature sig;
@@ -54,8 +53,9 @@ std::string CodeGenerator::generate(Program* program) {
         }
     }
 
+    PostfixBuilder builder;
     for (const auto& stmt : program->statements) {
-        result += generate(stmt.get()) + " ";
+        builder.append(generate(stmt.get()));
     }
 
     if (mode == Mode::Expr && !has_result) {
@@ -63,38 +63,29 @@ std::string CodeGenerator::generate(Program* program) {
             "Final result must be assigned to variable 'RESULT'!", 0);
     }
 
-    std::string final_code;
-    final_code.reserve(result.size());
-    bool last_was_space = false;
-    for (char c : result) {
-        if (c == ' ' || c == '\n') {
-            if (!last_was_space)
-                final_code += ' ';
-            last_was_space = true;
-        } else {
-            final_code += c;
-            last_was_space = false;
-        }
-    }
-
     if (mode == Mode::Expr) {
-        final_code += "RESULT@";
+        builder.add_variable_load("RESULT");
     }
 
-    return final_code;
+    return builder.get_expression();
 }
 
-std::string CodeGenerator::generate(Node* node) {
+PostfixBuilder CodeGenerator::generate(Node* node) {
     if (auto* e = dynamic_cast<Expr*>(node))
         return e->accept(*this);
     if (auto* s = dynamic_cast<Stmt*>(node))
         return s->accept(*this);
-    return "";
+    return {};
 }
 
-std::string CodeGenerator::visit(NumberExpr& expr) { return expr.value.value; }
+PostfixBuilder CodeGenerator::visit(NumberExpr& expr) {
+    PostfixBuilder b;
+    b.add_number(expr.value.value);
+    return b;
+}
 
-std::string CodeGenerator::visit(VariableExpr& expr) {
+PostfixBuilder CodeGenerator::visit(VariableExpr& expr) {
+    PostfixBuilder b;
     std::string name = expr.name.value;
 
     if (param_substitutions.count(name)) {
@@ -112,7 +103,8 @@ std::string CodeGenerator::visit(VariableExpr& expr) {
                 expr.line);
         }
 
-        return base_name;
+        b.add_constant(base_name);
+        return b;
     }
 
     check_variable_defined(name, expr.line);
@@ -120,44 +112,58 @@ std::string CodeGenerator::visit(VariableExpr& expr) {
     std::string renamed = rename_variable(name);
 
     if (literals_in_scope.count(renamed)) {
-        return renamed;
+        b.add_raw(renamed);
+        return b;
     }
 
-    return std::format("{}@", renamed);
+    b.add_variable_load(renamed);
+    return b;
 }
 
-std::string CodeGenerator::visit(UnaryExpr& expr) {
+PostfixBuilder CodeGenerator::visit(UnaryExpr& expr) {
     if (expr.op.type == TokenType::Minus) {
         if (auto* num = dynamic_cast<NumberExpr*>(expr.right.get())) {
             std::string val = num->value.value;
             if (!val.starts_with("-")) {
                 val = std::format("-{}", val);
             }
-            return val;
+            PostfixBuilder b;
+            b.add_number(val);
+            return b;
         }
     }
 
-    return std::format("{} {}", generate(expr.right.get()),
-                       get_unary_op_postfix(expr.op.type));
+    PostfixBuilder b = generate(expr.right.get());
+    b.add_unary_op(expr.op.type);
+    return b;
 }
 
-std::string CodeGenerator::visit(BinaryExpr& expr) {
-    return std::format("{} {} {}", generate(expr.left.get()),
-                       generate(expr.right.get()),
-                       get_op_postfix(expr.op.type));
+PostfixBuilder CodeGenerator::visit(BinaryExpr& expr) {
+    PostfixBuilder b;
+    b.append(generate(expr.left.get()));
+    b.append(generate(expr.right.get()));
+    b.add_op(expr.op.type);
+    return b;
 }
 
-std::string CodeGenerator::visit(TernaryExpr& expr) {
-    return std::format("{} {} {} ?", generate(expr.cond.get()),
-                       generate(expr.true_expr.get()),
-                       generate(expr.false_expr.get()));
+PostfixBuilder CodeGenerator::visit(TernaryExpr& expr) {
+    PostfixBuilder b;
+    b.append(generate(expr.cond.get()));
+    b.append(generate(expr.true_expr.get()));
+    b.append(generate(expr.false_expr.get()));
+    b.add_ternary_op();
+    return b;
 }
 
-std::string CodeGenerator::visit(CallExpr& expr) {
+PostfixBuilder CodeGenerator::visit(CallExpr& expr) {
+    // User-defined functions are inlined
     if (functions.count(expr.callee)) {
         return inline_function_call(expr.callee, expr.args, expr.line);
     }
 
+    PostfixBuilder b;
+
+    // Built-in functions with special handling
     if (expr.callee == "set_prop") {
         if (mode == Mode::Expr) {
             throw CodeGenError(
@@ -177,18 +183,12 @@ std::string CodeGenerator::visit(CallExpr& expr) {
                                expr.line);
 
         std::string name = prop_name->name.value;
-        std::string value_code = generate(expr.args[1].get());
-        return std::format("{} {}$", value_code, name);
-    }
-
-    std::string result;
-    for (const auto& arg : expr.args) {
-        result += generate(arg.get()) + " ";
+        b.append(generate(expr.args[1].get()));
+        b.add_set_prop(name);
+        return b;
     }
 
     if (expr.callee == "dyn") {
-        // Expr mode: dyn(clip, x, y)
-        // SingleExpr mode: dyn(clip, x, y, plane)
         auto get_clip_name = [](VariableExpr* clip, int line) -> std::string {
             if (!clip)
                 throw CodeGenError(
@@ -219,10 +219,12 @@ std::string CodeGenerator::visit(CallExpr& expr) {
                     expr.line);
             auto clip = dynamic_cast<VariableExpr*>(arg0);
             std::string clip_name = get_clip_name(clip, expr.line);
-            return std::format("{} {} {}[]{}", generate(expr.args[1].get()),
-                               generate(expr.args[2].get()), clip_name,
-                               expr.boundary_suffix);
-        } else {
+
+            b.append(generate(expr.args[1].get()));
+            b.append(generate(expr.args[2].get()));
+            b.add_dyn_pixel_access_expr(clip_name, expr.boundary_suffix);
+            return b;
+        } else { // SingleExpr
             if (expr.args.size() != 4)
                 throw CodeGenError("dyn() requires 4 arguments in SingleExpr "
                                    "mode: dyn(clip, x, y, plane)",
@@ -234,23 +236,26 @@ std::string CodeGenerator::visit(CallExpr& expr) {
                 throw CodeGenError("Fourth argument to dyn() (plane) must be "
                                    "an integer constant",
                                    expr.line);
-            return std::format("{} {} {}^{}[]", generate(expr.args[1].get()),
-                               generate(expr.args[2].get()), clip_name,
-                               plane->value.value);
+
+            b.append(generate(expr.args[1].get()));
+            b.append(generate(expr.args[2].get()));
+            b.add_dyn_pixel_access_single(clip_name, plane->value.value);
+            return b;
         }
     }
+
     if (expr.callee == "store") {
-        // Expr mode: store(x, y, value)
-        // SingleExpr mode: store(x, y, plane, value)
         if (mode == Mode::Expr) {
             if (expr.args.size() != 3)
                 throw CodeGenError("store() requires 3 arguments in Expr mode: "
                                    "store(x, y, value)",
                                    expr.line);
-            return std::format("{} {} {} @[]", generate(expr.args[2].get()),
-                               generate(expr.args[0].get()),
-                               generate(expr.args[1].get()));
-        } else {
+            b.append(generate(expr.args[2].get()));
+            b.append(generate(expr.args[0].get()));
+            b.append(generate(expr.args[1].get()));
+            b.add_store_expr();
+            return b;
+        } else { // SingleExpr
             if (expr.args.size() != 4)
                 throw CodeGenError("store() requires 4 arguments in SingleExpr "
                                    "mode: store(x, y, plane, value)",
@@ -260,12 +265,14 @@ std::string CodeGenerator::visit(CallExpr& expr) {
                 throw CodeGenError("Third argument to store() (plane) must be "
                                    "an integer constant",
                                    expr.line);
-            return std::format("{} {} {} @[]^{}", generate(expr.args[3].get()),
-                               generate(expr.args[0].get()),
-                               generate(expr.args[1].get()),
-                               plane->value.value);
+            b.append(generate(expr.args[3].get()));
+            b.append(generate(expr.args[0].get()));
+            b.append(generate(expr.args[1].get()));
+            b.add_store_single(plane->value.value);
+            return b;
         }
     }
+
     if (expr.callee == "exit") {
         if (mode == Mode::Single) {
             throw CodeGenError(
@@ -275,14 +282,20 @@ std::string CodeGenerator::visit(CallExpr& expr) {
         }
         if (!expr.args.empty())
             throw CodeGenError("exit() takes no arguments", expr.line);
-        return "^exit^";
+        b.add_exit_marker();
+        return b;
     }
 
-    result += expr.callee;
-    return result;
+    // Default handling for all other functions
+    for (const auto& arg : expr.args) {
+        b.append(generate(arg.get()));
+    }
+    b.add_function_call(expr.callee);
+    return b;
 }
 
-std::string CodeGenerator::visit(PropAccessExpr& expr) {
+PostfixBuilder CodeGenerator::visit(PropAccessExpr& expr) {
+    PostfixBuilder b;
     std::string clip_name = expr.clip.value;
     if (param_substitutions.count(clip_name)) {
         auto* subst_expr = param_substitutions.at(clip_name);
@@ -305,10 +318,11 @@ std::string CodeGenerator::visit(PropAccessExpr& expr) {
                         expr.clip.value),
             expr.line);
     }
-    return std::format("{}.{}", clip_name, expr.prop.value);
+    b.add_prop_access(clip_name, expr.prop.value);
+    return b;
 }
 
-std::string CodeGenerator::visit(StaticRelPixelAccessExpr& expr) {
+PostfixBuilder CodeGenerator::visit(StaticRelPixelAccessExpr& expr) {
     if (mode == Mode::Single) {
         throw CodeGenError("Static relative pixel access (clip[x,y]) is only "
                            "available in Expr mode. "
@@ -333,11 +347,13 @@ std::string CodeGenerator::visit(StaticRelPixelAccessExpr& expr) {
     if (clip_name.starts_with("$")) {
         clip_name = clip_name.substr(1);
     }
-    return std::format("{}[{},{}]{}", clip_name, expr.offsetX.value,
-                       expr.offsetY.value, expr.boundary_suffix);
+    PostfixBuilder b;
+    b.add_static_pixel_access(clip_name, expr.offsetX.value, expr.offsetY.value,
+                              expr.boundary_suffix);
+    return b;
 }
 
-std::string CodeGenerator::visit(FrameDimensionExpr& expr) {
+PostfixBuilder CodeGenerator::visit(FrameDimensionExpr& expr) {
     if (mode == Mode::Expr) {
         throw CodeGenError("frame.width[N] and frame.height[N] are only "
                            "available in SingleExpr mode. "
@@ -352,26 +368,31 @@ std::string CodeGenerator::visit(FrameDimensionExpr& expr) {
                         expr.plane_index.value),
             expr.line);
     }
-    return std::format("{}^{}", expr.dimension_name, expr.plane_index.value);
+    PostfixBuilder b;
+    b.add_frame_dimension(expr.dimension_name, expr.plane_index.value);
+    return b;
 }
 
-std::string CodeGenerator::visit(ExprStmt& stmt) {
-    std::string s = generate(stmt.expr.get());
-    check_stack_effect(s, 0, stmt.line);
-    return s;
+PostfixBuilder CodeGenerator::visit(ExprStmt& stmt) {
+    PostfixBuilder b = generate(stmt.expr.get());
+    check_stack_effect(b.get_expression(), 0, stmt.line);
+    return b;
 }
 
-std::string CodeGenerator::visit(AssignStmt& stmt) {
+PostfixBuilder CodeGenerator::visit(AssignStmt& stmt) {
     if (stmt.name.value == "RESULT")
         has_result = true;
 
-    std::string value_code = generate(stmt.value.get());
+    PostfixBuilder value_code = generate(stmt.value.get());
 
     std::string var_name = stmt.name.value;
     std::string renamed_var = rename_variable(var_name);
 
-    std::string s = std::format("{} {}!", value_code, renamed_var);
-    check_stack_effect(s, 0, stmt.line);
+    PostfixBuilder b;
+    b.append(value_code);
+    b.add_variable_store(renamed_var);
+
+    check_stack_effect(b.get_expression(), 0, stmt.line);
 
     define_variable_in_current_scope(renamed_var);
 
@@ -380,141 +401,94 @@ std::string CodeGenerator::visit(AssignStmt& stmt) {
     } else {
         local_scope_vars.insert(var_name);
     }
-    return s;
+    return b;
 }
 
-std::string CodeGenerator::visit(BlockStmt& stmt) {
+PostfixBuilder CodeGenerator::visit(BlockStmt& stmt) {
     enter_scope();
 
-    std::string result;
+    PostfixBuilder b;
     for (const auto& s : stmt.statements) {
-        result += generate(s.get()) + " ";
+        b.append(generate(s.get()));
     }
 
     exit_scope();
 
-    return result;
+    return b;
 }
 
-std::string CodeGenerator::visit(IfStmt& stmt) {
+PostfixBuilder CodeGenerator::visit(IfStmt& stmt) {
     std::string else_label = std::format("__internal_else_{}", label_counter++);
     std::string endif_label =
         std::format("__internal_endif_{}", label_counter++);
 
-    // Generate condition first before entering any new scope
-    std::string condition_code = generate(stmt.condition.get());
+    PostfixBuilder b;
+    b.append(generate(stmt.condition.get()));
+    b.add_number("0");
+    b.add_op(TokenType::Eq);
+    b.add_conditional_jump(else_label);
 
-    std::string result = std::format("{} 0 = {}# ", condition_code, else_label);
-
-    // Then branch creates its own scope
-    result += generate(stmt.then_branch.get()) + " ";
+    b.append(generate(stmt.then_branch.get()));
 
     if (stmt.else_branch) {
-        result += std::format("1 {}# #{} ", endif_label, else_label);
-        // Else branch creates its own scope
-        result += generate(stmt.else_branch.get()) + " ";
+        b.add_unconditional_jump(endif_label);
+        b.add_label(else_label);
+        b.append(generate(stmt.else_branch.get()));
+        b.add_label(endif_label);
+    } else {
+        b.add_label(else_label);
     }
-    result += "#" + (stmt.else_branch ? endif_label : else_label);
-    return result;
+    return b;
 }
 
-std::string CodeGenerator::visit(WhileStmt& stmt) {
+PostfixBuilder CodeGenerator::visit(WhileStmt& stmt) {
     std::string start_label =
         std::format("__internal_while_start_{}", label_counter++);
     std::string end_label =
         std::format("__internal_while_end_{}", label_counter++);
-    std::string result = std::format("#{} ", start_label);
-    result +=
-        std::format("{} not {}# ", generate(stmt.condition.get()), end_label);
-    result += generate(stmt.body.get()) + " ";
-    result += std::format("1 {}# #{}", start_label, end_label);
-    return result;
+
+    PostfixBuilder b;
+    b.add_label(start_label);
+    b.append(generate(stmt.condition.get()));
+    b.add_unary_op(TokenType::Not);
+    b.add_conditional_jump(end_label);
+    b.append(generate(stmt.body.get()));
+    b.add_unconditional_jump(start_label);
+    b.add_label(end_label);
+    return b;
 }
 
-std::string CodeGenerator::visit(ReturnStmt& stmt) {
+PostfixBuilder CodeGenerator::visit(ReturnStmt& stmt) {
     if (stmt.value) {
         return generate(stmt.value.get());
     }
-    return "";
+    return {};
 }
 
-std::string CodeGenerator::visit(LabelStmt& stmt) {
-    return std::format("#{}", stmt.name.value);
+PostfixBuilder CodeGenerator::visit(LabelStmt& stmt) {
+    PostfixBuilder b;
+    b.add_label(stmt.name.value);
+    return b;
 }
 
-std::string CodeGenerator::visit(GotoStmt& stmt) {
+PostfixBuilder CodeGenerator::visit(GotoStmt& stmt) {
+    PostfixBuilder b;
     if (stmt.condition) {
-        return std::format("{} {}#", generate(stmt.condition.get()),
-                           stmt.label.value);
+        b.append(generate(stmt.condition.get()));
+        b.add_conditional_jump(stmt.label.value);
+    } else {
+        b.add_unconditional_jump(stmt.label.value);
     }
-    return std::format("1 {}#", stmt.label.value);
+    return b;
 }
 
-std::string CodeGenerator::visit([[maybe_unused]] FunctionDef& stmt) {
+PostfixBuilder CodeGenerator::visit([[maybe_unused]] FunctionDef& stmt) {
     // Handled in first pass
-    return "";
+    return {};
 }
-std::string CodeGenerator::visit([[maybe_unused]] GlobalDecl& stmt) {
+PostfixBuilder CodeGenerator::visit([[maybe_unused]] GlobalDecl& stmt) {
     // Handled by parser
-    return "";
-}
-
-std::string CodeGenerator::get_op_postfix(TokenType type) {
-    switch (type) {
-    case TokenType::Plus:
-        return "+";
-    case TokenType::Minus:
-        return "-";
-    case TokenType::Star:
-        return "*";
-    case TokenType::Slash:
-        return "/";
-    case TokenType::Percent:
-        return "%";
-    case TokenType::StarStar:
-        return "pow";
-    case TokenType::LogicalAnd:
-        return "and";
-    case TokenType::LogicalOr:
-        return "or";
-    case TokenType::BitAnd:
-        return "bitand";
-    case TokenType::BitOr:
-        return "bitor";
-    case TokenType::BitXor:
-        return "bitxor";
-    case TokenType::Eq:
-        return "=";
-    case TokenType::Ne:
-        return "= not";
-    case TokenType::Lt:
-        return "<";
-    case TokenType::Le:
-        return "<=";
-    case TokenType::Gt:
-        return ">";
-    case TokenType::Ge:
-        return ">=";
-    case TokenType::Not:
-        return "not";
-    case TokenType::BitNot:
-        return "bitnot";
-    default:
-        return "";
-    }
-}
-
-std::string CodeGenerator::get_unary_op_postfix(TokenType type) {
-    switch (type) {
-    case TokenType::Minus:
-        return "neg";
-    case TokenType::Not:
-        return "not";
-    case TokenType::BitNot:
-        return "bitnot";
-    default:
-        return get_op_postfix(type);
-    }
+    return {};
 }
 
 void CodeGenerator::check_stack_effect(const std::string& s, int expected,
@@ -549,7 +523,7 @@ bool CodeGenerator::is_constant_infix(const std::string& name) {
     return is_constant_infix_internal(name);
 }
 
-std::string CodeGenerator::inline_function_call(
+PostfixBuilder CodeGenerator::inline_function_call(
     const std::string& func_name,
     const std::vector<std::unique_ptr<Expr>>& args, int call_line) {
 
@@ -609,7 +583,7 @@ std::string CodeGenerator::inline_function_call(
         all_defined_vars_in_scope.insert(g);
     }
 
-    std::string param_assignments;
+    PostfixBuilder param_assignments;
     std::set<std::string> new_literals;
 
     for (size_t i = 0; i < sig.params.size(); ++i) {
@@ -641,14 +615,14 @@ std::string CodeGenerator::inline_function_call(
                 scope_stack = saved_scope_stack;
 
                 // Generate argument value
-                std::string arg_value = generate(args[i].get());
+                PostfixBuilder arg_value = generate(args[i].get());
 
                 // Restore function scope
                 all_defined_vars_in_scope = temp_all_defined;
                 scope_stack = temp_scope_stack;
 
-                param_assignments +=
-                    std::format("{} {}! ", arg_value, renamed_param);
+                param_assignments.append(arg_value);
+                param_assignments.add_variable_store(renamed_param);
                 param_map[param_name] = renamed_param;
                 new_local_vars.insert(param_name);
                 // Define parameter in function scope
@@ -695,37 +669,8 @@ std::string CodeGenerator::inline_function_call(
 
     std::string label_prefix = std::format("__internal_{}_", func_name);
 
-    std::string body_code = generate(func_def->body.get());
-
-    // Add label prefix to all labels and gotos in the body
-    size_t pos = 0;
-    std::string result = body_code;
-    while ((pos = result.find('#', pos)) != std::string::npos) {
-        // Check if it's a label definition (#label) or goto (label#)
-        if (pos + 1 < result.length()) {
-            size_t end_pos = pos + 1;
-            // Find the label name
-            while (end_pos < result.length() &&
-                   (std::isalnum(result[end_pos]) || result[end_pos] == '_')) {
-                end_pos++;
-            }
-
-            if (end_pos > pos + 1) {
-                std::string label = result.substr(pos + 1, end_pos - pos - 1);
-                // Skip internal labels that are already prefixed
-                if (label.find("__internal_") != 0) {
-                    result.insert(pos + 1, label_prefix);
-                    pos = end_pos + label_prefix.length();
-                } else {
-                    pos = end_pos;
-                }
-            } else {
-                pos++;
-            }
-        } else {
-            pos++;
-        }
-    }
+    PostfixBuilder body_builder = generate(func_def->body.get());
+    body_builder.prefix_labels(label_prefix);
 
     var_rename_map = saved_rename_map;
     literals_in_scope = saved_literals;
@@ -735,11 +680,14 @@ std::string CodeGenerator::inline_function_call(
     param_substitutions = saved_param_substitutions;
     current_function = saved_current_function;
 
-    std::string inlined_code = param_assignments + result;
+    PostfixBuilder inlined_builder;
+    inlined_builder.append(param_assignments);
+    inlined_builder.append(body_builder);
 
     int expected_effect = sig.has_return ? 1 : 0;
     try {
-        int actual_effect = compute_stack_effect(inlined_code, call_line);
+        int actual_effect =
+            compute_stack_effect(inlined_builder.get_expression(), call_line);
         if (actual_effect != expected_effect) {
             throw CodeGenError(
                 std::format("Function '{}' has unbalanced stack. Expected "
@@ -752,7 +700,7 @@ std::string CodeGenerator::inline_function_call(
             std::format("In function '{}': {}", func_name, e.what()), sig.line);
     }
 
-    return inlined_code;
+    return inlined_builder;
 }
 
 void CodeGenerator::check_variable_defined(const std::string& var_name,

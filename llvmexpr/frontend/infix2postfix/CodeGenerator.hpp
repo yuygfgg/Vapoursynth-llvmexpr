@@ -2,6 +2,7 @@
 #define LLVMEXPR_INFIX2POSTFIX_CODEGENERATOR_HPP
 
 #include "AST.hpp"
+#include "PostfixBuilder.hpp"
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -22,35 +23,33 @@ class CodeGenerator : public ExprVisitor, public StmtVisitor {
     std::string generate(Program* program);
 
     // Expr visitors
-    std::string visit(NumberExpr& expr) override;
-    std::string visit(VariableExpr& expr) override;
-    std::string visit(UnaryExpr& expr) override;
-    std::string visit(BinaryExpr& expr) override;
-    std::string visit(TernaryExpr& expr) override;
-    std::string visit(CallExpr& expr) override;
-    std::string visit(PropAccessExpr& expr) override;
-    std::string visit(StaticRelPixelAccessExpr& expr) override;
-    std::string visit(FrameDimensionExpr& expr) override;
+    PostfixBuilder visit(NumberExpr& expr) override;
+    PostfixBuilder visit(VariableExpr& expr) override;
+    PostfixBuilder visit(UnaryExpr& expr) override;
+    PostfixBuilder visit(BinaryExpr& expr) override;
+    PostfixBuilder visit(TernaryExpr& expr) override;
+    PostfixBuilder visit(CallExpr& expr) override;
+    PostfixBuilder visit(PropAccessExpr& expr) override;
+    PostfixBuilder visit(StaticRelPixelAccessExpr& expr) override;
+    PostfixBuilder visit(FrameDimensionExpr& expr) override;
 
     // Stmt visitors
-    std::string visit(ExprStmt& stmt) override;
-    std::string visit(AssignStmt& stmt) override;
-    std::string visit(BlockStmt& stmt) override;
-    std::string visit(IfStmt& stmt) override;
-    std::string visit(WhileStmt& stmt) override;
-    std::string visit(ReturnStmt& stmt) override;
-    std::string visit(LabelStmt& stmt) override;
-    std::string visit(GotoStmt& stmt) override;
-    std::string visit(FunctionDef& stmt) override;
-    std::string visit(GlobalDecl& stmt) override;
+    PostfixBuilder visit(ExprStmt& stmt) override;
+    PostfixBuilder visit(AssignStmt& stmt) override;
+    PostfixBuilder visit(BlockStmt& stmt) override;
+    PostfixBuilder visit(IfStmt& stmt) override;
+    PostfixBuilder visit(WhileStmt& stmt) override;
+    PostfixBuilder visit(ReturnStmt& stmt) override;
+    PostfixBuilder visit(LabelStmt& stmt) override;
+    PostfixBuilder visit(GotoStmt& stmt) override;
+    PostfixBuilder visit(FunctionDef& stmt) override;
+    PostfixBuilder visit(GlobalDecl& stmt) override;
 
   private:
-    std::string generate(Node* node);
-    std::string get_op_postfix(TokenType type);
-    std::string get_unary_op_postfix(TokenType type);
+    PostfixBuilder generate(Node* node);
     void check_stack_effect(const std::string& s, int expected, int line);
     int compute_stack_effect(const std::string& s, int line);
-    std::string
+    PostfixBuilder
     inline_function_call(const std::string& func_name,
                          const std::vector<std::unique_ptr<Expr>>& args,
                          int call_line);
