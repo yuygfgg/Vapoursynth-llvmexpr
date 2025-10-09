@@ -137,6 +137,10 @@ CompiledFunction Compiler::compile_with_approx_math(int actual_approx_math) {
     if (FMF.allowReciprocal()) {
         FuncAttrs.addAttribute("allow-reciprocal-fp-math", "true");
     }
+#ifdef _WIN32
+    // Fix for missing ___chkstk_ms symbol
+    FuncAttrs.addAttribute("no-stack-arg-probe", "true");
+#endif
     FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
     FuncAttrs.addAttribute(llvm::Attribute::WillReturn);
     func->addFnAttrs(FuncAttrs);
