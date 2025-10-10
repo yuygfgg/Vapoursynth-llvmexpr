@@ -1,316 +1,330 @@
 #ifndef LLVMEXPR_INFIX2POSTFIX_AST_HPP
 #define LLVMEXPR_INFIX2POSTFIX_AST_HPP
 
-#include "PostfixBuilder.hpp"
 #include "types.hpp"
 #include <memory>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace infix2postfix {
 
-struct NumberExpr;
-struct VariableExpr;
-struct UnaryExpr;
-struct BinaryExpr;
-struct TernaryExpr;
-struct CallExpr;
-struct PropAccessExpr;
-struct StaticRelPixelAccessExpr;
-struct FrameDimensionExpr;
-struct ExprStmt;
-struct AssignStmt;
+// Forward declarations
+struct Expr;
+struct Stmt;
 struct BlockStmt;
-struct IfStmt;
-struct WhileStmt;
-struct ReturnStmt;
-struct LabelStmt;
-struct GotoStmt;
-struct FunctionDef;
 struct GlobalDecl;
 
-struct ExprVisitor {
-    virtual ~ExprVisitor() = default;
-    virtual PostfixBuilder visit(NumberExpr& expr) = 0;
-    virtual PostfixBuilder visit(VariableExpr& expr) = 0;
-    virtual PostfixBuilder visit(UnaryExpr& expr) = 0;
-    virtual PostfixBuilder visit(BinaryExpr& expr) = 0;
-    virtual PostfixBuilder visit(TernaryExpr& expr) = 0;
-    virtual PostfixBuilder visit(CallExpr& expr) = 0;
-    virtual PostfixBuilder visit(PropAccessExpr& expr) = 0;
-    virtual PostfixBuilder visit(StaticRelPixelAccessExpr& expr) = 0;
-    virtual PostfixBuilder visit(FrameDimensionExpr& expr) = 0;
-};
-
-struct StmtVisitor {
-    virtual ~StmtVisitor() = default;
-    virtual PostfixBuilder visit(ExprStmt& stmt) = 0;
-    virtual PostfixBuilder visit(AssignStmt& stmt) = 0;
-    virtual PostfixBuilder visit(BlockStmt& stmt) = 0;
-    virtual PostfixBuilder visit(IfStmt& stmt) = 0;
-    virtual PostfixBuilder visit(WhileStmt& stmt) = 0;
-    virtual PostfixBuilder visit(ReturnStmt& stmt) = 0;
-    virtual PostfixBuilder visit(LabelStmt& stmt) = 0;
-    virtual PostfixBuilder visit(GotoStmt& stmt) = 0;
-    virtual PostfixBuilder visit(FunctionDef& stmt) = 0;
-    virtual PostfixBuilder visit(GlobalDecl& stmt) = 0;
-};
-
-struct Node {
-    virtual ~Node() = default;
-    int line = 0;
-};
-
-struct Expr : public Node {
-    virtual PostfixBuilder accept(ExprVisitor& visitor) = 0;
-};
-
-struct Stmt : public Node {
-    virtual PostfixBuilder accept(StmtVisitor& visitor) = 0;
-};
-
-struct NumberExpr : public Expr {
+// Expression node types
+struct NumberExpr {
     Token value;
+    int line = 0;
+
     explicit NumberExpr(Token val) : value(std::move(val)) {
         line = value.line;
     }
-    PostfixBuilder accept(ExprVisitor& visitor) override {
-        return visitor.visit(*this);
-    }
 };
 
-struct VariableExpr : public Expr {
+struct VariableExpr {
     Token name;
+    int line = 0;
+
     explicit VariableExpr(Token n) : name(std::move(n)) { line = name.line; }
-    PostfixBuilder accept(ExprVisitor& visitor) override {
-        return visitor.visit(*this);
-    }
 };
 
-struct UnaryExpr : public Expr {
+struct UnaryExpr {
     Token op;
     std::unique_ptr<Expr> right;
-    UnaryExpr(Token o, std::unique_ptr<Expr> r)
-        : op(std::move(o)), right(std::move(r)) {
-        line = op.line;
-    }
-    PostfixBuilder accept(ExprVisitor& visitor) override {
-        return visitor.visit(*this);
-    }
+    int line = 0;
+
+    UnaryExpr(Token o, std::unique_ptr<Expr> r);
 };
 
-struct BinaryExpr : public Expr {
+struct BinaryExpr {
     std::unique_ptr<Expr> left;
     Token op;
     std::unique_ptr<Expr> right;
-    BinaryExpr(std::unique_ptr<Expr> l, Token o, std::unique_ptr<Expr> r)
-        : left(std::move(l)), op(std::move(o)), right(std::move(r)) {
-        line = op.line;
-    }
-    PostfixBuilder accept(ExprVisitor& visitor) override {
-        return visitor.visit(*this);
-    }
+    int line = 0;
+
+    BinaryExpr(std::unique_ptr<Expr> l, Token o, std::unique_ptr<Expr> r);
 };
 
-struct TernaryExpr : public Expr {
+struct TernaryExpr {
     std::unique_ptr<Expr> cond;
     std::unique_ptr<Expr> true_expr;
     std::unique_ptr<Expr> false_expr;
+    int line = 0;
+
     TernaryExpr(std::unique_ptr<Expr> c, std::unique_ptr<Expr> t,
-                std::unique_ptr<Expr> f)
-        : cond(std::move(c)), true_expr(std::move(t)),
-          false_expr(std::move(f)) {
-        if (cond)
-            line = cond->line;
-    }
-    PostfixBuilder accept(ExprVisitor& visitor) override {
-        return visitor.visit(*this);
-    }
+                std::unique_ptr<Expr> f);
 };
 
-struct CallExpr : public Expr {
+struct CallExpr {
     std::string callee;
     std::vector<std::unique_ptr<Expr>> args;
     std::string boundary_suffix;
+    int line = 0;
+
     CallExpr(Token callee_token, std::vector<std::unique_ptr<Expr>> a,
-             std::string suffix = "")
-        : callee(std::move(callee_token.value)), args(std::move(a)),
-          boundary_suffix(std::move(suffix)) {
-        line = callee_token.line;
-    }
-    PostfixBuilder accept(ExprVisitor& visitor) override {
-        return visitor.visit(*this);
-    }
+             std::string suffix = "");
 };
 
-struct PropAccessExpr : public Expr {
+struct PropAccessExpr {
     Token clip;
     Token prop;
+    int line = 0;
+
     PropAccessExpr(Token c, Token p) : clip(std::move(c)), prop(std::move(p)) {
         line = clip.line;
     }
-    PostfixBuilder accept(ExprVisitor& visitor) override {
-        return visitor.visit(*this);
-    }
 };
 
-struct StaticRelPixelAccessExpr : public Expr {
+struct StaticRelPixelAccessExpr {
     Token clip;
     Token offsetX;
     Token offsetY;
     std::string boundary_suffix;
+    int line = 0;
+
     StaticRelPixelAccessExpr(Token c, Token x, Token y, std::string suffix)
         : clip(std::move(c)), offsetX(std::move(x)), offsetY(std::move(y)),
           boundary_suffix(std::move(suffix)) {
         line = clip.line;
     }
-    PostfixBuilder accept(ExprVisitor& visitor) override {
-        return visitor.visit(*this);
-    }
 };
 
-struct FrameDimensionExpr : public Expr {
+struct FrameDimensionExpr {
     std::string dimension_name; // "width" or "height"
     Token plane_index;
+    int line = 0;
+
     FrameDimensionExpr(Token keyword, Token plane)
         : dimension_name(std::move(keyword.value)),
           plane_index(std::move(plane)) {
         line = keyword.line;
     }
-    PostfixBuilder accept(ExprVisitor& visitor) override {
-        return visitor.visit(*this);
-    }
 };
 
-struct ExprStmt : public Stmt {
+// Statement node types
+struct ExprStmt {
     std::unique_ptr<Expr> expr;
-    explicit ExprStmt(std::unique_ptr<Expr> e) : expr(std::move(e)) {
-        if (expr)
-            line = expr->line;
-    }
-    PostfixBuilder accept(StmtVisitor& visitor) override {
-        return visitor.visit(*this);
-    }
+    int line = 0;
+
+    explicit ExprStmt(std::unique_ptr<Expr> e);
 };
 
-struct AssignStmt : public Stmt {
+struct AssignStmt {
     Token name;
     std::unique_ptr<Expr> value;
-    AssignStmt(Token n, std::unique_ptr<Expr> v)
-        : name(std::move(n)), value(std::move(v)) {
-        line = name.line;
-    }
-    PostfixBuilder accept(StmtVisitor& visitor) override {
-        return visitor.visit(*this);
-    }
+    int line = 0;
+
+    AssignStmt(Token n, std::unique_ptr<Expr> v);
 };
 
-struct BlockStmt : public Stmt {
+struct BlockStmt {
     std::vector<std::unique_ptr<Stmt>> statements;
-    explicit BlockStmt(std::vector<std::unique_ptr<Stmt>> s)
-        : statements(std::move(s)) {
-        if (!statements.empty())
-            line = statements.front()->line;
-    }
-    PostfixBuilder accept(StmtVisitor& visitor) override {
-        return visitor.visit(*this);
-    }
+    int line = 0;
+
+    explicit BlockStmt(std::vector<std::unique_ptr<Stmt>> s);
 };
 
-struct IfStmt : public Stmt {
+struct IfStmt {
     std::unique_ptr<Expr> condition;
     std::unique_ptr<Stmt> then_branch;
     std::unique_ptr<Stmt> else_branch;
+    int line = 0;
+
     IfStmt(std::unique_ptr<Expr> c, std::unique_ptr<Stmt> t,
-           std::unique_ptr<Stmt> e)
-        : condition(std::move(c)), then_branch(std::move(t)),
-          else_branch(std::move(e)) {
-        if (condition)
-            line = condition->line;
-    }
-    PostfixBuilder accept(StmtVisitor& visitor) override {
-        return visitor.visit(*this);
-    }
+           std::unique_ptr<Stmt> e);
 };
 
-struct WhileStmt : public Stmt {
+struct WhileStmt {
     std::unique_ptr<Expr> condition;
     std::unique_ptr<Stmt> body;
-    WhileStmt(std::unique_ptr<Expr> c, std::unique_ptr<Stmt> b)
-        : condition(std::move(c)), body(std::move(b)) {
-        if (condition)
-            line = condition->line;
-    }
-    PostfixBuilder accept(StmtVisitor& visitor) override {
-        return visitor.visit(*this);
-    }
+    int line = 0;
+
+    WhileStmt(std::unique_ptr<Expr> c, std::unique_ptr<Stmt> b);
 };
 
-struct ReturnStmt : public Stmt {
+struct ReturnStmt {
     Token keyword;
     std::unique_ptr<Expr> value;
-    ReturnStmt(Token kw, std::unique_ptr<Expr> v)
-        : keyword(std::move(kw)), value(std::move(v)) {
-        line = keyword.line;
-    }
-    PostfixBuilder accept(StmtVisitor& visitor) override {
-        return visitor.visit(*this);
-    }
+    int line = 0;
+
+    ReturnStmt(Token kw, std::unique_ptr<Expr> v);
 };
 
-struct LabelStmt : public Stmt {
+struct LabelStmt {
     Token name;
+    int line = 0;
+
     explicit LabelStmt(Token n) : name(std::move(n)) { line = name.line; }
-    PostfixBuilder accept(StmtVisitor& visitor) override {
-        return visitor.visit(*this);
-    }
 };
 
-struct GotoStmt : public Stmt {
+struct GotoStmt {
     Token keyword;
     Token label;
     std::unique_ptr<Expr> condition;
-    GotoStmt(Token kw, Token l, std::unique_ptr<Expr> c)
-        : keyword(std::move(kw)), label(std::move(l)), condition(std::move(c)) {
-        line = keyword.line;
-    }
-    PostfixBuilder accept(StmtVisitor& visitor) override {
-        return visitor.visit(*this);
-    }
+    int line = 0;
+
+    GotoStmt(Token kw, Token l, std::unique_ptr<Expr> c);
 };
 
-struct GlobalDecl : public Stmt {
+struct GlobalDecl {
     Token keyword;
     GlobalMode mode;
     std::vector<Token> globals;
+    int line = 0;
+
     GlobalDecl(Token t, GlobalMode m, std::vector<Token> g = {})
         : keyword(std::move(t)), mode(m), globals(std::move(g)) {
         line = keyword.line;
     }
-    PostfixBuilder accept(StmtVisitor& visitor) override {
-        return visitor.visit(*this);
-    }
 };
 
-struct FunctionDef : public Stmt {
+struct FunctionDef {
     Token name;
     std::vector<Token> params;
     std::unique_ptr<BlockStmt> body;
     std::unique_ptr<GlobalDecl> global_decl;
+    int line = 0;
+
     FunctionDef(Token n, std::vector<Token> p, std::unique_ptr<BlockStmt> b,
-                std::unique_ptr<GlobalDecl> g)
-        : name(std::move(n)), params(std::move(p)), body(std::move(b)),
-          global_decl(std::move(g)) {
-        line = name.line;
-    }
-    PostfixBuilder accept(StmtVisitor& visitor) override {
-        return visitor.visit(*this);
+                std::unique_ptr<GlobalDecl> g);
+};
+
+struct Expr {
+    using ExprVariant =
+        std::variant<NumberExpr, VariableExpr, UnaryExpr, BinaryExpr,
+                     TernaryExpr, CallExpr, PropAccessExpr,
+                     StaticRelPixelAccessExpr, FrameDimensionExpr>;
+
+    ExprVariant value;
+
+    template <typename T> explicit Expr(T&& v) : value(std::forward<T>(v)) {}
+
+    Expr(const Expr&) = delete;
+    Expr& operator=(const Expr&) = delete;
+    Expr(Expr&&) = default;
+    Expr& operator=(Expr&&) = default;
+
+    int line() const {
+        return std::visit([](const auto& e) { return e.line; }, value);
     }
 };
 
-struct Program : public Node {
+struct Stmt {
+    using StmtVariant =
+        std::variant<ExprStmt, AssignStmt, BlockStmt, IfStmt, WhileStmt,
+                     ReturnStmt, LabelStmt, GotoStmt, FunctionDef, GlobalDecl>;
+
+    StmtVariant value;
+
+    template <typename T> explicit Stmt(T&& v) : value(std::forward<T>(v)) {}
+
+    Stmt(const Stmt&) = delete;
+    Stmt& operator=(const Stmt&) = delete;
+    Stmt(Stmt&&) = default;
+    Stmt& operator=(Stmt&&) = default;
+
+    int line() const {
+        return std::visit([](const auto& s) { return s.line; }, value);
+    }
+};
+
+inline UnaryExpr::UnaryExpr(Token o, std::unique_ptr<Expr> r)
+    : op(std::move(o)), right(std::move(r)) {
+    line = op.line;
+}
+
+inline BinaryExpr::BinaryExpr(std::unique_ptr<Expr> l, Token o,
+                              std::unique_ptr<Expr> r)
+    : left(std::move(l)), op(std::move(o)), right(std::move(r)) {
+    line = op.line;
+}
+
+inline TernaryExpr::TernaryExpr(std::unique_ptr<Expr> c,
+                                std::unique_ptr<Expr> t,
+                                std::unique_ptr<Expr> f)
+    : cond(std::move(c)), true_expr(std::move(t)), false_expr(std::move(f)) {
+    if (cond)
+        line = cond->line();
+}
+
+inline CallExpr::CallExpr(Token callee_token,
+                          std::vector<std::unique_ptr<Expr>> a,
+                          std::string suffix)
+    : callee(std::move(callee_token.value)), args(std::move(a)),
+      boundary_suffix(std::move(suffix)) {
+    line = callee_token.line;
+}
+
+inline ExprStmt::ExprStmt(std::unique_ptr<Expr> e) : expr(std::move(e)) {
+    if (expr)
+        line = expr->line();
+}
+
+inline AssignStmt::AssignStmt(Token n, std::unique_ptr<Expr> v)
+    : name(std::move(n)), value(std::move(v)) {
+    line = name.line;
+}
+
+inline BlockStmt::BlockStmt(std::vector<std::unique_ptr<Stmt>> s)
+    : statements(std::move(s)) {
+    if (!statements.empty())
+        line = statements.front()->line();
+}
+
+inline IfStmt::IfStmt(std::unique_ptr<Expr> c, std::unique_ptr<Stmt> t,
+                      std::unique_ptr<Stmt> e)
+    : condition(std::move(c)), then_branch(std::move(t)),
+      else_branch(std::move(e)) {
+    if (condition)
+        line = condition->line();
+}
+
+inline WhileStmt::WhileStmt(std::unique_ptr<Expr> c, std::unique_ptr<Stmt> b)
+    : condition(std::move(c)), body(std::move(b)) {
+    if (condition)
+        line = condition->line();
+}
+
+inline ReturnStmt::ReturnStmt(Token kw, std::unique_ptr<Expr> v)
+    : keyword(std::move(kw)), value(std::move(v)) {
+    line = keyword.line;
+}
+
+inline GotoStmt::GotoStmt(Token kw, Token l, std::unique_ptr<Expr> c)
+    : keyword(std::move(kw)), label(std::move(l)), condition(std::move(c)) {
+    line = keyword.line;
+}
+
+inline FunctionDef::FunctionDef(Token n, std::vector<Token> p,
+                                std::unique_ptr<BlockStmt> b,
+                                std::unique_ptr<GlobalDecl> g)
+    : name(std::move(n)), params(std::move(p)), body(std::move(b)),
+      global_decl(std::move(g)) {
+    line = name.line;
+}
+
+struct Program {
     std::vector<std::unique_ptr<Stmt>> statements;
 };
+
+template <typename Wrapper, typename T, typename... Args>
+auto make_node(Args&&... args) {
+    static_assert(std::is_same_v<Wrapper, Expr> ||
+                      std::is_same_v<Wrapper, Stmt>,
+                  "Wrapper must be Expr or Stmt");
+    return std::make_unique<Wrapper>(T(std::forward<Args>(args)...));
+}
+
+template <typename T, typename Wrapper>
+auto get_if(Wrapper* wrapper) -> decltype(std::get_if<T>(&wrapper->value)) {
+    if (!wrapper)
+        return nullptr;
+    return std::get_if<T>(&wrapper->value);
+}
 
 } // namespace infix2postfix
 

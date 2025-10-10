@@ -31,10 +31,11 @@ std::unique_ptr<Stmt> Parser::parseDeclaration() {
         auto funcDef = parseFunctionDef();
         // Attach the global declaration to the function
         funcDef->global_decl = std::move(globalDecl);
-        return funcDef;
+        return make_node<Stmt, FunctionDef>(std::move(*funcDef));
     }
     if (peek().type == TokenType::Function) {
-        return parseFunctionDef();
+        auto funcDef = parseFunctionDef();
+        return std::make_unique<Stmt>(FunctionDef(std::move(*funcDef)));
     }
     return parseStatement();
 }
@@ -44,8 +45,10 @@ std::unique_ptr<Stmt> Parser::parseStatement() {
         return parseIfStatement();
     if (peek().type == TokenType::While)
         return parseWhileStatement();
-    if (peek().type == TokenType::LBrace)
-        return parseBlock();
+    if (peek().type == TokenType::LBrace) {
+        auto block = parseBlock();
+        return std::make_unique<Stmt>(BlockStmt(std::move(*block)));
+    }
     if (peek().type == TokenType::Goto)
         return parseGotoStatement();
     if (peek().type == TokenType::Return)
@@ -67,8 +70,8 @@ std::unique_ptr<Stmt> Parser::parseIfStatement() {
     if (match({TokenType::Else})) {
         elseBranch = parseStatement();
     }
-    return std::make_unique<IfStmt>(std::move(condition), std::move(thenBranch),
-                                    std::move(elseBranch));
+    return make_node<Stmt, IfStmt>(std::move(condition), std::move(thenBranch),
+                              std::move(elseBranch));
 }
 
 std::unique_ptr<Stmt> Parser::parseWhileStatement() {
@@ -77,20 +80,20 @@ std::unique_ptr<Stmt> Parser::parseWhileStatement() {
     auto condition = parseTernary();
     consume(TokenType::RParen, "Expect ')' after while condition.");
     auto body = parseStatement();
-    return std::make_unique<WhileStmt>(std::move(condition), std::move(body));
+    return make_node<Stmt, WhileStmt>(std::move(condition), std::move(body));
 }
 
 std::unique_ptr<Stmt> Parser::parseGotoStatement() {
     Token keyword = consume(TokenType::Goto, "Expect 'goto'.");
     Token label =
         consume(TokenType::Identifier, "Expect label name after 'goto'.");
-    return std::make_unique<GotoStmt>(keyword, label, nullptr);
+    return make_node<Stmt, GotoStmt>(keyword, label, nullptr);
 }
 
 std::unique_ptr<Stmt> Parser::parseLabelStatement() {
     Token name = consume(TokenType::Identifier, "Expect label name.");
     consume(TokenType::Colon, "Expect ':' after label name.");
-    return std::make_unique<LabelStmt>(name);
+    return make_node<Stmt, LabelStmt>(name);
 }
 
 std::unique_ptr<Stmt> Parser::parseReturnStatement() {
@@ -100,7 +103,7 @@ std::unique_ptr<Stmt> Parser::parseReturnStatement() {
         peek().type != TokenType::RBrace) {
         value = parseTernary();
     }
-    return std::make_unique<ReturnStmt>(keyword, std::move(value));
+    return make_node<Stmt, ReturnStmt>(keyword, std::move(value));
 }
 
 std::unique_ptr<BlockStmt> Parser::parseBlock() {
@@ -110,7 +113,7 @@ std::unique_ptr<BlockStmt> Parser::parseBlock() {
         statements.push_back(parseDeclaration());
     }
     consume(TokenType::RBrace, "Expect '}' to end a block.");
-    return std::make_unique<BlockStmt>(std::move(statements));
+    return std::make_unique<BlockStmt>(BlockStmt(std::move(statements)));
 }
 
 std::unique_ptr<Stmt> Parser::parseExprStatement() {
@@ -121,11 +124,11 @@ std::unique_ptr<Stmt> Parser::parseExprStatement() {
             advance(); // identifier
             advance(); // '='
             auto value = parseTernary();
-            return std::make_unique<AssignStmt>(name, std::move(value));
+            return make_node<Stmt, AssignStmt>(name, std::move(value));
         }
     }
     auto expr = parseTernary();
-    return std::make_unique<ExprStmt>(std::move(expr));
+    return make_node<Stmt, ExprStmt>(std::move(expr));
 }
 
 std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
@@ -141,17 +144,19 @@ std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
     }
     consume(TokenType::RParen, "Expect ')' after parameters.");
     auto body = parseBlock();
-    return std::make_unique<FunctionDef>(name, params, std::move(body),
-                                         nullptr);
+    return std::make_unique<FunctionDef>(
+        FunctionDef(name, params, std::move(body), nullptr));
 }
 
 std::unique_ptr<GlobalDecl> Parser::parseGlobalDecl() {
     Token keyword = consume(TokenType::Global, "Expect '<global...>'.");
     std::string content = keyword.value.substr(1, keyword.value.length() - 2);
     if (content == "global.all") {
-        return std::make_unique<GlobalDecl>(keyword, GlobalMode::ALL);
+        return std::make_unique<GlobalDecl>(
+            GlobalDecl(keyword, GlobalMode::ALL));
     } else if (content == "global.none") {
-        return std::make_unique<GlobalDecl>(keyword, GlobalMode::NONE);
+        return std::make_unique<GlobalDecl>(
+            GlobalDecl(keyword, GlobalMode::NONE));
     } else {
         // <global<var1><var2>...>
         std::vector<Token> globals;
@@ -209,8 +214,8 @@ std::unique_ptr<GlobalDecl> Parser::parseGlobalDecl() {
                   "Global declaration must specify at least one variable.");
         }
 
-        return std::make_unique<GlobalDecl>(keyword, GlobalMode::SPECIFIC,
-                                            globals);
+        return std::make_unique<GlobalDecl>(
+            GlobalDecl(keyword, GlobalMode::SPECIFIC, globals));
     }
 }
 
@@ -220,8 +225,8 @@ std::unique_ptr<Expr> Parser::parseTernary() {
         auto thenBranch = parseTernary();
         consume(TokenType::Colon, "Expect ':' for ternary operator.");
         auto elseBranch = parseTernary();
-        expr = std::make_unique<TernaryExpr>(
-            std::move(expr), std::move(thenBranch), std::move(elseBranch));
+        expr = make_node<Expr, TernaryExpr>(std::move(expr), std::move(thenBranch),
+                                       std::move(elseBranch));
     }
     return expr;
 }
@@ -233,8 +238,7 @@ std::unique_ptr<Expr> Parser::parseBinary(NextLevel next_level,
     while (match({token_types...})) {
         Token op = previous();
         auto right = (this->*next_level)();
-        expr =
-            std::make_unique<BinaryExpr>(std::move(expr), op, std::move(right));
+        expr = make_node<Expr, BinaryExpr>(std::move(expr), op, std::move(right));
     }
     return expr;
 }
@@ -285,7 +289,7 @@ std::unique_ptr<Expr> Parser::parseUnary() {
     if (match({TokenType::Not, TokenType::Minus, TokenType::BitNot})) {
         Token op = previous();
         auto right = parseUnary();
-        return std::make_unique<UnaryExpr>(op, std::move(right));
+        return make_node<Expr, UnaryExpr>(op, std::move(right));
     }
     return parsePostfix();
 }
@@ -306,15 +310,15 @@ std::unique_ptr<Expr> Parser::parsePostfix() {
                     consume(TokenType::Identifier, "Expect boundary suffix");
                 suffix = std::format(":{}", s.value);
             }
-            if (auto* var = dynamic_cast<VariableExpr*>(expr.get())) {
+            if (auto* var = get_if<VariableExpr>(expr.get())) {
                 auto get_constant_token = [](Expr* e) -> Token* {
-                    if (auto* num = dynamic_cast<NumberExpr*>(e)) {
+                    if (auto* num = get_if<NumberExpr>(e)) {
                         return &num->value;
                     }
-                    if (auto* unary = dynamic_cast<UnaryExpr*>(e)) {
+                    if (auto* unary = get_if<UnaryExpr>(e)) {
                         if (unary->op.type == TokenType::Minus) {
-                            if (auto* num = dynamic_cast<NumberExpr*>(
-                                    unary->right.get())) {
+                            if (auto* num =
+                                    get_if<NumberExpr>(unary->right.get())) {
                                 static Token neg_token;
                                 neg_token = num->value;
                                 neg_token.value =
@@ -330,7 +334,7 @@ std::unique_ptr<Expr> Parser::parsePostfix() {
                 Token* y_tok = get_constant_token(index2.get());
 
                 if (x_tok && y_tok) {
-                    return std::make_unique<StaticRelPixelAccessExpr>(
+                    return make_node<Expr, StaticRelPixelAccessExpr>(
                         var->name, *x_tok, *y_tok, suffix);
                 }
             }
@@ -338,7 +342,7 @@ std::unique_ptr<Expr> Parser::parsePostfix() {
         } else if (match({TokenType::Dot})) {
             Token prop = consume(TokenType::Identifier,
                                  "Expect property name after '.'");
-            if (auto* var = dynamic_cast<VariableExpr*>(expr.get())) {
+            if (auto* var = get_if<VariableExpr>(expr.get())) {
                 // Check if this is frame.width[N] or frame.height[N]
                 if (var->name.value == "frame" &&
                     (prop.value == "width" || prop.value == "height")) {
@@ -350,11 +354,11 @@ std::unique_ptr<Expr> Parser::parsePostfix() {
                                 prop.value));
                         consume(TokenType::RBracket,
                                 "Expect ']' after plane index");
-                        return std::make_unique<FrameDimensionExpr>(
-                            prop, plane_index);
+                        return make_node<Expr, FrameDimensionExpr>(prop,
+                                                              plane_index);
                     }
                 }
-                return std::make_unique<PropAccessExpr>(var->name, prop);
+                return make_node<Expr, PropAccessExpr>(var->name, prop);
             }
             error(prop, "Invalid property access target.");
         } else {
@@ -365,7 +369,7 @@ std::unique_ptr<Expr> Parser::parsePostfix() {
 }
 
 std::unique_ptr<Expr> Parser::finishCall(std::unique_ptr<Expr> callee) {
-    if (auto* var = dynamic_cast<VariableExpr*>(callee.get())) {
+    if (auto* var = get_if<VariableExpr>(callee.get())) {
         std::vector<std::unique_ptr<Expr>> args;
         if (peek().type != TokenType::RParen) {
             do {
@@ -378,7 +382,7 @@ std::unique_ptr<Expr> Parser::finishCall(std::unique_ptr<Expr> callee) {
             Token s = consume(TokenType::Identifier, "Expect boundary suffix");
             suffix = std::format(":{}", s.value);
         }
-        return std::make_unique<CallExpr>(var->name, std::move(args), suffix);
+        return make_node<Expr, CallExpr>(var->name, std::move(args), suffix);
     }
     error(peek(), "Invalid call target.");
     std::unreachable();
@@ -386,9 +390,9 @@ std::unique_ptr<Expr> Parser::finishCall(std::unique_ptr<Expr> callee) {
 
 std::unique_ptr<Expr> Parser::parsePrimary() {
     if (match({TokenType::Number}))
-        return std::make_unique<NumberExpr>(previous());
+        return make_node<Expr, NumberExpr>(previous());
     if (match({TokenType::Identifier}))
-        return std::make_unique<VariableExpr>(previous());
+        return make_node<Expr, VariableExpr>(previous());
     if (match({TokenType::LParen})) {
         auto expr = parseTernary();
         consume(TokenType::RParen, "Expect ')' after expression.");

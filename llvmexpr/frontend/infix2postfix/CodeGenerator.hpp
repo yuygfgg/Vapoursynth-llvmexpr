@@ -17,36 +17,39 @@ class CodeGenError : public std::runtime_error {
     int line;
 };
 
-class CodeGenerator : public ExprVisitor, public StmtVisitor {
+class CodeGenerator {
   public:
     CodeGenerator(Mode mode, int num_inputs);
     std::string generate(Program* program);
 
-    // Expr visitors
-    PostfixBuilder visit(NumberExpr& expr) override;
-    PostfixBuilder visit(VariableExpr& expr) override;
-    PostfixBuilder visit(UnaryExpr& expr) override;
-    PostfixBuilder visit(BinaryExpr& expr) override;
-    PostfixBuilder visit(TernaryExpr& expr) override;
-    PostfixBuilder visit(CallExpr& expr) override;
-    PostfixBuilder visit(PropAccessExpr& expr) override;
-    PostfixBuilder visit(StaticRelPixelAccessExpr& expr) override;
-    PostfixBuilder visit(FrameDimensionExpr& expr) override;
-
-    // Stmt visitors
-    PostfixBuilder visit(ExprStmt& stmt) override;
-    PostfixBuilder visit(AssignStmt& stmt) override;
-    PostfixBuilder visit(BlockStmt& stmt) override;
-    PostfixBuilder visit(IfStmt& stmt) override;
-    PostfixBuilder visit(WhileStmt& stmt) override;
-    PostfixBuilder visit(ReturnStmt& stmt) override;
-    PostfixBuilder visit(LabelStmt& stmt) override;
-    PostfixBuilder visit(GotoStmt& stmt) override;
-    PostfixBuilder visit(FunctionDef& stmt) override;
-    PostfixBuilder visit(GlobalDecl& stmt) override;
-
   private:
-    PostfixBuilder generate(Node* node);
+    // Expression handlers
+    PostfixBuilder handle(const NumberExpr& expr);
+    PostfixBuilder handle(const VariableExpr& expr);
+    PostfixBuilder handle(const UnaryExpr& expr);
+    PostfixBuilder handle(const BinaryExpr& expr);
+    PostfixBuilder handle(const TernaryExpr& expr);
+    PostfixBuilder handle(const CallExpr& expr);
+    PostfixBuilder handle(const PropAccessExpr& expr);
+    PostfixBuilder handle(const StaticRelPixelAccessExpr& expr);
+    PostfixBuilder handle(const FrameDimensionExpr& expr);
+
+    // Statement handlers
+    PostfixBuilder handle(const ExprStmt& stmt);
+    PostfixBuilder handle(const AssignStmt& stmt);
+    PostfixBuilder handle(const BlockStmt& stmt);
+    PostfixBuilder handle(const IfStmt& stmt);
+    PostfixBuilder handle(const WhileStmt& stmt);
+    PostfixBuilder handle(const ReturnStmt& stmt);
+    PostfixBuilder handle(const LabelStmt& stmt);
+    PostfixBuilder handle(const GotoStmt& stmt);
+    PostfixBuilder handle(const FunctionDef& stmt);
+    PostfixBuilder handle(const GlobalDecl& stmt);
+
+    // Generic generators using std::visit
+    PostfixBuilder generate(Expr* expr);
+    PostfixBuilder generate(Stmt* stmt);
+
     void check_stack_effect(const std::string& s, int expected, int line);
     int compute_stack_effect(const std::string& s, int line);
     PostfixBuilder
