@@ -73,7 +73,7 @@ using SupportedVectorWidths = std::integer_sequence<int, 4, 8, 16>;
 #elif defined(__ARM_NEON__)
 using SupportedVectorWidths = std::integer_sequence<int, 4>;
 #else
-#error "Unsupported architecture. Only x86_64 and ARM NEON are supported."
+using SupportedVectorWidths = std::integer_sequence<int>;
 #endif
 // TODO: Figure out if other architectures have >4 wide vector support.
 
@@ -735,6 +735,7 @@ class MathLibraryManager {
                     llvm::Function* vecFunc = dispatch<op, vlen>();
 
                     if (vecFunc) {
+#if defined(__x86_64__) || defined(__ARM_NEON__)
                         std::string isa;
 #ifdef __x86_64__
                         if constexpr (vlen == 4) {
@@ -750,10 +751,7 @@ class MathLibraryManager {
                         } else {
                             isa = "s"; // SVE
                         }
-#else
-#error "Unsupported architecture. Only x86_64 and ARM NEON are supported."
 #endif
-
                         constexpr auto opInfo = getMathOpInfo(op);
                         std::string parameters(opInfo.arity, 'v');
                         std::string mask = "N";
@@ -765,6 +763,7 @@ class MathLibraryManager {
                         scalarFunc->addFnAttr(llvm::Attribute::get(
                             context, "vector-function-abi-variant",
                             abi_string));
+#endif
                     }
                 }(),
                 ...);
