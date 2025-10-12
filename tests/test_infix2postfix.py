@@ -542,6 +542,20 @@ RESULT = pi_val
         assert "N" in output
         assert "width" in output
         assert "height" in output
+    
+    def test_duplicate_function(self):
+        """Test duplicate function."""
+        infix = """
+function dup(a) {
+    return a + 1
+}
+function dup(b) {
+    return b / 2
+}
+RESULT = dup($x) - dup(4)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail"
 
 
 if __name__ == "__main__":

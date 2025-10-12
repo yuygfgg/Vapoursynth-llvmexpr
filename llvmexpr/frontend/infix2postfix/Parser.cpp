@@ -71,7 +71,7 @@ std::unique_ptr<Stmt> Parser::parseIfStatement() {
         elseBranch = parseStatement();
     }
     return make_node<Stmt, IfStmt>(std::move(condition), std::move(thenBranch),
-                              std::move(elseBranch));
+                                   std::move(elseBranch));
 }
 
 std::unique_ptr<Stmt> Parser::parseWhileStatement() {
@@ -134,6 +134,13 @@ std::unique_ptr<Stmt> Parser::parseExprStatement() {
 std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
     consume(TokenType::Function, "Expect 'function'.");
     Token name = consume(TokenType::Identifier, "Expect function name.");
+
+    if (defined_functions.count(name.value)) {
+        error(name,
+              std::format("Function '{}' is already defined.", name.value));
+    }
+    defined_functions.insert(name.value);
+
     consume(TokenType::LParen, "Expect '(' after function name.");
     std::vector<Token> params;
     if (peek().type != TokenType::RParen) {
@@ -225,8 +232,8 @@ std::unique_ptr<Expr> Parser::parseTernary() {
         auto thenBranch = parseTernary();
         consume(TokenType::Colon, "Expect ':' for ternary operator.");
         auto elseBranch = parseTernary();
-        expr = make_node<Expr, TernaryExpr>(std::move(expr), std::move(thenBranch),
-                                       std::move(elseBranch));
+        expr = make_node<Expr, TernaryExpr>(
+            std::move(expr), std::move(thenBranch), std::move(elseBranch));
     }
     return expr;
 }
@@ -238,7 +245,8 @@ std::unique_ptr<Expr> Parser::parseBinary(NextLevel next_level,
     while (match({token_types...})) {
         Token op = previous();
         auto right = (this->*next_level)();
-        expr = make_node<Expr, BinaryExpr>(std::move(expr), op, std::move(right));
+        expr =
+            make_node<Expr, BinaryExpr>(std::move(expr), op, std::move(right));
     }
     return expr;
 }
@@ -355,7 +363,7 @@ std::unique_ptr<Expr> Parser::parsePostfix() {
                         consume(TokenType::RBracket,
                                 "Expect ']' after plane index");
                         return make_node<Expr, FrameDimensionExpr>(prop,
-                                                              plane_index);
+                                                                   plane_index);
                     }
                 }
                 return make_node<Expr, PropAccessExpr>(var->name, prop);

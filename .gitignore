@@ -9,3 +9,4 @@ build/*
 */__pycache__/*
 tmp.py
 exprutils.egg-info/*
+*.expr

@@ -2,6 +2,7 @@
 #define LLVMEXPR_INFIX2POSTFIX_PARSER_HPP
 
 #include "AST.hpp"
+#include <set>
 #include <stdexcept>
 #include <vector>
 
@@ -65,6 +66,7 @@ class Parser {
 
     std::vector<Token> tokens;
     int current = 0;
+    std::set<std::string> defined_functions;
 };
 
 } // namespace infix2postfix
