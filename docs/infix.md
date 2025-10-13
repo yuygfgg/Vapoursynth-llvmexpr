@@ -331,7 +331,7 @@ function functionName(Type1 param1, Type2 param2) {
 - **Parameter Types:**
   - `Value`: A standard floating-point value, the most general type.
   - `Clip`: A source clip constant (e.g., `$a`, `$src1`).
-  - `Const`: A compile-time constant value (a literal).
+  - `Literal`: A literal constant value (numeric literal).
 
 - **Return Statement:** A function can have **at most one** `return` statement, which must be the last non-empty statement in its body. If a function has no `return` statement, it produces no value.
 - **Parameters:** Function parameters are read-only and cannot be reassigned within the function body.

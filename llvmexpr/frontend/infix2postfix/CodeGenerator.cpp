@@ -117,7 +117,7 @@ PostfixBuilder CodeGenerator::generate(Stmt* stmt) {
 CodeGenerator::ExprResult CodeGenerator::handle(const NumberExpr& expr) {
     PostfixBuilder b;
     b.add_number(expr.value.value);
-    return {b, Type::COMPILE_TIME_CONSTANT};
+    return {b, Type::LITERAL};
 }
 
 CodeGenerator::ExprResult CodeGenerator::handle(const VariableExpr& expr) {
@@ -169,7 +169,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const UnaryExpr& expr) {
             }
             PostfixBuilder b;
             b.add_number(val);
-            return {b, Type::COMPILE_TIME_CONSTANT};
+            return {b, Type::LITERAL};
         }
     }
 
@@ -376,7 +376,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
             for (size_t j = 0; j < expr.args.size(); ++j) {
                 Type param_type = builtin.param_types[j];
 
-                if (param_type == Type::COMPILE_TIME_STRING) {
+                if (param_type == Type::LITERAL_STRING) {
                     auto* var_expr = get_if<VariableExpr>(expr.args[j].get());
                     if (!var_expr || var_expr->name.value.starts_with("$")) {
                         possible = false;
@@ -418,7 +418,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
                     }
                     arg_types_str += to_string(arg_results[i]->type);
                 } else {
-                    arg_types_str += "ConstString";
+                    arg_types_str += "LiteralString";
                 }
 
                 if (i < expr.args.size() - 1)
@@ -473,7 +473,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
         PostfixBuilder b;
         for (size_t i = 0; i < expr.args.size(); ++i) {
             if (best_candidate->builtin->param_types[i] !=
-                Type::COMPILE_TIME_STRING) {
+                Type::LITERAL_STRING) {
                 if (!arg_results[i].has_value()) {
                     arg_results[i] = generate(expr.args[i].get());
                 }
@@ -1043,7 +1043,7 @@ bool CodeGenerator::builtin_param_type_is_evaluatable(
     const std::vector<BuiltinFunction>& overloads, size_t param_idx) {
     for (const auto& o : overloads) {
         if (o.param_types.size() > param_idx &&
-            o.param_types[param_idx] == Type::COMPILE_TIME_STRING) {
+            o.param_types[param_idx] == Type::LITERAL_STRING) {
             return false;
         }
     }

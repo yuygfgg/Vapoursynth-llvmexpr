@@ -11,8 +11,8 @@ namespace infix2postfix {
 enum class Type {
     VALUE,
     CLIP,
-    COMPILE_TIME_CONSTANT,
-    COMPILE_TIME_STRING,
+    LITERAL,
+    LITERAL_STRING,
 };
 
 inline std::string to_string(Type t) {
@@ -21,10 +21,10 @@ inline std::string to_string(Type t) {
         return "Value";
     case Type::CLIP:
         return "Clip";
-    case Type::COMPILE_TIME_CONSTANT:
-        return "Const";
-    case Type::COMPILE_TIME_STRING:
-        return "ConstString";
+    case Type::LITERAL:
+        return "Literal";
+    case Type::LITERAL_STRING:
+        return "LiteralString";
     }
     return "unknown";
 }

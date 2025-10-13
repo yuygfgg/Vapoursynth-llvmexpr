@@ -156,7 +156,7 @@ std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
             // Lookahead to check for explicit type
             if (peek().type == TokenType::Identifier &&
                 (peek().value == "Value" || peek().value == "Clip" ||
-                 peek().value == "Const") &&
+                 peek().value == "Literal") &&
                 peek(1).type == TokenType::Identifier) {
                 type_token = advance(); // Consume type
                 if (type_token.value == "Value")
@@ -164,7 +164,7 @@ std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
                 else if (type_token.value == "Clip")
                     param_type = Type::CLIP;
                 else
-                    param_type = Type::COMPILE_TIME_CONSTANT;
+                    param_type = Type::LITERAL;
 
                 name_token =
                     consume(TokenType::Identifier, "Expect parameter name.");
