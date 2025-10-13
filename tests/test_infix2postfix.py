@@ -552,6 +552,14 @@ RESULT = dup($x) - dup(4)
         success, output = run_infix2postfix(infix, "expr")
         assert not success, "Should fail"
 
+    def test_undefined_function(self):
+        """Test undefined function."""
+        infix = """
+RESULT = atan2($x)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

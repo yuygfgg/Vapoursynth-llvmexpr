@@ -118,12 +118,18 @@ inline std::string token_type_to_string(TokenType type) {
     }
     // Handle special cases not in the table
     switch (type) {
-    case TokenType::Identifier: return "identifier";
-    case TokenType::Number: return "number";
-    case TokenType::Global: return "global declaration";
-    case TokenType::EndOfFile: return "end of file";
-    case TokenType::Invalid: return "invalid token";
-    default: return "unknown token";
+    case TokenType::Identifier:
+        return "identifier";
+    case TokenType::Number:
+        return "number";
+    case TokenType::Global:
+        return "global declaration";
+    case TokenType::EndOfFile:
+        return "end of file";
+    case TokenType::Invalid:
+        return "invalid token";
+    default:
+        return "unknown token";
     }
 }
 

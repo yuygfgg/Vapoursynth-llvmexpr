@@ -9,7 +9,6 @@ namespace infix2postfix {
 
 namespace {
 
-// Special handler for dyn() in Expr mode with 3 arguments
 PostfixBuilder handle_dyn_expr_3args(CodeGenerator* codegen,
                                      const CallExpr& expr) {
     // Signature: dyn($clip, x_expr, y_expr)
@@ -29,7 +28,6 @@ PostfixBuilder handle_dyn_expr_3args(CodeGenerator* codegen,
     return b;
 }
 
-// Special handler for dyn() in Expr mode with 4 arguments
 PostfixBuilder handle_dyn_expr_4args(CodeGenerator* codegen,
                                      const CallExpr& expr) {
     // Signature: dyn($clip, x_expr, y_expr, boundary_mode)
@@ -66,7 +64,6 @@ PostfixBuilder handle_dyn_expr_4args(CodeGenerator* codegen,
     return b;
 }
 
-// Special handler for dyn() in SingleExpr mode
 PostfixBuilder handle_dyn_single(CodeGenerator* codegen, const CallExpr& expr) {
     // Signature: dyn($clip, x, y, plane)
     auto clip_res = codegen->generate_expr(expr.args[0].get());
@@ -86,7 +83,6 @@ PostfixBuilder handle_dyn_single(CodeGenerator* codegen, const CallExpr& expr) {
     return b;
 }
 
-// Special handler for store() in Expr mode
 PostfixBuilder handle_store_expr(CodeGenerator* codegen, const CallExpr& expr) {
     // store(x, y, val)
     PostfixBuilder b;
@@ -97,7 +93,6 @@ PostfixBuilder handle_store_expr(CodeGenerator* codegen, const CallExpr& expr) {
     return b;
 }
 
-// Special handler for store() in SingleExpr mode
 PostfixBuilder handle_store_single(CodeGenerator* codegen,
                                    const CallExpr& expr) {
     // store(x, y, plane, value)
@@ -112,7 +107,6 @@ PostfixBuilder handle_store_single(CodeGenerator* codegen,
     return b;
 }
 
-// Special handler for set_prop()
 PostfixBuilder handle_set_prop(CodeGenerator* codegen, const CallExpr& expr) {
     // set_prop(prop_name, value)
     auto* prop_name_expr = get_if<VariableExpr>(expr.args[0].get());
@@ -133,7 +127,6 @@ PostfixBuilder handle_set_prop(CodeGenerator* codegen, const CallExpr& expr) {
     return b;
 }
 
-// Special handler for exit()
 PostfixBuilder handle_exit([[maybe_unused]] CodeGenerator* codegen,
                            [[maybe_unused]] const CallExpr& expr) {
     PostfixBuilder b;
