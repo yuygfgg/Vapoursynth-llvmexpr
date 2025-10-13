@@ -95,14 +95,10 @@ struct StaticRelPixelAccessExpr {
 
 struct FrameDimensionExpr {
     std::string dimension_name; // "width" or "height"
-    Token plane_index;
+    std::unique_ptr<Expr> plane_index_expr;
     int line = 0;
 
-    FrameDimensionExpr(Token keyword, Token plane)
-        : dimension_name(std::move(keyword.value)),
-          plane_index(std::move(plane)) {
-        line = keyword.line;
-    }
+    FrameDimensionExpr(Token keyword, std::unique_ptr<Expr> plane);
 };
 
 // Statement node types
@@ -237,6 +233,13 @@ struct Stmt {
         return std::visit([](const auto& s) { return s.line; }, value);
     }
 };
+
+inline FrameDimensionExpr::FrameDimensionExpr(Token keyword,
+                                              std::unique_ptr<Expr> plane)
+    : dimension_name(std::move(keyword.value)),
+      plane_index_expr(std::move(plane)) {
+    line = keyword.line;
+}
 
 inline UnaryExpr::UnaryExpr(Token o, std::unique_ptr<Expr> r)
     : op(std::move(o)), right(std::move(r)) {

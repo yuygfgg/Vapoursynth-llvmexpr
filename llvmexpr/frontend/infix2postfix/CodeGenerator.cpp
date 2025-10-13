@@ -608,16 +608,25 @@ CodeGenerator::handle(const FrameDimensionExpr& expr) {
                            "Use width and height directly in Expr mode.",
                            expr.line);
     }
+
+    auto plane_res = generate(expr.plane_index_expr.get());
+    if (plane_res.type != Type::LITERAL) {
+        throw CodeGenError("Plane index must be a literal constant.",
+                           expr.plane_index_expr->line());
+    }
+
+    std::string plane_idx_str = plane_res.postfix.get_expression();
     try {
-        std::stoi(expr.plane_index.value);
+        std::stoi(plane_idx_str);
     } catch (...) {
         throw CodeGenError(
             std::format("Plane index must be an integer constant, got: {}",
-                        expr.plane_index.value),
-            expr.line);
+                        plane_idx_str),
+            expr.plane_index_expr->line());
     }
+
     PostfixBuilder b;
-    b.add_frame_dimension(expr.dimension_name, expr.plane_index.value);
+    b.add_frame_dimension(expr.dimension_name, plane_idx_str);
     return {b, Type::VALUE};
 }
 
@@ -828,27 +837,21 @@ PostfixBuilder CodeGenerator::inline_function_call(
     std::set<std::string> new_literals;
 
     for (size_t i = 0; i < sig.params.size(); ++i) {
-        const std::string& param_name = sig.params[i].name;
+        const auto& param_info = sig.params[i];
+        const std::string& param_name = param_info.name;
+        const Type param_type = param_info.type;
         std::string renamed_param =
             std::format("__internal_func_{}_{}", func_name, param_name);
 
         if (!effective_globals.count(param_name)) {
             auto* arg_expr = args[i].get();
-            bool is_const_arg = false;
-            if (auto* var_expr = get_if<VariableExpr>(arg_expr)) {
-                if (var_expr->name.value.starts_with("$")) {
-                    is_const_arg = true;
-                }
-            } else if (get_if<NumberExpr>(arg_expr)) {
-                is_const_arg = true;
-            }
 
-            if (is_const_arg) {
+            if (param_type == Type::LITERAL || param_type == Type::CLIP) {
                 param_substitutions[param_name] = arg_expr;
                 param_map[param_name] = param_name;
                 new_local_vars.insert(param_name);
                 all_defined_vars_in_scope.insert(param_name);
-            } else {
+            } else { // Type::VALUE
                 // Restore scope temporarily to generate argument value
                 auto temp_all_defined = all_defined_vars_in_scope;
                 auto temp_scope_stack = scope_stack;

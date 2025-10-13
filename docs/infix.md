@@ -226,7 +226,7 @@ w0 = frame.width[0];   # Width of plane 0 (luma)
 h1 = frame.height[1];  # Height of plane 1 (chroma U)
 ```
 **Postfix output:** `width^0`, `height^1`
-**Note:** The plane index `N` must be an integer constant.
+**Note:** The plane index `N` must be an literal constant.
 
 #### Absolute Pixel Reading
 
@@ -287,7 +287,7 @@ The `dyn()` function has different signatures for `Expr` and `SingleExpr` modes.
   - **Signature:** `dyn($clip, x, y, plane)`
     - `$clip`: Clip constant (e.g., `$x`, `$y`, `$z`, or `$srcN`).
     - `x`, `y`: Absolute coordinates (can be expressions).
-    - `plane`: Plane index (must be an integer constant).
+    - `plane`: Plane index (must be an literal constant).
   - **Example:** `val = dyn($x, 100, 200, 0);`
   - **Postfix output:** `100 200 x^0 []`
 
@@ -303,7 +303,7 @@ The `store()` function has different signatures for `Expr` and `SingleExpr` mode
   - Writes a value to an absolute coordinate on a specific output plane.
   - **Signature:** `store(x, y, plane, value)`
     - `x`, `y`: Absolute coordinates (can be expressions).
-    - `plane`: Plane index (must be an integer constant).
+    - `plane`: Plane index (must be an literal constant).
     - `value`: Value to write (can be an expression).
   - **Example:** `store(0, 0, 0, 255);`
   - **Postfix output:** `255 0 0 @[]^0`

@@ -387,15 +387,11 @@ std::unique_ptr<Expr> Parser::parsePostfix() {
                 if (var->name.value == "frame" &&
                     (prop.value == "width" || prop.value == "height")) {
                     if (match({TokenType::LBracket})) {
-                        Token plane_index = consume(
-                            TokenType::Number,
-                            std::format(
-                                "Expect plane index (integer) in frame.{}[N]",
-                                prop.value));
+                        auto plane_index_expr = parseTernary();
                         consume(TokenType::RBracket,
                                 "Expect ']' after plane index");
-                        return make_node<Expr, FrameDimensionExpr>(prop,
-                                                                   plane_index);
+                        return make_node<Expr, FrameDimensionExpr>(
+                            prop, std::move(plane_index_expr));
                     }
                 }
                 return make_node<Expr, PropAccessExpr>(var->name, prop);
