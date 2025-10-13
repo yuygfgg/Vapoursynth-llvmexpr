@@ -3,36 +3,50 @@
 
 #include "AST.hpp"
 #include "PostfixBuilder.hpp"
+#include "types.hpp"
 #include <map>
 #include <set>
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 namespace infix2postfix {
 
 class CodeGenError : public std::runtime_error {
   public:
-    CodeGenError(const std::string& message, int line)
-        : std::runtime_error("Line " + std::to_string(line) + ": " + message),
-          line(line) {}
     int line;
+    CodeGenError(const std::string& message, int l)
+        : std::runtime_error(message), line(l) {}
 };
 
 class CodeGenerator {
   public:
+    struct ExprResult {
+        PostfixBuilder postfix;
+        Type type;
+    };
+
     CodeGenerator(Mode mode, int num_inputs);
     std::string generate(Program* program);
 
+    Mode get_mode() const { return mode; }
+    ExprResult generate_expr(Expr* expr) { return generate(expr); }
+    static bool is_constant_infix(const std::string& name);
+
   private:
+    ExprResult generate(Expr* expr);
+    PostfixBuilder generate(Stmt* stmt);
+
     // Expression handlers
-    PostfixBuilder handle(const NumberExpr& expr);
-    PostfixBuilder handle(const VariableExpr& expr);
-    PostfixBuilder handle(const UnaryExpr& expr);
-    PostfixBuilder handle(const BinaryExpr& expr);
-    PostfixBuilder handle(const TernaryExpr& expr);
-    PostfixBuilder handle(const CallExpr& expr);
-    PostfixBuilder handle(const PropAccessExpr& expr);
-    PostfixBuilder handle(const StaticRelPixelAccessExpr& expr);
-    PostfixBuilder handle(const FrameDimensionExpr& expr);
+    ExprResult handle(const NumberExpr& expr);
+    ExprResult handle(const VariableExpr& expr);
+    ExprResult handle(const UnaryExpr& expr);
+    ExprResult handle(const BinaryExpr& expr);
+    ExprResult handle(const TernaryExpr& expr);
+    ExprResult handle(const CallExpr& expr);
+    ExprResult handle(const PropAccessExpr& expr);
+    ExprResult handle(const StaticRelPixelAccessExpr& expr);
+    ExprResult handle(const FrameDimensionExpr& expr);
 
     // Statement handlers
     PostfixBuilder handle(const ExprStmt& stmt);
@@ -46,40 +60,43 @@ class CodeGenerator {
     PostfixBuilder handle(const FunctionDef& stmt);
     PostfixBuilder handle(const GlobalDecl& stmt);
 
-    // Generic generators using std::visit
-    PostfixBuilder generate(Expr* expr);
-    PostfixBuilder generate(Stmt* stmt);
-
     void check_stack_effect(const std::string& s, int expected, int line);
     int compute_stack_effect(const std::string& s, int line);
+
     PostfixBuilder
     inline_function_call(const std::string& func_name,
                          const std::vector<std::unique_ptr<Expr>>& args,
                          int call_line);
-    std::string rename_variable(const std::string& var_name);
-    bool is_constant_infix(const std::string& name);
 
+    // Variable scoping
     void check_variable_defined(const std::string& var_name, int line);
     void enter_scope();
     void exit_scope();
     void define_variable_in_current_scope(const std::string& var_name);
+    std::string rename_variable(const std::string& var_name);
+
+    bool is_clip_name(const std::string& s);
+    bool is_convertible(Type from, Type to);
 
     Mode mode;
     int num_inputs;
+    bool has_result = false;
     int label_counter = 0;
+
     std::map<std::string, FunctionSignature> functions;
     std::map<std::string, FunctionDef*> function_defs;
-    const FunctionSignature* current_function = nullptr;
+
+    // Scope management
     std::set<std::string> defined_globals;
     std::set<std::string> local_scope_vars;
-    std::map<std::string, std::string> var_rename_map;
-    std::map<std::string, Expr*> param_substitutions;
-    std::set<std::string> literals_in_scope;
-    bool has_result = false;
-
-    // Scope tracking
     std::vector<std::set<std::string>> scope_stack;
     std::set<std::string> all_defined_vars_in_scope;
+
+    // Function inlining context
+    std::map<std::string, std::string> var_rename_map;
+    std::set<std::string> literals_in_scope;
+    std::map<std::string, Expr*> param_substitutions;
+    const FunctionSignature* current_function = nullptr;
 };
 
 } // namespace infix2postfix

@@ -272,30 +272,30 @@ Notes:
 
 The `dyn()` function has different signatures for `Expr` and `SingleExpr` modes.
 
-- **`Expr` mode:** `dyn($clip, x_expr, y_expr)` or `dyn($clip, x_expr, y_expr):b|:m|:c`
+- **`Expr` mode:** `dyn($clip, x_expr, y_expr, [boundary_mode])`
   - Accesses a pixel at a dynamically calculated coordinate.
   - `$clip` must be a source clip constant.
   - `x_expr` and `y_expr` can be any valid expressions. If the coordinates are not integers, they will be rounded half to even.
-  - `dyn($src0, $X + 2, $Y + 3):b` is equivalent to `$src0[2, 3]`.
-  - **Boundary Suffixes:**
-    - `:b`: Use the filter's global boundary parameter.
-    - `:c`: Forces clamped boundary (default when omitted).
-    - `:m`: Forces mirrored boundary.
+  - `boundary_mode` is an optional integer constant that specifies the boundary handling:
+    - `0`: Use the filter's global boundary parameter.
+    - `1`: Mirrored boundary.
+    - `2`: Clamped boundary (this is the default if the argument is omitted).
+  - `dyn($src0, $X + 2, $Y + 3, 0)` is roughly equivalent to `$src0[2, 3]`.
 
-- **`SingleExpr` mode:** `dyn(clip, x, y, plane)`
+- **`SingleExpr` mode:** `dyn($clip, x, y, plane)`
   - Reads a pixel from an absolute coordinate on a specific plane.
-  - **Signature:** `dyn(clip, x, y, plane)`
-    - `clip`: Clip identifier (x, y, z, or srcN).
+  - **Signature:** `dyn($clip, x, y, plane)`
+    - `$clip`: Clip constant (e.g., `$x`, `$y`, `$z`, or `$srcN`).
     - `x`, `y`: Absolute coordinates (can be expressions).
     - `plane`: Plane index (must be an integer constant).
-  - **Example:** `val = dyn(x, 100, 200, 0);`
+  - **Example:** `val = dyn($x, 100, 200, 0);`
   - **Postfix output:** `100 200 x^0 []`
 
 #### `store()` - Pixel Writing
 
 The `store()` function has different signatures for `Expr` and `SingleExpr` modes.
 
-- **`Expr` mode:** `store(val, x, y)`
+- **`Expr` mode:** `store(x, y, val)`
   - Writes `val` to the output pixel at `[trunc(x), trunc(y)]`.
   - This allows an expression for one pixel to write to another location.
 

@@ -9,6 +9,24 @@
 
 namespace infix2postfix {
 
+enum class Type {
+    VALUE,
+    CLIP,
+    COMPILE_TIME_CONSTANT,
+};
+
+inline std::string to_string(Type t) {
+    switch (t) {
+    case Type::VALUE:
+        return "value";
+    case Type::CLIP:
+        return "clip";
+    case Type::COMPILE_TIME_CONSTANT:
+        return "compile time constant";
+    }
+    return "unknown";
+}
+
 // Forward declarations
 struct Expr;
 struct Stmt;

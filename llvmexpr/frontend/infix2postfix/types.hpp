@@ -3,6 +3,7 @@
 
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace infix2postfix {
@@ -59,6 +60,72 @@ enum class TokenType {
     EndOfFile,
     Invalid,
 };
+
+struct TokenMapping {
+    TokenType type;
+    std::string_view str;
+};
+
+constexpr TokenMapping token_mappings[] = {
+    // Keywords
+    {TokenType::If, "if"},
+    {TokenType::Else, "else"},
+    {TokenType::While, "while"},
+    {TokenType::Goto, "goto"},
+    {TokenType::Function, "function"},
+    {TokenType::Return, "return"},
+
+    // Operators
+    {TokenType::Plus, "+"},
+    {TokenType::Minus, "-"},
+    {TokenType::Star, "*"},
+    {TokenType::Slash, "/"},
+    {TokenType::Percent, "%"},
+    {TokenType::StarStar, "**"},
+    {TokenType::LogicalAnd, "&&"},
+    {TokenType::LogicalOr, "||"},
+    {TokenType::BitAnd, "&"},
+    {TokenType::BitOr, "|"},
+    {TokenType::BitXor, "^"},
+    {TokenType::BitNot, "~"},
+    {TokenType::Eq, "=="},
+    {TokenType::Ne, "!="},
+    {TokenType::Lt, "<"},
+    {TokenType::Le, "<="},
+    {TokenType::Gt, ">"},
+    {TokenType::Ge, ">="},
+    {TokenType::Assign, "="},
+    {TokenType::Question, "?"},
+    {TokenType::Colon, ":"},
+    {TokenType::Not, "!"},
+
+    // Punctuation
+    {TokenType::LParen, "("},
+    {TokenType::RParen, ")"},
+    {TokenType::LBrace, "{"},
+    {TokenType::RBrace, "}"},
+    {TokenType::LBracket, "["},
+    {TokenType::RBracket, "]"},
+    {TokenType::Comma, ","},
+    {TokenType::Dot, "."},
+};
+
+inline std::string token_type_to_string(TokenType type) {
+    for (const auto& mapping : token_mappings) {
+        if (mapping.type == type) {
+            return std::string(mapping.str);
+        }
+    }
+    // Handle special cases not in the table
+    switch (type) {
+    case TokenType::Identifier: return "identifier";
+    case TokenType::Number: return "number";
+    case TokenType::Global: return "global declaration";
+    case TokenType::EndOfFile: return "end of file";
+    case TokenType::Invalid: return "invalid token";
+    default: return "unknown token";
+    }
+}
 
 struct Token {
     TokenType type;

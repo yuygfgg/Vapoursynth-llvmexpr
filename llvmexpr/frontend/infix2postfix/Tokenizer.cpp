@@ -1,16 +1,46 @@
 #include "Tokenizer.hpp"
+#include <algorithm>
 #include <cctype>
 
 namespace infix2postfix {
 
-const std::map<std::string, TokenType> Tokenizer::keywords = {
-    {"if", TokenType::If},
-    {"else", TokenType::Else},
-    {"while", TokenType::While},
-    {"goto", TokenType::Goto},
-    {"function", TokenType::Function},
-    {"return", TokenType::Return},
-};
+namespace {
+
+std::map<std::string, TokenType> build_keywords_map() {
+    std::map<std::string, TokenType> map;
+    for (const auto& mapping : token_mappings) {
+        if (mapping.str.length() > 1 && std::isalpha(mapping.str[0])) {
+            map[std::string(mapping.str)] = mapping.type;
+        }
+    }
+    return map;
+}
+
+using OpMap = std::map<char, std::vector<TokenMapping>>;
+
+OpMap build_operator_map() {
+    OpMap map;
+    for (const auto& mapping : token_mappings) {
+        if (!mapping.str.empty() && !std::isalpha(mapping.str[0])) {
+            map[mapping.str[0]].push_back(mapping);
+        }
+    }
+
+    // Sort by length descending for greedy matching
+    for (auto& pair : map) {
+        std::sort(pair.second.begin(), pair.second.end(),
+                  [](const TokenMapping& a, const TokenMapping& b) {
+                      return a.str.length() > b.str.length();
+                  });
+    }
+    return map;
+}
+
+} // namespace
+
+const std::map<std::string, TokenType> Tokenizer::keywords =
+    build_keywords_map();
+static const OpMap operator_map = build_operator_map();
 
 Tokenizer::Tokenizer(const std::string& source) : source(source) {}
 
@@ -29,79 +59,39 @@ Token Tokenizer::nextToken() {
     if (peek() == '\0')
         return makeToken(TokenType::EndOfFile);
 
-    char c = advance();
+    char c = peek();
 
     if (std::isalpha(c) || c == '_')
         return identifier();
     if (std::isdigit(c))
         return number();
     if (c == '$') {
-        if (std::isalpha(peek()) || peek() == '_') {
-            advance();
-            return identifier();
+        if (std::isalpha(peek(1)) || peek(1) == '_') {
+            advance(); // '$'
+            while (std::isalnum(peek()) || peek() == '_') {
+                advance();
+            }
+            return makeToken(TokenType::Identifier);
         }
     }
 
-    switch (c) {
-    case '(':
-        return makeToken(TokenType::LParen);
-    case ')':
-        return makeToken(TokenType::RParen);
-    case '{':
-        return makeToken(TokenType::LBrace);
-    case '}':
-        return makeToken(TokenType::RBrace);
-    case '[':
-        return makeToken(TokenType::LBracket);
-    case ']':
-        return makeToken(TokenType::RBracket);
-    case ',':
-        return makeToken(TokenType::Comma);
-    case '.':
-        return makeToken(TokenType::Dot);
-    case '-':
-        return makeToken(TokenType::Minus);
-    case '+':
-        return makeToken(TokenType::Plus);
-    case '/':
-        return makeToken(TokenType::Slash);
-    case '%':
-        return makeToken(TokenType::Percent);
-    case '?':
-        return makeToken(TokenType::Question);
-    case ':':
-        return makeToken(TokenType::Colon);
-    case '~':
-        return makeToken(TokenType::BitNot);
-
-    case '*':
-        return makeToken(peek() == '*' ? (advance(), TokenType::StarStar)
-                                       : TokenType::Star);
-    case '!':
-        return makeToken(peek() == '=' ? (advance(), TokenType::Ne)
-                                       : TokenType::Not);
-    case '=':
-        return makeToken(peek() == '=' ? (advance(), TokenType::Eq)
-                                       : TokenType::Assign);
-    case '<':
-        if (peek() == '=')
-            return (advance(), makeToken(TokenType::Le));
-        if (peek() == 'g')
-            return globalDeclaration(); // <global...>
-        return makeToken(TokenType::Lt);
-    case '>':
-        return makeToken(peek() == '=' ? (advance(), TokenType::Ge)
-                                       : TokenType::Gt);
-    case '&':
-        return makeToken(peek() == '&' ? (advance(), TokenType::LogicalAnd)
-                                       : TokenType::BitAnd);
-    case '|':
-        return makeToken(peek() == '|' ? (advance(), TokenType::LogicalOr)
-                                       : TokenType::BitOr);
-    case '^':
-        return makeToken(TokenType::BitXor);
+    if (c == '<') {
+        if (source.substr(current, 7) == "<global") {
+            return globalDeclaration();
+        }
     }
 
+    if (operator_map.count(c)) {
+        const auto& possible_tokens = operator_map.at(c);
+        for (const auto& mapping : possible_tokens) {
+            if (source.substr(current, mapping.str.length()) == mapping.str) {
+                current += mapping.str.length();
+                return makeToken(mapping.type);
+            }
+        }
+    }
+
+    advance();
     return makeToken(TokenType::Invalid, std::string(1, c));
 }
 
@@ -158,9 +148,10 @@ Token Tokenizer::identifier() {
 
 Token Tokenizer::number() {
     bool is_hex = false;
-    if (peek(-1) == '0' && (peek() == 'x' || peek() == 'X')) {
+    if (peek() == '0' && (peek(1) == 'x' || peek(1) == 'X')) {
         is_hex = true;
-        advance(); // 'x'
+        advance(); // 0
+        advance(); // x
     }
 
     while (std::isdigit(peek()) || (is_hex && std::isxdigit(peek())))
@@ -173,15 +164,15 @@ Token Tokenizer::number() {
     }
 
     if (is_hex && (peek() == 'p' || peek() == 'P')) {
-        if (peek(1) == '+' || peek(1) == '-')
+        advance(); // 'p'
+        if (peek() == '+' || peek() == '-')
             advance(); // sign
-        advance();     // 'p'
         while (std::isdigit(peek()))
             advance();
     } else if (!is_hex && (peek() == 'e' || peek() == 'E')) {
-        if (peek(1) == '+' || peek(1) == '-')
+        advance(); // 'e'
+        if (peek() == '+' || peek() == '-')
             advance(); // sign
-        advance();     // 'e'
         while (std::isdigit(peek()))
             advance();
     }
@@ -190,19 +181,23 @@ Token Tokenizer::number() {
 }
 
 Token Tokenizer::globalDeclaration() {
+    advance(); // Consume initial '<'
     int depth = 1; // We've already seen the opening '<'
-    while (peek() != '\0' && depth > 0) {
-        char c = advance();
+    while (depth > 0 && peek() != '\0') {
+        char c = peek();
         if (c == '<') {
             depth++;
         } else if (c == '>') {
             depth--;
         }
+        advance();
     }
+
     if (depth == 0) {
         return makeToken(TokenType::Global);
     }
-    return makeToken(TokenType::Invalid, "<");
+    // Unterminated global declaration
+    return makeToken(TokenType::Invalid, source.substr(start, current - start));
 }
 
 } // namespace infix2postfix

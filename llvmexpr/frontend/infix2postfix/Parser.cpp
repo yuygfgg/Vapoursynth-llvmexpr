@@ -385,12 +385,7 @@ std::unique_ptr<Expr> Parser::finishCall(std::unique_ptr<Expr> callee) {
             } while (match({TokenType::Comma}));
         }
         consume(TokenType::RParen, "Expect ')' after arguments.");
-        std::string suffix;
-        if (match({TokenType::Colon})) {
-            Token s = consume(TokenType::Identifier, "Expect boundary suffix");
-            suffix = std::format(":{}", s.value);
-        }
-        return make_node<Expr, CallExpr>(var->name, std::move(args), suffix);
+        return make_node<Expr, CallExpr>(var->name, std::move(args), "");
     }
     error(peek(), "Invalid call target.");
     std::unreachable();
