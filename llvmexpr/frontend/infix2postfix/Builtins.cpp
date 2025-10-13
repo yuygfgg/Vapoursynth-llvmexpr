@@ -175,7 +175,7 @@ const std::map<std::string, std::vector<BuiltinFunction>> builtin_functions = {
      {BuiltinFunction{"set_prop",
                       2,
                       Mode::Single,
-                      {Type::COMPILE_TIME_CONSTANT, Type::VALUE},
+                      {Type::COMPILE_TIME_STRING, Type::VALUE},
                       &handle_set_prop}}},
     {"dyn",
      {

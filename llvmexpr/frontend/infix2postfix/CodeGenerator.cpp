@@ -30,10 +30,7 @@ bool is_clip_postfix_internal(const std::string& s) {
 }
 
 bool is_convertible_internal(Type from, Type to) {
-    if (to == Type::VALUE) {
-        return true;
-    }
-    return from == to;
+    return from == to || to == Type::VALUE;
 }
 } // namespace
 
@@ -43,10 +40,34 @@ CodeGenerator::CodeGenerator(Mode mode, int num_inputs)
 std::string CodeGenerator::generate(Program* program) {
     for (const auto& stmt : program->statements) {
         if (auto* func_def = get_if<FunctionDef>(stmt.get())) {
+            if (functions.count(func_def->name.value)) {
+                for (const auto& existing_sig :
+                     functions.at(func_def->name.value)) {
+                    if (existing_sig.params.size() == func_def->params.size()) {
+                        bool same = true;
+                        for (size_t i = 0; i < func_def->params.size(); ++i) {
+                            if (existing_sig.params[i].type !=
+                                func_def->params[i].type) {
+                                same = false;
+                                break;
+                            }
+                        }
+                        if (same) {
+                            throw CodeGenError(
+                                std::format(
+                                    "Duplicate function signature for '{}'",
+                                    func_def->name.value),
+                                func_def->line);
+                        }
+                    }
+                }
+            }
+
             FunctionSignature sig;
             sig.name = func_def->name.value;
-            for (const auto& p : func_def->params)
-                sig.params.push_back(p.value);
+            for (const auto& p : func_def->params) {
+                sig.params.push_back({p.name.value, p.type});
+            }
             sig.line = func_def->line;
             sig.has_return = false;
             for (const auto& s : func_def->body->statements) {
@@ -59,8 +80,8 @@ std::string CodeGenerator::generate(Program* program) {
                     sig.specific_globals.insert(g.value);
                 }
             }
-            functions[sig.name] = sig;
-            function_defs[sig.name] = func_def;
+            functions[sig.name].push_back(sig);
+            function_defs[sig.name].push_back(func_def);
         }
     }
 
@@ -229,8 +250,101 @@ CodeGenerator::ExprResult CodeGenerator::handle(const TernaryExpr& expr) {
 CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
     // User-defined functions are inlined
     if (functions.count(expr.callee)) {
-        PostfixBuilder b =
-            inline_function_call(expr.callee, expr.args, expr.line);
+        const auto& overloads = functions.at(expr.callee);
+        const auto& def_overloads = function_defs.at(expr.callee);
+
+        std::vector<ExprResult> arg_results;
+        arg_results.reserve(expr.args.size());
+        for (const auto& arg : expr.args) {
+            arg_results.push_back(generate(arg.get()));
+        }
+
+        struct Candidate {
+            const FunctionSignature* sig;
+            FunctionDef* def;
+            int conversion_count;
+            int first_conversion_index;
+        };
+        std::vector<Candidate> candidates;
+
+        for (size_t i = 0; i < overloads.size(); ++i) {
+            const auto& sig = overloads[i];
+            if (sig.params.size() != arg_results.size())
+                continue;
+
+            int conversion_count = 0;
+            int first_conversion_index = -1;
+            bool possible = true;
+            for (size_t j = 0; j < arg_results.size(); ++j) {
+                Type arg_type = arg_results[j].type;
+                Type param_type = sig.params[j].type;
+                if (arg_type != param_type) {
+                    if (is_convertible(arg_type, param_type)) {
+                        conversion_count++;
+                        if (first_conversion_index == -1) {
+                            first_conversion_index = static_cast<int>(j);
+                        }
+                    } else {
+                        possible = false;
+                        break;
+                    }
+                }
+            }
+
+            if (possible) {
+                candidates.push_back({&sig, def_overloads[i], conversion_count,
+                                      first_conversion_index});
+            }
+        }
+
+        if (candidates.empty()) {
+            std::string arg_types_str;
+            for (size_t i = 0; i < arg_results.size(); ++i) {
+                arg_types_str += to_string(arg_results[i].type);
+                if (i < arg_results.size() - 1)
+                    arg_types_str += ", ";
+            }
+            throw CodeGenError(
+                std::format(
+                    "No matching user-defined function for call to '{}({})'",
+                    expr.callee, arg_types_str),
+                expr.line);
+        }
+
+        Candidate* best_candidate = &candidates[0];
+        for (size_t i = 1; i < candidates.size(); ++i) {
+            if (candidates[i].conversion_count <
+                best_candidate->conversion_count) {
+                best_candidate = &candidates[i];
+            } else if (candidates[i].conversion_count ==
+                       best_candidate->conversion_count) {
+                if (candidates[i].first_conversion_index >
+                    best_candidate->first_conversion_index) {
+                    best_candidate = &candidates[i];
+                }
+            }
+        }
+
+        int best_conversion_count = best_candidate->conversion_count;
+        int best_first_conversion_index =
+            best_candidate->first_conversion_index;
+        int num_best = 0;
+        for (const auto& cand : candidates) {
+            if (cand.conversion_count == best_conversion_count &&
+                cand.first_conversion_index == best_first_conversion_index) {
+                num_best++;
+            }
+        }
+
+        if (num_best > 1) {
+            throw CodeGenError(
+                std::format("Ambiguous call to overloaded function '{}'",
+                            expr.callee),
+                expr.line);
+        }
+
+        PostfixBuilder b = inline_function_call(
+            *best_candidate->sig, best_candidate->def, expr.args, expr.line);
         // FIXME: Assume functions return a single value for now.
         return {b, Type::VALUE};
     }
@@ -239,22 +353,15 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
 
     if (builtins.count(expr.callee)) {
         const auto& overloads = builtins.at(expr.callee);
-        for (const auto& builtin : overloads) {
-            if (builtin.arity != (int)expr.args.size())
-                continue;
-            if (builtin.mode_restriction.has_value() &&
-                builtin.mode_restriction.value() != mode)
-                continue;
 
-            if (builtin.special_handler) {
-                return {builtin.special_handler(this, expr), Type::VALUE};
-            }
-        }
+        std::vector<std::optional<ExprResult>> arg_results(expr.args.size());
 
-        std::vector<ExprResult> arg_results;
-        for (const auto& arg : expr.args) {
-            arg_results.push_back(generate(arg.get()));
-        }
+        struct Candidate {
+            const BuiltinFunction* builtin;
+            int conversion_count;
+            int first_conversion_index;
+        };
+        std::vector<Candidate> candidates;
 
         for (const auto& builtin : overloads) {
             if (builtin.arity != (int)expr.args.size())
@@ -263,38 +370,118 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
                 builtin.mode_restriction.value() != mode)
                 continue;
 
-            bool types_match = true;
-            for (size_t i = 0; i < arg_results.size(); ++i) {
-                if (!is_convertible(arg_results[i].type,
-                                    builtin.param_types[i])) {
-                    types_match = false;
-                    break;
+            int conversion_count = 0;
+            int first_conversion_index = -1;
+            bool possible = true;
+            for (size_t j = 0; j < expr.args.size(); ++j) {
+                Type param_type = builtin.param_types[j];
+
+                if (param_type == Type::COMPILE_TIME_STRING) {
+                    auto* var_expr = get_if<VariableExpr>(expr.args[j].get());
+                    if (!var_expr || var_expr->name.value.starts_with("$")) {
+                        possible = false;
+                        break;
+                    }
+                    continue;
+                }
+
+                if (!arg_results[j].has_value()) {
+                    arg_results[j] = generate(expr.args[j].get());
+                }
+                Type arg_type = arg_results[j]->type;
+
+                if (arg_type != param_type) {
+                    if (is_convertible(arg_type, param_type)) {
+                        conversion_count++;
+                        if (first_conversion_index == -1) {
+                            first_conversion_index = static_cast<int>(j);
+                        }
+                    } else {
+                        possible = false;
+                        break;
+                    }
                 }
             }
 
-            if (types_match) {
-                PostfixBuilder b;
-                for (const auto& res : arg_results) {
-                    b.append(res.postfix);
-                }
-                b.add_function_call(expr.callee);
-                return {b, Type::VALUE};
+            if (possible) {
+                candidates.push_back(
+                    {&builtin, conversion_count, first_conversion_index});
             }
         }
 
-        // No matching overload found
-        std::string arg_types_str;
-        for (size_t i = 0; i < arg_results.size(); ++i) {
-            arg_types_str += to_string(arg_results[i].type);
-            if (i < arg_results.size() - 1)
-                arg_types_str += ", ";
+        if (candidates.empty()) {
+            std::string arg_types_str;
+            for (size_t i = 0; i < expr.args.size(); ++i) {
+                if (builtin_param_type_is_evaluatable(overloads, i)) {
+                    if (!arg_results[i].has_value()) {
+                        arg_results[i] = generate(expr.args[i].get());
+                    }
+                    arg_types_str += to_string(arg_results[i]->type);
+                } else {
+                    arg_types_str += "ConstString";
+                }
+
+                if (i < expr.args.size() - 1)
+                    arg_types_str += ", ";
+            }
+            throw CodeGenError(
+                std::format("No matching overload for function '{}({})' in {} "
+                            "mode.",
+                            expr.callee, arg_types_str,
+                            mode == Mode::Expr ? "Expr" : "SingleExpr"),
+                expr.line);
         }
-        throw CodeGenError(
-            std::format("No matching overload for function '{}({})' in {} "
-                        "mode.",
-                        expr.callee, arg_types_str,
-                        mode == Mode::Expr ? "Expr" : "SingleExpr"),
-            expr.line);
+
+        Candidate* best_candidate = &candidates[0];
+        for (size_t i = 1; i < candidates.size(); ++i) {
+            if (candidates[i].conversion_count <
+                best_candidate->conversion_count) {
+                best_candidate = &candidates[i];
+            } else if (candidates[i].conversion_count ==
+                       best_candidate->conversion_count) {
+                if (candidates[i].first_conversion_index >
+                    best_candidate->first_conversion_index) {
+                    best_candidate = &candidates[i];
+                }
+            }
+        }
+
+        int best_conversion_count = best_candidate->conversion_count;
+        int best_first_conversion_index =
+            best_candidate->first_conversion_index;
+        int num_best = 0;
+        for (const auto& cand : candidates) {
+            if (cand.conversion_count == best_conversion_count &&
+                cand.first_conversion_index == best_first_conversion_index) {
+                num_best++;
+            }
+        }
+
+        if (num_best > 1) {
+            throw CodeGenError(
+                std::format(
+                    "Ambiguous call to overloaded built-in function '{}'",
+                    expr.callee),
+                expr.line);
+        }
+
+        if (best_candidate->builtin->special_handler) {
+            return {best_candidate->builtin->special_handler(this, expr),
+                    Type::VALUE};
+        }
+
+        PostfixBuilder b;
+        for (size_t i = 0; i < expr.args.size(); ++i) {
+            if (best_candidate->builtin->param_types[i] !=
+                Type::COMPILE_TIME_STRING) {
+                if (!arg_results[i].has_value()) {
+                    arg_results[i] = generate(expr.args[i].get());
+                }
+                b.append(arg_results[i]->postfix);
+            }
+        }
+        b.add_function_call(expr.callee);
+        return {b, Type::VALUE};
 
     } else if (expr.callee.starts_with("nth_")) {
         std::string n_str = expr.callee.substr(4);
@@ -593,25 +780,10 @@ bool CodeGenerator::is_convertible(Type from, Type to) {
 }
 
 PostfixBuilder CodeGenerator::inline_function_call(
-    const std::string& func_name,
+    const FunctionSignature& sig, FunctionDef* func_def,
     const std::vector<std::unique_ptr<Expr>>& args, int call_line) {
 
-    if (!function_defs.count(func_name)) {
-        throw CodeGenError(
-            std::format("Function '{}' not found in definitions", func_name),
-            call_line);
-    }
-
-    const auto& sig = functions[func_name];
-    FunctionDef* func_def = function_defs[func_name];
-
-    if (args.size() != sig.params.size()) {
-        throw CodeGenError(
-            std::format(
-                "Function '{}' requires {} parameters, but {} were provided",
-                func_name, sig.params.size(), args.size()),
-            call_line);
-    }
+    const auto& func_name = sig.name;
 
     if (sig.global_mode == GlobalMode::SPECIFIC) {
         for (const auto& gv : sig.specific_globals) {
@@ -656,7 +828,7 @@ PostfixBuilder CodeGenerator::inline_function_call(
     std::set<std::string> new_literals;
 
     for (size_t i = 0; i < sig.params.size(); ++i) {
-        const std::string& param_name = sig.params[i];
+        const std::string& param_name = sig.params[i].name;
         std::string renamed_param =
             std::format("__internal_func_{}_{}", func_name, param_name);
 
@@ -865,6 +1037,17 @@ void CodeGenerator::define_variable_in_current_scope(
         scope_stack.back().insert(var_name);
     }
     all_defined_vars_in_scope.insert(var_name);
+}
+
+bool CodeGenerator::builtin_param_type_is_evaluatable(
+    const std::vector<BuiltinFunction>& overloads, size_t param_idx) {
+    for (const auto& o : overloads) {
+        if (o.param_types.size() > param_idx &&
+            o.param_types[param_idx] == Type::COMPILE_TIME_STRING) {
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace infix2postfix

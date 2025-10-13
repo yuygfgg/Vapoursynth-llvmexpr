@@ -9,24 +9,6 @@
 
 namespace infix2postfix {
 
-enum class Type {
-    VALUE,
-    CLIP,
-    COMPILE_TIME_CONSTANT,
-};
-
-inline std::string to_string(Type t) {
-    switch (t) {
-    case Type::VALUE:
-        return "value";
-    case Type::CLIP:
-        return "clip";
-    case Type::COMPILE_TIME_CONSTANT:
-        return "compile time constant";
-    }
-    return "unknown";
-}
-
 // Forward declarations
 struct Expr;
 struct Stmt;
@@ -200,14 +182,20 @@ struct GlobalDecl {
     }
 };
 
+struct Parameter {
+    Token type_name;
+    Token name;
+    Type type;
+};
+
 struct FunctionDef {
     Token name;
-    std::vector<Token> params;
+    std::vector<Parameter> params;
     std::unique_ptr<BlockStmt> body;
     std::unique_ptr<GlobalDecl> global_decl;
     int line = 0;
 
-    FunctionDef(Token n, std::vector<Token> p, std::unique_ptr<BlockStmt> b,
+    FunctionDef(Token n, std::vector<Parameter> p, std::unique_ptr<BlockStmt> b,
                 std::unique_ptr<GlobalDecl> g);
 };
 
@@ -317,7 +305,7 @@ inline GotoStmt::GotoStmt(Token kw, Token l, std::unique_ptr<Expr> c)
     line = keyword.line;
 }
 
-inline FunctionDef::FunctionDef(Token n, std::vector<Token> p,
+inline FunctionDef::FunctionDef(Token n, std::vector<Parameter> p,
                                 std::unique_ptr<BlockStmt> b,
                                 std::unique_ptr<GlobalDecl> g)
     : name(std::move(n)), params(std::move(p)), body(std::move(b)),

@@ -181,7 +181,7 @@ Write a frame property using the `set_prop()` built-in function.
 - `property_name`: Property name as an identifier (not a string).
 - `value`: The value to write, which can be the result of an expression.
 
-```c
+```
 # Write a simple value
 set_prop(MyProperty, 123.456);
 
@@ -221,7 +221,7 @@ In `SingleExpr` mode, all data I/O is explicit and uses absolute coordinates.
 
 Access the width and height of specific planes using `frame.width[N]` and `frame.height[N]`.
 
-```c
+```
 w0 = frame.width[0];   # Width of plane 0 (luma)
 h1 = frame.height[1];  # Height of plane 1 (chroma U)
 ```
@@ -318,22 +318,54 @@ The `store()` function has different signatures for `Expr` and `SingleExpr` mode
 
 - **Definition:**
 
+Functions are defined using the `function` keyword. The function name cannot conflict with any built-in function names. If a function has no type specifier, it is assumed to be `Value`.
+
 ```
-function functionName(param1, param2) {
+function functionName(Type1 param1, Type2 param2) {
     # Body of the function
     local_var = param1 * param2
     return local_var + 10
 }
 ```
 
+- **Parameter Types:**
+  - `Value`: A standard floating-point value, the most general type.
+  - `Clip`: A source clip constant (e.g., `$a`, `$src1`).
+  - `Const`: A compile-time constant value (a literal).
+
 - **Return Statement:** A function can have **at most one** `return` statement, which must be the last non-empty statement in its body. If a function has no `return` statement, it produces no value.
 - **Parameters:** Function parameters are read-only and cannot be reassigned within the function body.
 - **Inlining:** Function calls are effectively inlined at compile time. Recursion is not supported.
 - **Nesting:** Function definitions cannot be nested.
 
-### 7.5. Standard Library
+### 7.5. Function Overloading
 
-Additional higher-level helpers can be provided via user-defined libraries, but most common math primitives (listed above) are available as built-ins.
+The language supports function overloading, allowing multiple functions to share the same name as long as their parameter lists are different in number or type.
+
+When an overloaded function is called, the compiler selects the best-matching overload based on the provided arguments:
+
+1.  **Exact Match:** An overload with parameter types that exactly match the argument types is always chosen.
+2.  **Best Fit (Fewest Conversions):** If no exact match is found, the compiler chooses the overload that requires the minimum number of implicit type conversions (e.g., from `Clip` to `Value`).
+3.  **Tie-Breaking:** If multiple overloads have the same number of conversions, the one where the first conversion occurs on a later argument (further to the right in the parameter list) is selected.
+4.  **Ambiguity:** If a single best overload cannot be determined from these rules, a compile-time error is raised.
+
+**Example:**
+```
+# Overloaded function 'process'
+function process(Clip c) {
+    # processes a clip
+    return c * 2 - 1
+}
+
+function process(Value v) {
+    # processes a numeric value
+    return v * 2
+}
+
+# Calling the overloads
+a = process($x)  # Calls process(Clip c)
+b = process(10.0)  # Calls process(Value v)
+```
 
 ## 8. Scope and Globals
 

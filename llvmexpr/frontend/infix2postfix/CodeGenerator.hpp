@@ -12,6 +12,8 @@
 
 namespace infix2postfix {
 
+struct BuiltinFunction; // Forward declaration
+
 class CodeGenError : public std::runtime_error {
   public:
     int line;
@@ -64,7 +66,7 @@ class CodeGenerator {
     int compute_stack_effect(const std::string& s, int line);
 
     PostfixBuilder
-    inline_function_call(const std::string& func_name,
+    inline_function_call(const FunctionSignature& sig, FunctionDef* func_def,
                          const std::vector<std::unique_ptr<Expr>>& args,
                          int call_line);
 
@@ -77,14 +79,16 @@ class CodeGenerator {
 
     bool is_clip_name(const std::string& s);
     bool is_convertible(Type from, Type to);
+    bool builtin_param_type_is_evaluatable(
+        const std::vector<BuiltinFunction>& overloads, size_t param_idx);
 
     Mode mode;
     int num_inputs;
     bool has_result = false;
     int label_counter = 0;
 
-    std::map<std::string, FunctionSignature> functions;
-    std::map<std::string, FunctionDef*> function_defs;
+    std::map<std::string, std::vector<FunctionSignature>> functions;
+    std::map<std::string, std::vector<FunctionDef*>> function_defs;
 
     // Scope management
     std::set<std::string> defined_globals;

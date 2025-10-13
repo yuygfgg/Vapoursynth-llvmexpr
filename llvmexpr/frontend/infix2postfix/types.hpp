@@ -8,6 +8,27 @@
 
 namespace infix2postfix {
 
+enum class Type {
+    VALUE,
+    CLIP,
+    COMPILE_TIME_CONSTANT,
+    COMPILE_TIME_STRING,
+};
+
+inline std::string to_string(Type t) {
+    switch (t) {
+    case Type::VALUE:
+        return "Value";
+    case Type::CLIP:
+        return "Clip";
+    case Type::COMPILE_TIME_CONSTANT:
+        return "Const";
+    case Type::COMPILE_TIME_STRING:
+        return "ConstString";
+    }
+    return "unknown";
+}
+
 enum class TokenType {
     // Keywords
     If,       // if
@@ -143,9 +164,14 @@ enum class Mode { Expr, Single };
 
 enum class GlobalMode { NONE, ALL, SPECIFIC };
 
+struct ParameterInfo {
+    std::string name;
+    Type type;
+};
+
 struct FunctionSignature {
     std::string name;
-    std::vector<std::string> params;
+    std::vector<ParameterInfo> params;
     bool has_return;
     int line;
     GlobalMode global_mode = GlobalMode::NONE;

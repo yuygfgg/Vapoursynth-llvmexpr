@@ -1,4 +1,5 @@
 #include "Parser.hpp"
+#include "Builtins.hpp"
 #include <cctype>
 #include <format>
 #include <utility>
@@ -135,24 +136,52 @@ std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
     consume(TokenType::Function, "Expect 'function'.");
     Token name = consume(TokenType::Identifier, "Expect function name.");
 
-    if (defined_functions.count(name.value)) {
+    const auto& builtins = get_builtin_functions();
+    if (builtins.count(name.value)) {
         error(name,
-              std::format("Function '{}' is already defined.", name.value));
+              std::format(
+                  "Function name '{}' conflicts with a built-in function.",
+                  name.value));
     }
+
     defined_functions.insert(name.value);
 
     consume(TokenType::LParen, "Expect '(' after function name.");
-    std::vector<Token> params;
+    std::vector<Parameter> params;
     if (peek().type != TokenType::RParen) {
         do {
-            params.push_back(
-                consume(TokenType::Identifier, "Expect parameter name."));
+            Token type_token, name_token;
+            Type param_type;
+
+            // Lookahead to check for explicit type
+            if (peek().type == TokenType::Identifier &&
+                (peek().value == "Value" || peek().value == "Clip" ||
+                 peek().value == "Const") &&
+                peek(1).type == TokenType::Identifier) {
+                type_token = advance(); // Consume type
+                if (type_token.value == "Value")
+                    param_type = Type::VALUE;
+                else if (type_token.value == "Clip")
+                    param_type = Type::CLIP;
+                else
+                    param_type = Type::COMPILE_TIME_CONSTANT;
+
+                name_token =
+                    consume(TokenType::Identifier, "Expect parameter name.");
+            } else {
+                // Untyped parameter, default to Value
+                name_token =
+                    consume(TokenType::Identifier, "Expect parameter name.");
+                type_token = {TokenType::Identifier, "Value", name_token.line};
+                param_type = Type::VALUE;
+            }
+            params.push_back({type_token, name_token, param_type});
         } while (match({TokenType::Comma}));
     }
     consume(TokenType::RParen, "Expect ')' after parameters.");
     auto body = parseBlock();
     return std::make_unique<FunctionDef>(
-        FunctionDef(name, params, std::move(body), nullptr));
+        FunctionDef(name, std::move(params), std::move(body), nullptr));
 }
 
 std::unique_ptr<GlobalDecl> Parser::parseGlobalDecl() {

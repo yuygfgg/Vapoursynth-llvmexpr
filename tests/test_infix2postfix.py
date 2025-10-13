@@ -418,36 +418,6 @@ RESULT = sum
         assert success, f"Failed to convert: {output}"
         assert "#" in output
     
-    def test_function_and_global_declaration(self):
-        """Test function and global declaration."""
-        infix = """
-<global<global_var>>
-function test_function(x) {
-    d = x + global_var
-    return d
-}
-global_var = 1
-RESULT = test_function(10)
-"""
-        success, output = run_infix2postfix(infix, "expr")
-        assert success, f"Failed to convert: {output}"
-        assert output.strip() == "1 global_var! 10 global_var@ + __internal_func_test_function_d! __internal_func_test_function_d@ RESULT! RESULT@"
-        
-    def test_function_param_substitution(self):
-        """Test function parameter substitution."""
-        infix = """
-function test_function(x, clip, a) {
-    return x + x + clip.prop + dyn(a, 1, 1)
-}
-RESULT = test_function(10, $src0, $x)
-"""
-        success, output = run_infix2postfix(infix, "expr")
-        assert success, f"Failed to convert: {output}"
-        assert "src0.prop" in output
-        assert "x[]" in output
-        assert "$" not in output
-        assert "a[]" not in output
-    
     def test_function_variable_scope(self):
         """Test function variable scope."""
         infix = """
@@ -537,20 +507,6 @@ RESULT = pi_val
         assert "N" in output
         assert "width" in output
         assert "height" in output
-    
-    def test_duplicate_function(self):
-        """Test duplicate function."""
-        infix = """
-function dup(a) {
-    return a + 1
-}
-function dup(b) {
-    return b / 2
-}
-RESULT = dup($x) - dup(4)
-"""
-        success, output = run_infix2postfix(infix, "expr")
-        assert not success, "Should fail"
 
     def test_undefined_function(self):
         """Test undefined function."""
@@ -559,6 +515,132 @@ RESULT = atan2($x)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert not success, "Should fail"
+
+
+class TestFunctions:
+    def test_untyped_function(self):
+        """Test that untyped function parameters are allowed and default to Value."""
+        infix = """
+function add(x, y) {
+    return x + y
+}
+RESULT = add(10, 20)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert output.strip() == "10 20 + RESULT! RESULT@"
+
+    def test_typed_function_and_global(self):
+        """Test typed function and global declaration."""
+        infix = """
+<global<global_var>>
+function test_function(Value x) {
+    d = x + global_var
+    return d
+}
+global_var = 1
+RESULT = test_function(10)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "1 global_var!" in output
+        assert "10 global_var@ +" in output
+        assert "RESULT!" in output
+
+    def test_typed_function_param_substitution(self):
+        """Test typed function parameter substitution."""
+        infix = """
+function test_function(Value x, Clip clip, Clip a) {
+    return x + x + clip.prop + dyn(a, 1, 1)
+}
+RESULT = test_function(10, $src0, $x)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "src0.prop" in output
+        assert "1 1 x[]:c" in output
+        assert "$" not in output
+        assert "a[]" not in output
+
+
+class TestFunctionOverloading:
+    def test_overload_by_type(self):
+        """Test function overloading based on parameter types."""
+        infix = """
+function process(Clip c) {
+    return c[0,0] * 2
+}
+function process(Value v) {
+    return v * 2
+}
+RESULT = process($x) + process(10.0)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "x[0,0] 2 * 10.0 2 * + RESULT! RESULT@" in output
+
+    def test_overload_by_arity(self):
+        """Test function overloading based on number of parameters."""
+        infix = """
+function f(Value x) { return x }
+function f(Value x, Value y) { return x + y }
+RESULT = f(1) + f(2, 3)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "1 2 3 + + RESULT! RESULT@" in output
+
+    def test_overload_best_fit(self):
+        """Test that the best-fit overload (fewest conversions) is chosen."""
+        infix = """
+function best(Value v, Clip c) { return 1 }
+function best(Value v, Value v2) { return 2 }
+RESULT = best(1.0, 2.0)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert output.strip() == "2 RESULT! RESULT@"
+
+    def test_overload_tie_break(self):
+        """Test overload resolution tie-breaking rule."""
+        infix = """
+function tie(Clip c, Value v) { return 1 }
+function tie(Value v, Clip c) { return 2 }
+RESULT = tie($x, $y)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert output.strip() == "1 RESULT! RESULT@"
+
+    def test_duplicate_function_error(self):
+        """Test that defining a function with the same signature twice errors."""
+        infix = """
+function dup(Value a) {
+    return a + 1
+}
+function dup(Value b) {
+    return b / 2
+}
+RESULT = dup(4)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail due to duplicate function definition"
+        assert "Duplicate function signature" in output
+
+    def test_untyped_duplicate_function_error(self):
+        """Test that defining an untyped function with the same signature twice errors."""
+        infix = """
+function dup(a) {
+    return a + 1
+}
+function dup(b) {
+    return b / 2
+}
+RESULT = dup(4)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail due to duplicate function definition"
+        assert "Duplicate function signature" in output
 
 
 if __name__ == "__main__":
