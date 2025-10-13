@@ -151,29 +151,32 @@ std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
     if (peek().type != TokenType::RParen) {
         do {
             Token type_token, name_token;
-            Type param_type;
+            Type param_type = Type::VALUE;
 
-            // Lookahead to check for explicit type
             if (peek().type == TokenType::Identifier &&
-                (peek().value == "Value" || peek().value == "Clip" ||
-                 peek().value == "Literal") &&
                 peek(1).type == TokenType::Identifier) {
-                type_token = advance(); // Consume type
-                if (type_token.value == "Value")
+                type_token = advance(); // Consume potential type
+                if (type_token.value == "Value") {
                     param_type = Type::VALUE;
-                else if (type_token.value == "Clip")
+                } else if (type_token.value == "Clip") {
                     param_type = Type::CLIP;
-                else
+                } else if (type_token.value == "Literal") {
                     param_type = Type::LITERAL;
-
+                } else {
+                    error(type_token,
+                          std::format("Unknown type '{}' for parameter.",
+                                      type_token.value));
+                }
                 name_token =
                     consume(TokenType::Identifier, "Expect parameter name.");
-            } else {
+            } else if (peek().type == TokenType::Identifier) {
                 // Untyped parameter, default to Value
                 name_token =
                     consume(TokenType::Identifier, "Expect parameter name.");
                 type_token = {TokenType::Identifier, "Value", name_token.line};
                 param_type = Type::VALUE;
+            } else {
+                error(peek(), "Expect a parameter declaration.");
             }
             params.push_back({type_token, name_token, param_type});
         } while (match({TokenType::Comma}));
