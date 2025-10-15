@@ -26,7 +26,6 @@ inline std::string to_string(Type t) {
     case Type::LITERAL_STRING:
         return "LiteralString";
     }
-    return "unknown";
 }
 
 enum class TokenType {
@@ -150,7 +149,7 @@ inline std::string token_type_to_string(TokenType type) {
     case TokenType::Invalid:
         return "invalid token";
     default:
-        return "unknown token";
+        std::unreachable();
     }
 }
 

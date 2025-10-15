@@ -28,7 +28,6 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <utility>
 #include <vector>
 
 namespace {
@@ -527,10 +526,6 @@ TokenBehavior get_token_behavior(const Token& token) {
     auto it = std::find_if(
         get_token_definitions().begin(), get_token_definitions().end(),
         [&](const auto& def) { return def.type == token.type; });
-
-    if (it == get_token_definitions().end()) {
-        std::unreachable();
-    }
 
     return std::visit(
         [&token](auto&& arg) -> TokenBehavior {

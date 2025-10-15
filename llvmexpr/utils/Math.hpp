@@ -65,7 +65,6 @@ constexpr MathOpInfo getMathOpInfo(MathOp op) {
     case MathOp::Asin:
         return {1, "fast_asin"};
     }
-    std::unreachable();
 }
 
 #ifdef __x86_64__

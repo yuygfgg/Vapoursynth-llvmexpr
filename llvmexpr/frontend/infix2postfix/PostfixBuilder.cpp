@@ -66,8 +66,7 @@ void PostfixBuilder::add_op(TokenType type) {
         push_token(">=");
         break;
     default:
-        // Should not happen for valid binary operators
-        break;
+        std::unreachable();
     }
 }
 
@@ -83,8 +82,7 @@ void PostfixBuilder::add_unary_op(TokenType type) {
         push_token("bitnot");
         break;
     default:
-        // Should not happen for valid unary operators
-        break;
+        std::unreachable();
     }
 }
 

@@ -923,7 +923,7 @@ PostfixBuilder CodeGenerator::inline_function_call(
     auto saved_all_defined = all_defined_vars_in_scope;
     auto saved_scope_stack = scope_stack;
     auto saved_param_substitutions = param_substitutions;
-    const FunctionSignature* saved_current_function = current_function;
+    auto saved_current_function = current_function;
 
     param_substitutions.clear();
     std::map<std::string, std::string> param_map;
