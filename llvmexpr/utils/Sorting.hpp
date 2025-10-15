@@ -2139,9 +2139,8 @@ constexpr void generate_oem_sort_pairs(std::vector<std::pair<int, int>>& pairs,
     }
 }
 
-constexpr void get_sorting_network(int n,
-                                   std::vector<std::pair<int, int>>& out) {
-    out.clear();
+constexpr std::vector<std::pair<int, int>> get_sorting_network(int n) {
+    std::vector<std::pair<int, int>> out;
 
     auto optimal = get_optimal_sorting_network(n);
     if (!optimal.empty()) {
@@ -2149,7 +2148,7 @@ constexpr void get_sorting_network(int n,
         for (const auto& comp : optimal) {
             out.push_back(comp);
         }
-        return;
+        return out;
     }
 
     int p = 1;
@@ -2162,4 +2161,6 @@ constexpr void get_sorting_network(int n,
         return pair.second >= n;
     });
     out.erase(it, out.end());
+
+    return out;
 }

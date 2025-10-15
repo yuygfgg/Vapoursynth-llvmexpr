@@ -742,8 +742,7 @@ bool IRGeneratorBase::process_common_token(const Token& token,
             values[j_idx] = builder.CreateSelect(cond, val_i, val_j); // max
         };
 
-        std::vector<std::pair<int, int>> network;
-        get_sorting_network(n, network);
+        auto network = get_sorting_network(n);
         for (const auto& pair : network) {
             compare_swap(pair.first, pair.second);
         }
