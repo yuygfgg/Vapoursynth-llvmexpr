@@ -101,6 +101,10 @@ class CodeGenerator {
     std::set<std::string> literals_in_scope;
     std::map<std::string, Expr*> param_substitutions;
     const FunctionSignature* current_function = nullptr;
+
+    // Label checking
+    std::set<std::string> global_labels;
+    std::set<std::string> current_function_labels;
 };
 
 } // namespace infix2postfix

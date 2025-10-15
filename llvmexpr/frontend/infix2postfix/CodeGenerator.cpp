@@ -38,6 +38,19 @@ CodeGenerator::CodeGenerator(Mode mode, int num_inputs)
     : mode(mode), num_inputs(num_inputs) {}
 
 std::string CodeGenerator::generate(Program* program) {
+    // Collect global labels
+    for (const auto& stmt : program->statements) {
+        if (auto* label_def = get_if<LabelStmt>(stmt.get())) {
+            if (global_labels.count(label_def->name.value)) {
+                throw CodeGenError(
+                    std::format("Duplicate label '{}' in global scope",
+                                label_def->name.value),
+                    label_def->line);
+            }
+            global_labels.insert(label_def->name.value);
+        }
+    }
+
     for (const auto& stmt : program->statements) {
         if (auto* func_def = get_if<FunctionDef>(stmt.get())) {
             if (functions.count(func_def->name.value)) {
@@ -716,6 +729,11 @@ PostfixBuilder CodeGenerator::handle(const WhileStmt& stmt) {
 }
 
 PostfixBuilder CodeGenerator::handle(const ReturnStmt& stmt) {
+    if (current_function == nullptr) {
+        throw CodeGenError(
+            "'return' statements are not allowed in the global scope.",
+            stmt.line);
+    }
     if (stmt.value) {
         return generate(stmt.value.get()).postfix;
     }
@@ -729,6 +747,32 @@ PostfixBuilder CodeGenerator::handle(const LabelStmt& stmt) {
 }
 
 PostfixBuilder CodeGenerator::handle(const GotoStmt& stmt) {
+    if (current_function != nullptr) {
+        // Inside a function
+        if (global_labels.count(stmt.label.value)) {
+            throw CodeGenError(std::format("goto from function '{}' to global "
+                                           "label '{}' is not allowed",
+                                           current_function->name,
+                                           stmt.label.value),
+                               stmt.line);
+        }
+        if (current_function_labels.find(stmt.label.value) ==
+            current_function_labels.end()) {
+            throw CodeGenError(
+                std::format("goto target '{}' not found in function '{}'",
+                            stmt.label.value, current_function->name),
+                stmt.line);
+        }
+    } else {
+        // Global scope
+        if (global_labels.find(stmt.label.value) == global_labels.end()) {
+            throw CodeGenError(
+                std::format("goto target '{}' not found in global scope",
+                            stmt.label.value),
+                stmt.line);
+        }
+    }
+
     PostfixBuilder b;
     if (stmt.condition) {
         b.append(generate(stmt.condition.get()).postfix);
@@ -793,6 +837,73 @@ PostfixBuilder CodeGenerator::inline_function_call(
     const std::vector<std::unique_ptr<Expr>>& args, int call_line) {
 
     const auto& func_name = sig.name;
+
+    // Check for return statements
+    const auto& stmts = func_def->body->statements;
+    for (size_t i = 0; i < stmts.size(); ++i) {
+        const auto& stmt_ptr = stmts[i];
+
+        std::function<void(Stmt*)> find_returns_in_blocks = [&](Stmt* s) {
+            if (!s)
+                return;
+            if (get_if<ReturnStmt>(s)) {
+                throw CodeGenError(
+                    "'return' is not allowed inside blocks within a function.",
+                    s->line());
+            }
+            if (auto* if_s = get_if<IfStmt>(s)) {
+                find_returns_in_blocks(if_s->then_branch.get());
+                if (if_s->else_branch)
+                    find_returns_in_blocks(if_s->else_branch.get());
+            } else if (auto* while_s = get_if<WhileStmt>(s)) {
+                find_returns_in_blocks(while_s->body.get());
+            } else if (auto* block = get_if<BlockStmt>(s)) {
+                for (const auto& inner_s : block->statements) {
+                    find_returns_in_blocks(inner_s.get());
+                }
+            }
+        };
+
+        if (get_if<ReturnStmt>(stmt_ptr.get())) {
+            if (i != stmts.size() - 1) {
+                throw CodeGenError(
+                    "'return' must be the last statement in a function body.",
+                    stmt_ptr->line());
+            }
+        } else {
+            find_returns_in_blocks(stmt_ptr.get());
+        }
+    }
+
+    auto saved_current_function_labels = current_function_labels;
+    current_function_labels.clear();
+    std::function<void(Stmt*)> collect_labels = [&](Stmt* s) {
+        if (!s)
+            return;
+        if (auto* label = get_if<LabelStmt>(s)) {
+            if (current_function_labels.count(label->name.value)) {
+                throw CodeGenError(
+                    std::format("Duplicate label '{}' in function '{}'",
+                                label->name.value, sig.name),
+                    label->line);
+            }
+            current_function_labels.insert(label->name.value);
+        } else if (auto* block = get_if<BlockStmt>(s)) {
+            for (auto& inner_s : block->statements) {
+                collect_labels(inner_s.get());
+            }
+        } else if (auto* if_s = get_if<IfStmt>(s)) {
+            collect_labels(if_s->then_branch.get());
+            if (if_s->else_branch) {
+                collect_labels(if_s->else_branch.get());
+            }
+        } else if (auto* while_s = get_if<WhileStmt>(s)) {
+            collect_labels(while_s->body.get());
+        }
+    };
+    for (const auto& s : func_def->body->statements) {
+        collect_labels(s.get());
+    }
 
     if (sig.global_mode == GlobalMode::SPECIFIC) {
         for (const auto& gv : sig.specific_globals) {
@@ -948,6 +1059,7 @@ PostfixBuilder CodeGenerator::inline_function_call(
     scope_stack = saved_scope_stack;
     param_substitutions = saved_param_substitutions;
     current_function = saved_current_function;
+    current_function_labels = saved_current_function_labels;
 
     PostfixBuilder inlined_builder;
     inlined_builder.append(param_assignments);

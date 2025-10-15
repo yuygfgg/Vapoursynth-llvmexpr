@@ -387,7 +387,7 @@ RESULT = val
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
         assert "#" in output
-    
+
     def test_if_else_true_value(self):
         """Test if-else with true value."""
         infix = """
@@ -401,7 +401,10 @@ RESULT = a
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert output.strip() == "-1 a! -1 0 = __internal_else_0# 255 a! 1 __internal_endif_1# #__internal_else_0 0 a! #__internal_endif_1 a@ RESULT! RESULT@"
+        assert (
+            output.strip()
+            == "-1 a! -1 0 = __internal_else_0# 255 a! 1 __internal_endif_1# #__internal_else_0 0 a! #__internal_endif_1 a@ RESULT! RESULT@"
+        )
 
     def test_while_loop(self):
         """Test while loop."""
@@ -417,7 +420,7 @@ RESULT = sum
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
         assert "#" in output
-    
+
     def test_function_variable_scope(self):
         """Test function variable scope."""
         infix = """
@@ -429,7 +432,7 @@ RESULT = test_function(10)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert not success, f"Should fail, got {output}"
-    
+
     def test_if_else_scope(self):
         """Test if-else scope."""
         # x is not defined
@@ -528,7 +531,10 @@ RESULT = add(10, 20)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert output.strip() == "10 20 + RESULT! RESULT@"
+        assert (
+            output.strip()
+            == "10 __internal_func_add_x! 20 __internal_func_add_y! __internal_func_add_x@ __internal_func_add_y@ + RESULT! RESULT@"
+        )
 
     def test_typed_function_and_global(self):
         """Test typed function and global declaration."""
@@ -544,7 +550,8 @@ RESULT = test_function(10)
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
         assert "1 global_var!" in output
-        assert "10 global_var@ +" in output
+        assert "10 __internal_func_test_function_x!" in output
+        assert "__internal_func_test_function_x@ global_var@ +" in output
         assert "RESULT!" in output
 
     def test_typed_function_param_substitution(self):
@@ -568,7 +575,7 @@ class TestFunctionOverloading:
         """Test function overloading based on parameter types."""
         infix = """
 function process(Clip c) {
-    return c[0,0] * 2
+    return c[1,1] * 2
 }
 function process(Value v) {
     return v * 2
@@ -577,7 +584,10 @@ RESULT = process($x) + process(10.0)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert "x[0,0] 2 * 10.0 2 * + RESULT! RESULT@" in output
+        assert (
+            "x[1,1] 2 * 10.0 __internal_func_process_v! __internal_func_process_v@ 2 * + RESULT! RESULT@"
+            in output
+        )
 
     def test_overload_by_arity(self):
         """Test function overloading based on number of parameters."""
@@ -588,7 +598,10 @@ RESULT = f(1) + f(2, 3)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert "1 2 3 + + RESULT! RESULT@" in output
+        assert (
+            "1 __internal_func_f_x! __internal_func_f_x@ 2 __internal_func_f_x! 3 __internal_func_f_y! __internal_func_f_x@ __internal_func_f_y@ + + RESULT! RESULT@"
+            in output
+        )
 
     def test_overload_best_fit(self):
         """Test that the best-fit overload (fewest conversions) is chosen."""
@@ -599,7 +612,10 @@ RESULT = best(1.0, 2.0)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert output.strip() == "2 RESULT! RESULT@"
+        assert (
+            output.strip()
+            == "1.0 __internal_func_best_v! 2.0 __internal_func_best_v2! 2 RESULT! RESULT@"
+        )
 
     def test_overload_tie_break(self):
         """Test overload resolution tie-breaking rule."""
@@ -610,7 +626,7 @@ RESULT = tie($x, $y)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert output.strip() == "1 RESULT! RESULT@"
+        assert output.strip() == "y __internal_func_tie_v! 1 RESULT! RESULT@"
 
     def test_duplicate_function_error(self):
         """Test that defining a function with the same signature twice errors."""
@@ -645,3 +661,172 @@ RESULT = dup(4)
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestControlFlowValidation:
+    # GOTO related tests
+    def test_goto_forbidden_label_name(self):
+        infix = """
+__internal_label:
+    RESULT = 1
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "cannot start with '__internal_'" in output
+
+    def test_goto_forbidden_target_name(self):
+        infix = """
+    goto __internal_label
+__internal_label:
+    RESULT = 1
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "cannot start with '__internal_'" in output
+
+    def test_goto_to_nonexistent_label_global(self):
+        infix = """
+    goto missing_label
+    RESULT = 1
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "goto target 'missing_label' not found in global scope" in output
+
+    def test_goto_to_nonexistent_label_function(self):
+        infix = """
+function f() {
+    goto missing_label
+}
+RESULT = f()
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "goto target 'missing_label' not found in function 'f'" in output
+
+    def test_duplicate_label_global(self):
+        infix = """
+my_label:
+    a = 1
+my_label:
+    a = 2
+RESULT = a
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "Duplicate label 'my_label' in global scope" in output
+
+    def test_duplicate_label_function(self):
+        infix = """
+function f() {
+my_label:
+    a = 1
+my_label:
+    a = 2
+    return a
+}
+RESULT = f()
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "Duplicate label 'my_label' in function 'f'" in output
+
+    def test_goto_from_function_to_global_is_disallowed(self):
+        infix = """
+function f() {
+    goto global_label
+}
+global_label:
+RESULT = f()
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert (
+            "goto from function 'f' to global label 'global_label' is not allowed"
+            in output
+        )
+
+    def test_valid_goto_in_function(self):
+        infix = """
+function f(a) {
+    if (a > 0) {
+        goto end
+    }
+    a = a + 1
+end:
+    return a
+}
+RESULT = f(10)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed: {output}"
+
+    # RETURN related tests
+    def test_return_in_global_scope(self):
+        infix = "return 10"
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "'return' statements are not allowed in the global scope" in output
+
+    def test_return_not_last_statement(self):
+        infix = """
+function f() {
+    return 1
+    a = 2
+}
+RESULT = f()
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "'return' must be the last statement in a function body" in output
+
+    def test_multiple_return_statements(self):
+        infix = """
+function f() {
+    return 1
+    return 2
+}
+RESULT = f()
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "'return' must be the last statement in a function body" in output
+
+    def test_return_in_if_block(self):
+        infix = """
+function f(a) {
+    if (a > 0) {
+        return 1
+    }
+    return 0
+}
+RESULT = f(1)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "'return' is not allowed inside blocks within a function" in output
+
+    def test_return_in_while_block(self):
+        infix = """
+function f(a) {
+    while(a > 0) {
+        return 1
+    }
+    return 0
+}
+RESULT = f(1)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "'return' is not allowed inside blocks within a function" in output
+
+    def test_valid_return(self):
+        infix = """
+function f(a) {
+    b = a + 1
+    return b
+}
+RESULT = f(10)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed: {output}"

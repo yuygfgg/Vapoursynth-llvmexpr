@@ -88,11 +88,17 @@ std::unique_ptr<Stmt> Parser::parseGotoStatement() {
     Token keyword = consume(TokenType::Goto, "Expect 'goto'.");
     Token label =
         consume(TokenType::Identifier, "Expect label name after 'goto'.");
+    if (label.value.rfind("__internal_", 0) == 0) {
+        error(label, "goto target cannot start with '__internal_'.");
+    }
     return make_node<Stmt, GotoStmt>(keyword, label, nullptr);
 }
 
 std::unique_ptr<Stmt> Parser::parseLabelStatement() {
     Token name = consume(TokenType::Identifier, "Expect label name.");
+    if (name.value.rfind("__internal_", 0) == 0) {
+        error(name, "Label name cannot start with '__internal_'.");
+    }
     consume(TokenType::Colon, "Expect ':' after label name.");
     return make_node<Stmt, LabelStmt>(name);
 }
