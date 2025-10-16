@@ -239,6 +239,26 @@ bool SingleExprIRGenerator::process_mode_specific_token(
     llvm::Type* i32_ty = builder.getInt32Ty();
 
     switch (token.type) {
+    case TokenType::CONSTANT_PLANE_WIDTH: {
+        const auto& payload = std::get<TokenPayload_PlaneDim>(token.payload);
+        int plane_w = vo->width;
+        if (vo->format.colorFamily == cfYUV && payload.plane_idx > 0) {
+            plane_w >>= vo->format.subSamplingW;
+        }
+        rpn_stack.push_back(
+            builder.CreateSIToFP(builder.getInt32(plane_w), float_ty));
+        return true;
+    }
+    case TokenType::CONSTANT_PLANE_HEIGHT: {
+        const auto& payload = std::get<TokenPayload_PlaneDim>(token.payload);
+        int plane_h = vo->height;
+        if (vo->format.colorFamily == cfYUV && payload.plane_idx > 0) {
+            plane_h >>= vo->format.subSamplingH;
+        }
+        rpn_stack.push_back(
+            builder.CreateSIToFP(builder.getInt32(plane_h), float_ty));
+        return true;
+    }
     case TokenType::CLIP_ABS_PLANE: {
         const auto& payload =
             std::get<TokenPayload_ClipAccessPlane>(token.payload);

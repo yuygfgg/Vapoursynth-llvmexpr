@@ -361,48 +361,24 @@ bool IRGeneratorBase::process_common_token(const Token& token,
         });
     };
 
-    enum class BoolBinOp { And, Or, Xor };
-    auto applyLogicalOp = [&](BoolBinOp which) {
+    auto applyLogicalOp = [&](auto op) {
         applyStackOp.operator()<2>([&](auto a_val, auto b_val) {
             auto a_bool = builder.CreateFCmpOGT(
                 a_val, llvm::ConstantFP::get(float_ty, 0.0));
             auto b_bool = builder.CreateFCmpOGT(
                 b_val, llvm::ConstantFP::get(float_ty, 0.0));
-            llvm::Value* logic_res = nullptr;
-            switch (which) {
-            case BoolBinOp::And:
-                logic_res = builder.CreateAnd(a_bool, b_bool);
-                break;
-            case BoolBinOp::Or:
-                logic_res = builder.CreateOr(a_bool, b_bool);
-                break;
-            case BoolBinOp::Xor:
-                logic_res = builder.CreateXor(a_bool, b_bool);
-                break;
-            }
+            auto logic_res = op(a_bool, b_bool);
             return builder.CreateSelect(logic_res,
                                         llvm::ConstantFP::get(float_ty, 1.0),
                                         llvm::ConstantFP::get(float_ty, 0.0));
         });
     };
 
-    enum class IntBinOp { And, Or, Xor };
-    auto applyBitwiseOp = [&](IntBinOp which) {
+    auto applyBitwiseOp = [&](auto op) {
         applyStackOp.operator()<2>([&](auto a, auto b) {
             auto ai = builder.CreateFPToSI(a, i32_ty);
             auto bi = builder.CreateFPToSI(b, i32_ty);
-            llvm::Value* resi = nullptr;
-            switch (which) {
-            case IntBinOp::And:
-                resi = builder.CreateAnd(ai, bi);
-                break;
-            case IntBinOp::Or:
-                resi = builder.CreateOr(ai, bi);
-                break;
-            case IntBinOp::Xor:
-                resi = builder.CreateXor(ai, bi);
-                break;
-            }
+            auto resi = op(ai, bi);
             return builder.CreateSIToFP(resi, float_ty);
         });
     };
@@ -448,26 +424,6 @@ bool IRGeneratorBase::process_common_token(const Token& token,
         rpn_stack.push_back(
             builder.CreateSIToFP(builder.getInt32(height), float_ty));
         return true;
-    case TokenType::CONSTANT_PLANE_WIDTH: {
-        const auto& payload = std::get<TokenPayload_PlaneDim>(token.payload);
-        int plane_w = vo->width;
-        if (vo->format.colorFamily == cfYUV && payload.plane_idx > 0) {
-            plane_w >>= vo->format.subSamplingW;
-        }
-        rpn_stack.push_back(
-            builder.CreateSIToFP(builder.getInt32(plane_w), float_ty));
-        return true;
-    }
-    case TokenType::CONSTANT_PLANE_HEIGHT: {
-        const auto& payload = std::get<TokenPayload_PlaneDim>(token.payload);
-        int plane_h = vo->height;
-        if (vo->format.colorFamily == cfYUV && payload.plane_idx > 0) {
-            plane_h >>= vo->format.subSamplingH;
-        }
-        rpn_stack.push_back(
-            builder.CreateSIToFP(builder.getInt32(plane_h), float_ty));
-        return true;
-    }
     case TokenType::CONSTANT_N:
         rpn_stack.push_back(builder.CreateLoad(
             float_ty,
@@ -538,24 +494,24 @@ bool IRGeneratorBase::process_common_token(const Token& token,
 
     // Logical ops
     case TokenType::AND:
-        applyLogicalOp(BoolBinOp::And);
+        applyLogicalOp([&](auto a, auto b) { return builder.CreateAnd(a, b); });
         return true;
     case TokenType::OR:
-        applyLogicalOp(BoolBinOp::Or);
+        applyLogicalOp([&](auto a, auto b) { return builder.CreateOr(a, b); });
         return true;
     case TokenType::XOR:
-        applyLogicalOp(BoolBinOp::Xor);
+        applyLogicalOp([&](auto a, auto b) { return builder.CreateXor(a, b); });
         return true;
 
     // Bitwise ops
     case TokenType::BITAND:
-        applyBitwiseOp(IntBinOp::And);
+        applyBitwiseOp([&](auto a, auto b) { return builder.CreateAnd(a, b); });
         return true;
     case TokenType::BITOR:
-        applyBitwiseOp(IntBinOp::Or);
+        applyBitwiseOp([&](auto a, auto b) { return builder.CreateOr(a, b); });
         return true;
     case TokenType::BITXOR:
-        applyBitwiseOp(IntBinOp::Xor);
+        applyBitwiseOp([&](auto a, auto b) { return builder.CreateXor(a, b); });
         return true;
 
     // Unary Operators
