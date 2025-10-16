@@ -49,6 +49,12 @@ class PostfixBuilder {
     void add_frame_dimension(const std::string& dim, const std::string& plane);
     void add_exit_marker();
 
+    // Stack manipulation
+    void add_dropN(int count=1);
+    void add_dupN(int count=0);
+    void add_swapN(int count=1);
+    void add_sortN(int count);
+
     // For raw/unstructured parts
     void add_raw(const std::string& raw_string);
 

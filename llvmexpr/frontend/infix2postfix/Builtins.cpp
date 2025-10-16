@@ -134,6 +134,7 @@ PostfixBuilder handle_exit([[maybe_unused]] CodeGenerator* codegen,
     return b;
 }
 
+// nth_N functions are not handled here
 const std::map<std::string, std::vector<BuiltinFunction>> builtin_functions = {
     // Standard math
     {"sin", {BuiltinFunction{"sin", 1, std::nullopt, {Type::VALUE}}}},

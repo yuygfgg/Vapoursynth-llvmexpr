@@ -160,6 +160,22 @@ void PostfixBuilder::add_frame_dimension(const std::string& dim,
 
 void PostfixBuilder::add_exit_marker() { push_token("^exit^"); }
 
+void PostfixBuilder::add_dropN(int count) {
+    push_token(std::format("drop{}", count));
+}
+
+void PostfixBuilder::add_dupN(int count) {
+    push_token(std::format("dup{}", count));
+}
+
+void PostfixBuilder::add_swapN(int count) {
+    push_token(std::format("swap{}", count));
+}
+
+void PostfixBuilder::add_sortN(int count) {
+    push_token(std::format("sort{}", count));
+}
+
 void PostfixBuilder::add_raw(const std::string& raw_string) {
     std::stringstream ss(raw_string);
     std::string token;

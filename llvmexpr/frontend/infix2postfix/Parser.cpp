@@ -143,7 +143,7 @@ std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
     Token name = consume(TokenType::Identifier, "Expect function name.");
 
     const auto& builtins = get_builtin_functions();
-    if (builtins.count(name.value)) {
+    if (builtins.count(name.value) || name.value.starts_with("nth_")) {
         error(name,
               std::format(
                   "Function name '{}' conflicts with a built-in function.",

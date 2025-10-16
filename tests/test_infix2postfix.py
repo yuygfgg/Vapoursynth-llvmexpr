@@ -518,6 +518,18 @@ RESULT = atan2($x)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert not success, "Should fail"
+    
+    def test_conflict_with_builtin_function(self):
+        """Test user defined function conflicts with built-in function."""
+        infix = """
+function sin(a, b, c, d) {
+    return a + b + c + d
+}
+RESULT = sin(4, 3, 2, 1)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail"
+        assert "conflicts with a built-in function" in output
 
 
 class TestFunctions:
@@ -568,6 +580,24 @@ RESULT = test_function(10, $src0, $x)
         assert "1 1 x[]:c" in output
         assert "$" not in output
         assert "a[]" not in output
+    
+    def test_nth_N_function(self):
+        """Test nth_N function."""
+        infix = """
+RESULT = nth_3(4, 3, 2, 1)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "4 3 2 1 sort4 drop2 swap1 drop1 RESULT! RESULT@" in output
+    
+    def test_nth_N_function_with_invalid_name(self):
+        """Test nth_N function with invalid name."""
+        infix = """
+RESULT = nth_0(4, 3, 2, 1)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail"
+        assert "Invalid nth_N function name 'nth_0'" in output
 
 
 class TestFunctionOverloading:

@@ -505,31 +505,40 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
                 expr.line);
         }
         int n = std::stoi(n_str);
-        if ((int)expr.args.size() < n) {
+        int arg_count = (int)expr.args.size();
+        if (arg_count < n) {
             throw CodeGenError(std::format("Function '{}' requires at least {} "
-                                           "arguments, but {} were provided",
-                                           expr.callee, n, expr.args.size()),
+                                           "arguments, but {} were provided.",
+                                           expr.callee, n, arg_count),
                                expr.line);
         }
+        if (n < 1) {
+            throw CodeGenError(
+                std::format("Invalid nth_N function name '{}'", expr.callee),
+                expr.line);
+        }
+        PostfixBuilder b;
+        for (const auto& arg : expr.args) {
+            auto res = generate(arg.get());
+            if (!is_convertible(res.type, Type::VALUE)) {
+                throw CodeGenError(
+                    std::format("Argument to function '{}' has type '{}' which "
+                                "is not convertible to Value.",
+                                expr.callee, to_string(res.type)),
+                    arg->line());
+            }
+            b.append(res.postfix);
+        }
+        b.add_sortN(arg_count);
+        b.add_dropN(n - 1);
+        b.add_swapN(arg_count - n);
+        b.add_dropN(arg_count - n);
+
+        return {b, Type::VALUE};
     } else {
         throw CodeGenError(std::format("Unknown function '{}'", expr.callee),
                            expr.line);
     }
-
-    PostfixBuilder b;
-    for (const auto& arg : expr.args) {
-        auto res = generate(arg.get());
-        if (!is_convertible(res.type, Type::VALUE)) {
-            throw CodeGenError(
-                std::format("Argument to function '{}' has type '{}' which "
-                            "is not convertible to a value.",
-                            expr.callee, to_string(res.type)),
-                arg->line());
-        }
-        b.append(res.postfix);
-    }
-    b.add_function_call(expr.callee);
-    return {b, Type::VALUE};
 }
 
 CodeGenerator::ExprResult CodeGenerator::handle(const PropAccessExpr& expr) {
