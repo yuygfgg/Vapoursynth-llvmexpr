@@ -30,7 +30,8 @@ bool is_clip_postfix_internal(const std::string& s) {
 }
 
 bool is_convertible_internal(Type from, Type to) {
-    return from == to || to == Type::VALUE;
+    // LITERAL_STRING is now only used by built-in functions, but we check it anyway
+    return from == to || (to == Type::VALUE && from != Type::LITERAL_STRING);
 }
 } // namespace
 
@@ -163,12 +164,6 @@ CodeGenerator::ExprResult CodeGenerator::handle(const VariableExpr& expr) {
     check_variable_defined(name, expr.line);
 
     std::string renamed = rename_variable(name);
-
-    if (literals_in_scope.count(renamed)) {
-        b.add_raw(renamed);
-        return {b, Type::VALUE}; // Assuming literals are values
-    }
-
     b.add_variable_load(renamed);
     return {b, Type::VALUE};
 }
@@ -927,7 +922,6 @@ PostfixBuilder CodeGenerator::inline_function_call(
     }
 
     auto saved_rename_map = var_rename_map;
-    auto saved_literals = literals_in_scope;
     auto saved_local_vars = local_scope_vars;
     auto saved_all_defined = all_defined_vars_in_scope;
     auto saved_scope_stack = scope_stack;
@@ -954,7 +948,6 @@ PostfixBuilder CodeGenerator::inline_function_call(
     }
 
     PostfixBuilder param_assignments;
-    std::set<std::string> new_literals;
 
     for (size_t i = 0; i < sig.params.size(); ++i) {
         const auto& param_info = sig.params[i];
@@ -1051,7 +1044,6 @@ PostfixBuilder CodeGenerator::inline_function_call(
 
     // Update context for function body generation
     var_rename_map = param_map;
-    literals_in_scope = new_literals;
     local_scope_vars = new_local_vars;
     local_scope_vars.insert(effective_globals.begin(), effective_globals.end());
     current_function = &sig;
@@ -1062,7 +1054,6 @@ PostfixBuilder CodeGenerator::inline_function_call(
     body_builder.prefix_labels(label_prefix);
 
     var_rename_map = saved_rename_map;
-    literals_in_scope = saved_literals;
     local_scope_vars = saved_local_vars;
     all_defined_vars_in_scope = saved_all_defined;
     scope_stack = saved_scope_stack;
@@ -1103,11 +1094,6 @@ void CodeGenerator::check_variable_defined(const std::string& var_name,
 
     if (all_defined_vars_in_scope.count(actual_name) ||
         all_defined_vars_in_scope.count(var_name)) {
-        return;
-    }
-
-    if (literals_in_scope.count(actual_name) ||
-        literals_in_scope.count(var_name)) {
         return;
     }
 

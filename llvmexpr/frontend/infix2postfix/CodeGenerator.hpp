@@ -99,7 +99,6 @@ class CodeGenerator {
 
     // Function inlining context
     std::map<std::string, std::string> var_rename_map;
-    std::set<std::string> literals_in_scope;
     std::map<std::string, Expr*> param_substitutions;
     const FunctionSignature* current_function = nullptr;
 

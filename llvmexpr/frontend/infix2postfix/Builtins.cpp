@@ -11,7 +11,7 @@ namespace {
 
 PostfixBuilder handle_dyn_expr_3args(CodeGenerator* codegen,
                                      const CallExpr& expr) {
-    // Signature: dyn($clip, x_expr, y_expr)
+    // Signature: dyn($clip, x, y)
     // Default boundary mode is clamped.
     PostfixBuilder b;
     b.append(codegen->generate_expr(expr.args[1].get()).postfix);
@@ -30,7 +30,7 @@ PostfixBuilder handle_dyn_expr_3args(CodeGenerator* codegen,
 
 PostfixBuilder handle_dyn_expr_4args(CodeGenerator* codegen,
                                      const CallExpr& expr) {
-    // Signature: dyn($clip, x_expr, y_expr, boundary_mode)
+    // Signature: dyn($clip, x, y, boundary_mode)
     PostfixBuilder b;
     b.append(codegen->generate_expr(expr.args[1].get()).postfix);
     b.append(codegen->generate_expr(expr.args[2].get()).postfix);
