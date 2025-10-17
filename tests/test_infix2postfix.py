@@ -377,6 +377,7 @@ RESULT = result
         """Test if-else control flow."""
         infix = """
 x_coord = $X
+val = -1
 if (x_coord > 50) {
     val = 255
 } else {
@@ -434,17 +435,17 @@ RESULT = test_function(10)
         assert not success, f"Should fail, got {output}"
 
     def test_if_else_scope(self):
-        """Test if-else scope."""
-        # x is not defined
+        """Test that a variable defined in an if-block is not accessible outside."""
         # var is not defined for outer scope
         infix = """
-if (x > 10) {
+if (1) {
     var = 1
 }
 RESULT = var
 """
         success, output = run_infix2postfix(infix, "expr")
         assert not success, f"Should fail, got {output}"
+        assert "Variable 'var' is used before being defined" in output
 
 
 class TestEdgeCases:
@@ -518,7 +519,7 @@ RESULT = atan2($x)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert not success, "Should fail"
-    
+
     def test_conflict_with_builtin_function(self):
         """Test user defined function conflicts with built-in function."""
         infix = """
@@ -580,7 +581,7 @@ RESULT = test_function(10, $src0, $x)
         assert "1 1 x[]:c" in output
         assert "$" not in output
         assert "a[]" not in output
-    
+
     def test_nth_N_function(self):
         """Test nth_N function."""
         infix = """
@@ -589,7 +590,7 @@ RESULT = nth_3(4, 3, 2, 1)
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
         assert "4 3 2 1 sort4 drop2 swap1 drop1 RESULT! RESULT@" in output
-    
+
     def test_nth_N_function_with_invalid_name(self):
         """Test nth_N function with invalid name."""
         infix = """
@@ -755,6 +756,112 @@ RESULT = a + b
         success, output = run_infix2postfix(infix, "expr")
         assert not success, "Should have failed"
         assert "Expected newline or semicolon after statement" in output
+
+
+class TestSyntaxAndScopeValidation:
+    """Tests for new brace, scope and RESULT definition rules."""
+
+    def test_if_without_braces_fails(self):
+        """Test that an if statement without braces is an error."""
+        infix = "if (1) RESULT = 1"
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "must be a block statement" in output
+
+    def test_while_without_braces_fails(self):
+        """Test that a while statement without braces is an error."""
+        infix = """
+RESULT = 1
+while (0) RESULT = 2
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "must be a block statement" in output
+
+    def test_else_without_braces_fails(self):
+        """Test that an else statement without braces is an error."""
+        infix = """
+RESULT = 0
+if (0) {
+    RESULT = 1
+} else RESULT = 2
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "must be a block statement" in output
+
+    def test_else_if_is_allowed(self):
+        """Test that 'else if' chain is still allowed."""
+        infix = """
+RESULT = 0
+if (0) {
+    RESULT = 1
+} else if (1) {
+    RESULT = 2
+} else {
+    RESULT = 3
+}
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, output
+
+    def test_variable_leaks_from_while_fails(self):
+        """Test that a variable defined in a while loop is not accessible outside."""
+        infix = """
+while (0) {
+    a = 10
+}
+RESULT = a
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "Variable 'a' is used before being defined" in output
+
+    def test_outer_scope_var_modification_is_ok(self):
+        """Test that modifying an outer scope variable inside a block is allowed."""
+        infix = """
+a = 1
+if (1) {
+    a = 2
+}
+RESULT = a
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, output
+
+    def test_result_only_in_block_fails(self):
+        """Test that RESULT must be defined in the global scope in expr mode."""
+        infix = """
+if (1) {
+    RESULT = 1
+}
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "'RESULT' must be defined in the global scope" in output
+
+    def test_result_in_global_and_block_is_ok(self):
+        """Test that RESULT can be defined globally and modified in a block."""
+        infix = """
+RESULT = 0
+if (1) {
+    RESULT = 1
+}
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, output
+
+    def test_standalone_block_fails(self):
+        """Test that a standalone block is not allowed."""
+        infix = """
+RESULT = 0
+{
+    a = 1
+}
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "Standalone blocks are not allowed" in output
 
 
 if __name__ == "__main__":

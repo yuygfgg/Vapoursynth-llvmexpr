@@ -79,8 +79,8 @@ std::unique_ptr<Stmt> Parser::parseStatement() {
     if (peek().type == TokenType::While)
         return parseWhileStatement();
     if (peek().type == TokenType::LBrace) {
-        auto block = parseBlock();
-        return std::make_unique<Stmt>(BlockStmt(std::move(*block)));
+        error(peek(), "Standalone blocks are not allowed. Braces can only be "
+                      "used for function, if, else, or while bodies.");
     }
     if (peek().type == TokenType::Goto)
         return parseGotoStatement();
@@ -98,10 +98,24 @@ std::unique_ptr<Stmt> Parser::parseIfStatement() {
     consume(TokenType::LParen, "Expect '(' after 'if'.");
     auto condition = parseTernary();
     consume(TokenType::RParen, "Expect ')' after if condition.");
-    auto thenBranch = parseStatement();
+
+    if (peek().type != TokenType::LBrace) {
+        error(peek(), "The body of an if statement must be a block statement "
+                      "enclosed in {}.");
+    }
+    auto thenBranch = std::make_unique<Stmt>(std::move(*parseBlock()));
+
     std::unique_ptr<Stmt> elseBranch = nullptr;
     if (match({TokenType::Else})) {
-        elseBranch = parseStatement();
+        if (peek().type == TokenType::If) {
+            elseBranch = parseIfStatement();
+        } else {
+            if (peek().type != TokenType::LBrace) {
+                error(peek(), "The body of an else statement must be a block "
+                              "statement enclosed in {}.");
+            }
+            elseBranch = std::make_unique<Stmt>(std::move(*parseBlock()));
+        }
     }
     return make_node<Stmt, IfStmt>(std::move(condition), std::move(thenBranch),
                                    std::move(elseBranch));
@@ -112,7 +126,13 @@ std::unique_ptr<Stmt> Parser::parseWhileStatement() {
     consume(TokenType::LParen, "Expect '(' after 'while'.");
     auto condition = parseTernary();
     consume(TokenType::RParen, "Expect ')' after while condition.");
-    auto body = parseStatement();
+
+    if (peek().type != TokenType::LBrace) {
+        error(peek(), "The body of a while statement must be a block "
+                      "statement enclosed in {}.");
+    }
+    auto body = std::make_unique<Stmt>(std::move(*parseBlock()));
+
     return make_node<Stmt, WhileStmt>(std::move(condition), std::move(body));
 }
 

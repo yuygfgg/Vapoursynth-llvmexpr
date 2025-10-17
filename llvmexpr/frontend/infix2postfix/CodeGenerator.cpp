@@ -109,6 +109,11 @@ std::string CodeGenerator::generate(Program* program) {
             "Final result must be assigned to variable 'RESULT'!", 0);
     }
 
+    if (mode == Mode::Expr && !result_defined_in_global_scope) {
+        throw CodeGenError(
+            "'RESULT' must be defined in the global scope in Expr mode.", 0);
+    }
+
     if (mode == Mode::Expr) {
         builder.add_variable_load("RESULT");
     }
@@ -654,8 +659,14 @@ PostfixBuilder CodeGenerator::handle(const ExprStmt& stmt) {
 }
 
 PostfixBuilder CodeGenerator::handle(const AssignStmt& stmt) {
-    if (stmt.name.value == "RESULT")
+    if (stmt.name.value == "RESULT") {
         has_result = true;
+        if (mode == Mode::Expr) {
+            if (current_function == nullptr && scope_stack.empty()) {
+                result_defined_in_global_scope = true;
+            }
+        }
+    }
 
     auto value_code = generate(stmt.value.get());
 
@@ -671,7 +682,9 @@ PostfixBuilder CodeGenerator::handle(const AssignStmt& stmt) {
     define_variable_in_current_scope(renamed_var);
 
     if (current_function == nullptr) {
-        defined_globals.insert(var_name);
+        if (scope_stack.empty()) {
+            defined_globals.insert(var_name);
+        }
     } else {
         local_scope_vars.insert(var_name);
     }
@@ -1143,8 +1156,11 @@ void CodeGenerator::exit_scope() {
 
 void CodeGenerator::define_variable_in_current_scope(
     const std::string& var_name) {
-    if (!scope_stack.empty()) {
-        scope_stack.back().insert(var_name);
+    if (all_defined_vars_in_scope.find(var_name) ==
+        all_defined_vars_in_scope.end()) {
+        if (!scope_stack.empty()) {
+            scope_stack.back().insert(var_name);
+        }
     }
     all_defined_vars_in_scope.insert(var_name);
 }

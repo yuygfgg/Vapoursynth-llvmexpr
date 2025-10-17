@@ -86,6 +86,7 @@ class CodeGenerator {
     Mode mode;
     int num_inputs;
     bool has_result = false;
+    bool result_defined_in_global_scope = false;
     int label_counter = 0;
 
     std::map<std::string, std::vector<FunctionSignature>> functions;
