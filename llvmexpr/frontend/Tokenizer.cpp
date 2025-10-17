@@ -22,9 +22,11 @@
 #include <algorithm>
 #include <format>
 #include <functional>
+#include <locale>
 #include <optional>
 #include <ranges>
 #include <regex>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -33,6 +35,17 @@
 namespace {
 
 using TokenParser = std::function<std::optional<Token>(std::string_view)>;
+
+// TODO: use std::from_chars when libc++ supports it.
+inline double locale_independent_stod(const std::string& s) {
+    std::istringstream iss(s);
+    iss.imbue(std::locale::classic());
+    double val;
+    if (!(iss >> val) || !iss.eof()) {
+        throw std::runtime_error("Failed to parse number: " + s);
+    }
+    return val;
+}
 
 struct TokenInfo {
     TokenType type;
@@ -418,8 +431,10 @@ static const std::vector<TokenInfo>& get_token_definitions() {
                 double val;
                 if (m[2].matched) { // Octal integer
                     val = static_cast<double>(std::stoll(s, nullptr, 0));
-                } else { // Hex or decimal float/integer
-                    val = std::stod(s);
+                } else if (m[1].matched) { // Hexadecimal float/integer
+                    val = locale_independent_stod(s);
+                } else { // Decimal float/integer - use locale-independent parsing
+                    val = locale_independent_stod(s);
                 }
                 return TokenPayload_Number{val};
             })};
