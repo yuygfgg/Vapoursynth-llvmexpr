@@ -11,6 +11,12 @@ Parser::Parser(const std::vector<Token>& tokens) : tokens(tokens) {}
 std::unique_ptr<Program> Parser::parse() {
     auto program = std::make_unique<Program>();
     while (!isAtEnd()) {
+        // Skip any leading empty statements
+        while (match({TokenType::Newline, TokenType::Semicolon})) {
+        }
+        if (isAtEnd()) {
+            break;
+        }
         try {
             program->statements.push_back(parseDeclaration());
         } catch (const ParserError& e) {
@@ -22,8 +28,13 @@ std::unique_ptr<Program> Parser::parse() {
 }
 
 std::unique_ptr<Stmt> Parser::parseDeclaration() {
+    std::unique_ptr<Stmt> stmt;
     if (peek().type == TokenType::Global) {
         auto globalDecl = parseGlobalDecl();
+
+        while (match({TokenType::Newline})) {
+        }
+
         // Global declaration must be followed by a function definition
         if (peek().type != TokenType::Function) {
             error(peek(), "Global declaration must be followed by a function "
@@ -32,13 +43,34 @@ std::unique_ptr<Stmt> Parser::parseDeclaration() {
         auto funcDef = parseFunctionDef();
         // Attach the global declaration to the function
         funcDef->global_decl = std::move(globalDecl);
-        return make_node<Stmt, FunctionDef>(std::move(*funcDef));
-    }
-    if (peek().type == TokenType::Function) {
+        stmt = make_node<Stmt, FunctionDef>(std::move(*funcDef));
+    } else if (peek().type == TokenType::Function) {
         auto funcDef = parseFunctionDef();
-        return std::make_unique<Stmt>(FunctionDef(std::move(*funcDef)));
+        stmt = std::make_unique<Stmt>(FunctionDef(std::move(*funcDef)));
+    } else {
+        stmt = parseStatement();
     }
-    return parseStatement();
+
+    // Block statements are not followed by a terminator here.
+    if (get_if<FunctionDef>(stmt.get()) || get_if<IfStmt>(stmt.get()) ||
+        get_if<WhileStmt>(stmt.get()) || get_if<BlockStmt>(stmt.get())) {
+        return stmt;
+    }
+
+    // Last statement in a block or file.
+    if (isAtEnd() || peek().type == TokenType::RBrace) {
+        return stmt;
+    }
+
+    // A simple statement must be followed by a terminator.
+    if (peek().type == TokenType::Newline ||
+        peek().type == TokenType::Semicolon) {
+        // The terminator is consumed by the main loop.
+        return stmt;
+    }
+
+    error(peek(), "Expected newline or semicolon after statement.");
+    std::unreachable();
 }
 
 std::unique_ptr<Stmt> Parser::parseStatement() {
@@ -106,7 +138,10 @@ std::unique_ptr<Stmt> Parser::parseLabelStatement() {
 std::unique_ptr<Stmt> Parser::parseReturnStatement() {
     Token keyword = consume(TokenType::Return, "Expect 'return'.");
     std::unique_ptr<Expr> value = nullptr;
-    if (peek().type != TokenType::EndOfFile &&
+    // Check if there is a value to return.
+    if (peek().type != TokenType::Newline &&
+        peek().type != TokenType::Semicolon &&
+        peek().type != TokenType::EndOfFile &&
         peek().type != TokenType::RBrace) {
         value = parseTernary();
     }
@@ -117,6 +152,12 @@ std::unique_ptr<BlockStmt> Parser::parseBlock() {
     consume(TokenType::LBrace, "Expect '{' to start a block.");
     std::vector<std::unique_ptr<Stmt>> statements;
     while (peek().type != TokenType::RBrace && !isAtEnd()) {
+        // Skip any empty statements
+        while (match({TokenType::Newline, TokenType::Semicolon})) {
+        }
+        if (peek().type == TokenType::RBrace || isAtEnd()) {
+            break;
+        }
         statements.push_back(parseDeclaration());
     }
     consume(TokenType::RBrace, "Expect '}' to end a block.");

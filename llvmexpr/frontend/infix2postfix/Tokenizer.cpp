@@ -61,6 +61,12 @@ Token Tokenizer::nextToken() {
 
     char c = peek();
 
+    if (c == '\n') {
+        line++;
+        advance();
+        return makeToken(TokenType::Newline);
+    }
+
     if (std::isalpha(c) || c == '_')
         return identifier();
     if (std::isdigit(c))
@@ -102,10 +108,6 @@ void Tokenizer::skipWhitespaceAndComments() {
         case ' ':
         case '\r':
         case '\t':
-            advance();
-            break;
-        case '\n':
-            line++;
             advance();
             break;
         case '#':
@@ -181,7 +183,7 @@ Token Tokenizer::number() {
 }
 
 Token Tokenizer::globalDeclaration() {
-    advance(); // Consume initial '<'
+    advance();     // Consume initial '<'
     int depth = 1; // We've already seen the opening '<'
     while (depth > 0 && peek() != '\0') {
         char c = peek();

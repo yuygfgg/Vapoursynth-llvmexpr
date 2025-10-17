@@ -63,14 +63,15 @@ enum class TokenType {
     Not,        // !
 
     // Punctuation
-    LParen,   // (
-    RParen,   // )
-    LBrace,   // {
-    RBrace,   // }
-    LBracket, // [
-    RBracket, // ]
-    Comma,    // ,
-    Dot,      // .
+    LParen,    // (
+    RParen,    // )
+    LBrace,    // {
+    RBrace,    // }
+    LBracket,  // [
+    RBracket,  // ]
+    Comma,     // ,
+    Dot,       // .
+    Semicolon, // ;
 
     // Literals
     Identifier,
@@ -78,6 +79,7 @@ enum class TokenType {
 
     // Special
     Global, // <global...>
+    Newline,
     EndOfFile,
     Invalid,
 };
@@ -129,6 +131,7 @@ constexpr TokenMapping token_mappings[] = {
     {TokenType::RBracket, "]"},
     {TokenType::Comma, ","},
     {TokenType::Dot, "."},
+    {TokenType::Semicolon, ";"},
 };
 
 inline std::string token_type_to_string(TokenType type) {
@@ -145,6 +148,10 @@ inline std::string token_type_to_string(TokenType type) {
         return "number";
     case TokenType::Global:
         return "global declaration";
+    case TokenType::Newline:
+        return "newline";
+    case TokenType::Semicolon:
+        return "semicolon";
     case TokenType::EndOfFile:
         return "end of file";
     case TokenType::Invalid:

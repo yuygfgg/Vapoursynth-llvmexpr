@@ -689,6 +689,74 @@ RESULT = dup(4)
         assert "Duplicate function signature" in output
 
 
+class TestStatementTermination:
+    """Tests for statement termination rules (newlines and semicolons)."""
+
+    def test_semicolon_termination(self):
+        """Test that statements can be terminated by semicolons."""
+        infix = """
+a = 10;
+b = 20;
+RESULT = a + b;
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "10 a!" in output
+        assert "20 b!" in output
+        assert "a@ b@ + RESULT!" in output
+
+    def test_multiple_statements_on_one_line(self):
+        """Test that multiple statements can be on one line separated by semicolons."""
+        infix = "a = 1; b = 2; c = a + b; RESULT = c"
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "1 a! 2 b! a@ b@ + c! c@ RESULT!" in output
+
+    def test_mixed_termination(self):
+        """Test a mix of newline and semicolon terminations."""
+        infix = """
+a = 1;
+b = 2
+c = a + b; RESULT = c
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "1 a! 2 b! a@ b@ + c! c@ RESULT!" in output
+
+    def test_empty_statements(self):
+        """Test that empty statements (extra semicolons) are allowed."""
+        infix = """
+a = 1;
+;
+b = 2;;
+RESULT = a + b
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "1 a! 2 b! a@ b@ + RESULT!" in output
+
+    def test_missing_terminator_error(self):
+        """Test that two statements on one line without a separator is an error."""
+        infix = "a = 1 b = 2"
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should have failed"
+        assert "Expected newline or semicolon after statement" in output
+
+    def test_junk_after_statement_error(self):
+        """Test that junk after a statement on the same line is an error."""
+        infix = "a = 1 2"
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should have failed"
+        assert "Expected newline or semicolon after statement" in output
+
+    def test_invalid_case(self):
+        """Test invalid case."""
+        infix = "RESULT = 1 v = 5 + 8"
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should have failed"
+        assert "Expected newline or semicolon after statement" in output
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 

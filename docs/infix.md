@@ -62,8 +62,9 @@ A program is a script composed of one or more statements.
 
 ### 3.1. Statements
 
-- Statements are written one per line.
-- The use of semicolons (`;`) to terminate or separate statements is forbidden and will result in a syntax error.
+- Statements can be terminated by either a newline or a semicolon (`;`).
+- Semicolons are optional if a statement is on its own line.
+- To place multiple statements on a single line, you must separate them with semicolons.
 
 #### Assignment Statements
 
@@ -77,11 +78,14 @@ An assignment statement computes the value of an expression and stores it in a v
 A statement can consist of a single expression, such as a function call that does not return a value. The expression is evaluated, and its result is discarded. The net stack effect of such a statement must be zero.
 
 ```
-# Assignment statement
+# Assignment statement (newline terminated)
 my_var = 10 * 2
 
-# Expression statement (assuming 'my_func' has no return value)
-my_func(my_var)
+# Expression statement (semicolon terminated)
+my_func(my_var);
+
+# Multiple statements on one line
+a = 1; b = 2; c = a + b
 ```
 
 ### 3.2. Final Result (`Expr` mode)

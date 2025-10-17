@@ -505,7 +505,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
                 expr.line);
         }
         int n = std::stoi(n_str);
-        int arg_count = (int)expr.args.size();
+        int arg_count = expr.args.size();
         if (arg_count < n) {
             throw CodeGenError(std::format("Function '{}' requires at least {} "
                                            "arguments, but {} were provided.",
