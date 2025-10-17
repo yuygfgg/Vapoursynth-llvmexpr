@@ -195,7 +195,6 @@ h = frame.height[0];
 avg = (dyn(x, 0, 0, 0) + dyn(x, w-1, h-1, 0)) / 2;
 set_prop(AverageValue, avg);
 ```
-**Postfix output:** `123.456 MyProperty$`, `avg AverageValue$`
 
 ### 6.2. Pixel Access (`Expr` mode)
 
@@ -229,7 +228,6 @@ Access the width and height of specific planes using `frame.width[N]` and `frame
 w0 = frame.width[0];   # Width of plane 0 (luma)
 h1 = frame.height[1];  # Height of plane 1 (chroma U)
 ```
-**Postfix output:** `width^0`, `height^1`
 **Note:** The plane index `N` must be an literal constant.
 
 #### Absolute Pixel Reading
@@ -293,7 +291,6 @@ The `dyn()` function has different signatures for `Expr` and `SingleExpr` modes.
     - `x`, `y`: Absolute coordinates (can be expressions).
     - `plane`: Plane index (must be an literal constant).
   - **Example:** `val = dyn($x, 100, 200, 0);`
-  - **Postfix output:** `100 200 x^0 []`
 
 #### `store()` - Pixel Writing
 
@@ -310,7 +307,6 @@ The `store()` function has different signatures for `Expr` and `SingleExpr` mode
     - `plane`: Plane index (must be an literal constant).
     - `value`: Value to write (can be an expression).
   - **Example:** `store(0, 0, 0, 255);`
-  - **Postfix output:** `255 0 0 @[]^0`
   - **Warning:** No boundary checking is performed. Writing outside valid frame dimensions causes undefined behavior.
 
 #### `exit()` (`Expr` only)
