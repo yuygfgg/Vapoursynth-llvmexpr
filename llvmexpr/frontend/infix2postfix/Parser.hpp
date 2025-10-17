@@ -2,6 +2,7 @@
 #define LLVMEXPR_INFIX2POSTFIX_PARSER_HPP
 
 #include "AST.hpp"
+#include <format>
 #include <set>
 #include <stdexcept>
 #include <vector>
@@ -11,7 +12,7 @@ namespace infix2postfix {
 class ParserError : public std::runtime_error {
   public:
     ParserError(const std::string& message, int line)
-        : std::runtime_error("Line " + std::to_string(line) + ": " + message),
+        : std::runtime_error(std::format("Line {}: {}", line, message)),
           line(line) {}
     int line;
 };

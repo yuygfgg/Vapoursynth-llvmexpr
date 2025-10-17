@@ -4,6 +4,7 @@
 #include "AST.hpp"
 #include "PostfixBuilder.hpp"
 #include "types.hpp"
+#include <format>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -18,7 +19,7 @@ class CodeGenError : public std::runtime_error {
   public:
     int line;
     CodeGenError(const std::string& message, int l)
-        : std::runtime_error(message), line(l) {}
+        : std::runtime_error(std::format("Line {}: {}", l, message)), line(l) {}
 };
 
 class CodeGenerator {
