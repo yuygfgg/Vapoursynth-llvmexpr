@@ -47,6 +47,14 @@ inline double locale_independent_stod(const std::string& s) {
     return val;
 }
 
+inline int parse_std_clip_idx(char c) {
+    if (c >= 'x' && c <= 'z') {
+        return c - 'x';
+    } else {
+        return c - 'a' + 3;
+    }
+}
+
 struct TokenInfo {
     TokenType type;
     std::string_view name;
@@ -302,12 +310,7 @@ static const std::vector<TokenInfo>& get_token_definitions() {
                 if (m[1].matched) {
                     data.clip_idx = std::stoi(m[1].str());
                 } else if (m[2].matched) {
-                    char c = m[2].str()[0];
-                    if (c >= 'x' && c <= 'z') {
-                        data.clip_idx = c - 'x';
-                    } else {
-                        data.clip_idx = c - 'a' + 3;
-                    }
+                    data.clip_idx = parse_std_clip_idx(m[2].str()[0]);
                 }
                 data.rel_x = std::stoi(m[3].str());
                 data.rel_y = std::stoi(m[4].str());
@@ -326,12 +329,7 @@ static const std::vector<TokenInfo>& get_token_definitions() {
                 if (m[1].matched) {
                     data.clip_idx = std::stoi(m[1].str());
                 } else if (m[2].matched) {
-                    char c = m[2].str()[0];
-                    if (c >= 'x' && c <= 'z') {
-                        data.clip_idx = c - 'x';
-                    } else {
-                        data.clip_idx = c - 'a' + 3;
-                    }
+                    data.clip_idx = parse_std_clip_idx(m[2].str()[0]);
                 }
                 if (m[3].matched) {
                     char mode_char = m[3].str()[0];
@@ -358,12 +356,7 @@ static const std::vector<TokenInfo>& get_token_definitions() {
                          if (m[1].matched) {
                              data.clip_idx = std::stoi(m[1].str());
                          } else if (m[2].matched) {
-                             char c = m[2].str()[0];
-                             if (c >= 'x' && c <= 'z') {
-                                 data.clip_idx = c - 'x';
-                             } else {
-                                 data.clip_idx = c - 'a' + 3;
-                             }
+                             data.clip_idx = parse_std_clip_idx(m[2].str()[0]);
                          }
                          return data;
                      }),
@@ -377,12 +370,7 @@ static const std::vector<TokenInfo>& get_token_definitions() {
                 if (m[1].matched) {
                     data.clip_idx = std::stoi(m[1].str());
                 } else if (m[2].matched) {
-                    char c = m[2].str()[0];
-                    if (c >= 'x' && c <= 'z') {
-                        data.clip_idx = c - 'x';
-                    } else {
-                        data.clip_idx = c - 'a' + 3;
-                    }
+                    data.clip_idx = parse_std_clip_idx(m[2].str()[0]);
                 }
                 data.prop_name = m[3].str();
                 return data;
@@ -394,16 +382,10 @@ static const std::vector<TokenInfo>& get_token_definitions() {
                      std::regex(R"(^(?:src(\d+)|([x-za-w]))\^(\d+)\[\]$)"),
                      [](const std::smatch& m) -> Token::PayloadVariant {
                          TokenPayload_ClipAccessPlane data;
-                         // TODO: add a function to avoid code duplication.
                          if (m[1].matched) {
                              data.clip_idx = std::stoi(m[1].str());
                          } else if (m[2].matched) {
-                             char c = m[2].str()[0];
-                             if (c >= 'x' && c <= 'z') {
-                                 data.clip_idx = c - 'x';
-                             } else {
-                                 data.clip_idx = c - 'a' + 3;
-                             }
+                             data.clip_idx = parse_std_clip_idx(m[2].str()[0]);
                          }
                          data.plane_idx = std::stoi(m[3].str());
                          return data;
