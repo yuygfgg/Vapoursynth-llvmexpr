@@ -75,7 +75,7 @@ Input clips are the primary source of pixel values. They can be referenced in tw
 
 #### **2.2. Numeric Constants**
 
-Literals are pushed directly onto the stack.
+Literals are pushed directly onto the stack. The decimal separator for floating-point numbers is always a period (`.`), regardless of the system's locale settings.
 
 - **Standard:** `128`, `3.14`, `-0.5`
 - **Hexadecimal:** `0x10` (16), `0xFF` (255).

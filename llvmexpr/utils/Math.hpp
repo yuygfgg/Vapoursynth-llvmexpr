@@ -74,7 +74,6 @@ using SupportedVectorWidths = std::integer_sequence<int, 4>;
 #else
 using SupportedVectorWidths = std::integer_sequence<int>;
 #endif
-// TODO: Figure out if other architectures have >4 wide vector support.
 
 template <int VectorWidth> class MathFunctionGenerator {
   public:

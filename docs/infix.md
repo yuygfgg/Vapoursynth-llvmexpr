@@ -52,7 +52,7 @@ Identifiers are used for naming variables and functions.
 
 The language supports several formats for numeric constants:
 
-- **Decimal:** Standard integers (`100`, `-42`) and floating-point numbers (`3.14`, `-0.5`, `1.2e-5`).
+- **Decimal:** Standard integers (`100`, `-42`) and floating-point numbers (`3.14`, `-0.5`, `1.2e-5`). The decimal separator is always a period (`.`), regardless of the system's locale settings.
 - **Hexadecimal:** Prefixed with `0x`. Can include a fractional part and a binary exponent (`p-exponent`). Examples: `0xFF`, `0x1.9p-2`.
 - **Octal:** Prefixed with a leading `0`. Example: `0755`.
 

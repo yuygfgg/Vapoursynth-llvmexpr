@@ -61,11 +61,15 @@ This means that even when forcing approximate math in `llvmexpr` (`approx_math=1
 
 Beyond `pow`, `llvmexpr` provides more explicit control over mathematical precision. With `approx_math=2` (the default auto mode) or `approx_math=0` (forced precise), `llvmexpr` will (or may) use precise mathematical functions. This can lead to different results compared to `akarin.Expr`, which use approximate math only.
 
-#### 3. Incompatible Positional Arguments
+#### 3. Decimal Separator
+
+`llvmexpr` always uses a period (`.`) as the decimal separator for floating-point numbers, regardless of system locale. In contrast, `akarin.Expr`'s parser is locale-dependent and may expect a comma (`,`) in certain regions. This can cause expressions to fail when moved between systems with different locale configurations. `llvmexpr` provides consistent parsing by ignoring locale for decimal separators.
+
+#### 4. Incompatible Positional Arguments
 
 When migrating from `akarin.Expr`, **do not perform a simple find-and-replace** on the function name, especially if you use positional arguments. The optional parameters for `akarin.Expr` and `llvmexpr.Expr` are in a **different order**, which can lead to silent errors or immediate script failure.
 
-#### 4. Parameter Signature Mismatch
+#### 5. Parameter Signature Mismatch
 
 A side-by-side comparison reveals the incompatibility:
 
@@ -77,7 +81,7 @@ A side-by-side comparison reveals the incompatibility:
 | **4** | **`opt`** (optional)      | **`boundary`** (optional) | ❌ **MISMATCH** |
 | **5** | **`boundary`** (optional) | **`dump_ir`** (optional)  | ❌ **MISMATCH** |
 
-#### 5. Different Error Messages
+#### 6. Different Error Messages
 
 When an RPN fails to compile, `llvmexpr` will raise a different error message than `akarin.Expr`.
 
