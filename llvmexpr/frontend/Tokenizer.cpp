@@ -290,15 +290,44 @@ static const std::vector<TokenInfo>& get_token_definitions() {
                      }),
 
         define_regex(TokenType::VAR_STORE, "var_store", TokenBehavior{1, -1},
-                     std::regex(R"(^(.+)!$)"),
+                     std::regex(R"(^([a-zA-Z_][a-zA-Z0-9_]*)!$)"),
                      [](const std::smatch& m) -> Token::PayloadVariant {
                          return TokenPayload_Var{.name = m[1].str()};
                      }),
 
         define_regex(TokenType::VAR_LOAD, "var_load", TokenBehavior{0, 1},
-                     std::regex(R"(^(.+)@$)"),
+                     std::regex(R"(^([a-zA-Z_][a-zA-Z0-9_]*)@$)"),
                      [](const std::smatch& m) -> Token::PayloadVariant {
                          return TokenPayload_Var{.name = m[1].str()};
+                     }),
+
+        define_regex(TokenType::ARRAY_ALLOC_STATIC, "array_alloc_static",
+                     TokenBehavior{0, 0},
+                     std::regex(R"(^([a-zA-Z_][a-zA-Z0-9_]*)\{\}\^(\d+)$)"),
+                     [](const std::smatch& m) -> Token::PayloadVariant {
+                         return TokenPayload_ArrayOp{.name = m[1].str(),
+                                                     .static_size =
+                                                         std::stoi(m[2].str())};
+                     }),
+
+        define_regex(TokenType::ARRAY_ALLOC_DYN, "array_alloc_dyn",
+                     TokenBehavior{1, -1},
+                     std::regex(R"(^([a-zA-Z_][a-zA-Z0-9_]*)\{\}\^$)"),
+                     [](const std::smatch& m) -> Token::PayloadVariant {
+                         return TokenPayload_ArrayOp{.name = m[1].str()};
+                     }),
+
+        define_regex(TokenType::ARRAY_STORE, "array_store",
+                     TokenBehavior{2, -2},
+                     std::regex(R"(^([a-zA-Z_][a-zA-Z0-9_]*)\{\}!$)"),
+                     [](const std::smatch& m) -> Token::PayloadVariant {
+                         return TokenPayload_ArrayOp{.name = m[1].str()};
+                     }),
+
+        define_regex(TokenType::ARRAY_LOAD, "array_load", TokenBehavior{1, 0},
+                     std::regex(R"(^([a-zA-Z_][a-zA-Z0-9_]*)\{\}@$)"),
+                     [](const std::smatch& m) -> Token::PayloadVariant {
+                         return TokenPayload_ArrayOp{.name = m[1].str()};
                      }),
 
         define_regex(
@@ -460,6 +489,7 @@ std::vector<Token> tokenize(const std::string& expr, int num_inputs,
             case TokenType::PROP_STORE:
             case TokenType::CONSTANT_PLANE_WIDTH:
             case TokenType::CONSTANT_PLANE_HEIGHT:
+            case TokenType::ARRAY_ALLOC_DYN:
                 if (mode == ExprMode::EXPR)
                     skip = true;
                 break;

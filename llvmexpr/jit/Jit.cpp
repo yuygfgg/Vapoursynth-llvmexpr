@@ -31,6 +31,12 @@
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/TargetParser/Host.h"
 
+// Forward declare the host API functions
+extern "C" {
+float* llvmexpr_ensure_buffer(void*, const char*, int64_t);
+int64_t llvmexpr_get_buffer_size(void*, const char*);
+}
+
 OrcJit::OrcJit(bool no_nans_fp_math) {
     static struct LLVMInitializer {
         LLVMInitializer() {
@@ -71,6 +77,28 @@ OrcJit::OrcJit(bool no_nans_fp_math) {
         throw std::runtime_error("LLJIT creation failed");
     }
     lljit = std::move(*temp_jit);
+
+    // Register Host API symbols for dynamic array management
+    auto& main_jd = lljit->getMainJITDylib();
+    llvm::orc::SymbolMap symbols;
+
+    symbols[lljit->mangleAndIntern("llvmexpr_ensure_buffer")] =
+        llvm::orc::ExecutorSymbolDef(
+            llvm::orc::ExecutorAddr(
+                llvm::pointerToJITTargetAddress(&llvmexpr_ensure_buffer)),
+            llvm::JITSymbolFlags::Callable | llvm::JITSymbolFlags::Exported);
+
+    symbols[lljit->mangleAndIntern("llvmexpr_get_buffer_size")] =
+        llvm::orc::ExecutorSymbolDef(
+            llvm::orc::ExecutorAddr(
+                llvm::pointerToJITTargetAddress(&llvmexpr_get_buffer_size)),
+            llvm::JITSymbolFlags::Callable | llvm::JITSymbolFlags::Exported);
+
+    if (auto err = main_jd.define(llvm::orc::absoluteSymbols(symbols))) {
+        llvm::errs() << "Failed to define host call symbols: "
+                     << llvm::toString(std::move(err)) << "\n";
+        throw std::runtime_error("Failed to define host call symbols in JIT");
+    }
 }
 
 const llvm::DataLayout& OrcJit::getDataLayout() const {

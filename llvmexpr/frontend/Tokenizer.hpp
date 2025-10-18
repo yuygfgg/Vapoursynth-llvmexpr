@@ -40,6 +40,12 @@ enum class TokenType {
     VAR_STORE, // my_var!
     VAR_LOAD,  // my_var@
 
+    // Array Ops
+    ARRAY_ALLOC_STATIC, // arr{}^N
+    ARRAY_ALLOC_DYN,    // arr{}^
+    ARRAY_STORE,        // arr{}!
+    ARRAY_LOAD,         // arr{}@
+
     // Data Access
     CLIP_REL,        // src[x,y]
     CLIP_ABS,        // src[]
@@ -165,13 +171,19 @@ struct TokenPayload_PlaneDim {
     int plane_idx;
 };
 
+struct TokenPayload_ArrayOp {
+    std::string name;
+    int static_size = 0; // ARRAY_ALLOC_STATIC
+};
+
 struct Token {
     using PayloadVariant =
         std::variant<std::monostate, TokenPayload_Number, TokenPayload_Var,
                      TokenPayload_Label, TokenPayload_StackOp,
                      TokenPayload_ClipAccess, TokenPayload_PropAccess,
                      TokenPayload_ClipAccessPlane, TokenPayload_StoreAbsPlane,
-                     TokenPayload_PropStore, TokenPayload_PlaneDim>;
+                     TokenPayload_PropStore, TokenPayload_PlaneDim,
+                     TokenPayload_ArrayOp>;
 
     TokenType type;
     std::string text;

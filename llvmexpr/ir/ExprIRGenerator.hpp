@@ -52,7 +52,9 @@ class ExprIRGenerator : public IRGeneratorBase {
     void generate_x_loop_body(llvm::Value* x_var, llvm::Value* x_fp_var,
                               llvm::Value* y_var, llvm::Value* y_fp_var,
                               bool no_x_bounds_check);
+
+    // Arrays
+    std::map<std::string, llvm::Value*> named_arrays;
 };
 
 #endif // LLVMEXPR_EXPRIRGENERATOR_HPP
-

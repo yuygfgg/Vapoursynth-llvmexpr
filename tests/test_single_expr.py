@@ -202,3 +202,143 @@ def test_invalid_plane_dimension():
     clip = core.std.BlankClip(format=vs.GRAYS, width=1280, height=720)
     with pytest.raises(vs.Error, match="Invalid plane index"):
         core.llvmexpr.SingleExpr(clip, "width^3 prop$")
+
+
+def test_array_static_allocation():
+    """Test static array allocation in SingleExpr mode."""
+    clip = core.std.BlankClip(width=100, height=100, format=vs.GRAY8, color=0)
+    # Allocate array, store value, read it back, write to property
+    expr = """
+        buffer{}^10
+        123.45 5 buffer{}!
+        5 buffer{}@ result$
+    """
+    res = core.llvmexpr.SingleExpr(clip, expr)
+    frame = res.get_frame(0)
+    assert frame.props["result"] == pytest.approx(123.45)
+
+
+def test_array_dynamic_allocation():
+    """Test dynamic array allocation."""
+    clip = core.std.BlankClip(width=100, height=100, format=vs.GRAY8, color=0)
+    expr = """
+        5 3 * size!
+        0 buffer{}^
+        size@ buffer{}^
+        99.9 10 buffer{}!
+        10 buffer{}@ result$
+    """
+    res = core.llvmexpr.SingleExpr(clip, expr)
+    frame = res.get_frame(0)
+    assert frame.props["result"] == pytest.approx(99.9)
+
+
+def test_array_dynamic_allocation_from_dimensions():
+    """Test dynamic array allocation using frame dimensions."""
+    clip = core.std.BlankClip(width=100, height=50, format=vs.GRAY8, color=0)
+    # Allocate array sized width * height
+    expr = """
+        width^0 height^0 * buffer{}^
+        777.0 500 buffer{}!
+        500 buffer{}@ result$
+    """
+    res = core.llvmexpr.SingleExpr(clip, expr)
+    frame = res.get_frame(0)
+    assert frame.props["result"] == pytest.approx(777.0)
+
+
+def test_array_read_write_pixel_buffer():
+    """Test using array as a pixel buffer."""
+    clip = core.std.BlankClip(width=100, height=100, format=vs.GRAY8, color=50)
+    # Read pixels, store in array, write back with offset
+    expr = """
+        pixbuf{}^100
+        10 20 src0^0[]
+        0 pixbuf{}!
+        30 40 src0^0[]
+        1 pixbuf{}!
+        0 pixbuf{}@ 55 66 @[]^0
+        1 pixbuf{}@ 77 88 @[]^0
+    """
+    res = core.llvmexpr.SingleExpr(clip, expr)
+    frame = res.get_frame(0)
+    assert frame[0][66, 55] == 50  # pixel from (20, 10)
+    assert frame[0][88, 77] == 50  # pixel from (40, 30)
+
+
+def test_array_multiple_arrays_independent():
+    """Test that multiple arrays are independent."""
+    clip = core.std.BlankClip(width=10, height=10, format=vs.GRAY8, color=0)
+    expr = """
+        a{}^5
+        b{}^5
+        111.0 0 a{}!
+        222.0 1 a{}!
+        333.0 0 b{}!
+        444.0 1 b{}!
+        0 a{}@ sum_a$
+        1 a{}@ sum_b$
+        0 b{}@ diff_a$
+        1 b{}@ diff_b$
+    """
+    res = core.llvmexpr.SingleExpr(clip, expr)
+    frame = res.get_frame(0)
+    assert frame.props["sum_a"] == pytest.approx(111.0)
+    assert frame.props["sum_b"] == pytest.approx(222.0)
+    assert frame.props["diff_a"] == pytest.approx(333.0)
+    assert frame.props["diff_b"] == pytest.approx(444.0)
+
+
+def test_array_with_loop_computation():
+    """Test array used in a computation loop."""
+    clip = core.std.BlankClip(width=10, height=10, format=vs.GRAY8, color=0)
+    # Initialize array with fibonacci-like sequence
+    expr = """
+        fib{}^10
+        1.0 0 fib{}!
+        1.0 1 fib{}!
+        
+        2 idx!
+        #loop
+        idx@ 10 < not loop_end#
+        
+        idx@ 1 - fib{}@
+        idx@ 2 - fib{}@
+        +
+        idx@ fib{}!
+        
+        idx@ 1 + dup idx!
+        loop#
+        
+        #loop_end
+        9 fib{}@ result$
+    """
+    res = core.llvmexpr.SingleExpr(clip, expr)
+    frame = res.get_frame(0)
+    # Fibonacci: 1, 1, 2, 3, 5, 8, 13, 21, 34, 55
+    assert frame.props["result"] == pytest.approx(55.0)
+
+
+def test_array_float_to_int_index():
+    """Test that float indices are converted to integers properly."""
+    clip = core.std.BlankClip(width=10, height=10, format=vs.GRAY8, color=0)
+    expr = """
+        arr{}^5
+        10.0 0 arr{}!
+        20.0 1 arr{}!
+        30.0 2 arr{}!
+        40.0 3 arr{}!
+        50.0 4 arr{}!
+        2.9 arr{}@ result$
+    """
+    res = core.llvmexpr.SingleExpr(clip, expr)
+    frame = res.get_frame(0)
+    # 2.9 should truncate to 2
+    assert frame.props["result"] == pytest.approx(30.0)
+
+
+def test_array_uninitialized_error():
+    """Test that using uninitialized array raises an error."""
+    clip = core.std.BlankClip(width=10, height=10, format=vs.GRAY8, color=0)
+    with pytest.raises(vs.Error, match="Array is uninitialized"):
+        core.llvmexpr.SingleExpr(clip, "0 arr{}@ result$")

@@ -47,18 +47,22 @@ ExprIRGenerator::ExprIRGenerator(
 void ExprIRGenerator::define_function_signature() {
     llvm::Type* void_ty = llvm::Type::getVoidTy(context);
     llvm::Type* ptr_ty = llvm::PointerType::get(context, 0);
+    llvm::Type* context_ptr_ty = ptr_ty; // opaque pointer (void*)
     llvm::Type* i8_ptr_ptr_ty = ptr_ty; // opaque pointer (represents uint8_t**)
     llvm::Type* i32_ptr_ty = ptr_ty;    // opaque pointer (represents int32_t*)
     llvm::Type* float_ptr_ty = ptr_ty;  // opaque pointer (represents float*)
 
     llvm::FunctionType* func_ty = llvm::FunctionType::get(
-        void_ty, {i8_ptr_ptr_ty, i32_ptr_ty, float_ptr_ty}, false);
+        void_ty, {context_ptr_ty, i8_ptr_ptr_ty, i32_ptr_ty, float_ptr_ty},
+        false);
 
     func = llvm::Function::Create(func_ty, llvm::Function::ExternalLinkage,
                                   func_name, &module);
     func->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
 
     auto args = func->arg_begin();
+    // Context argument not used in Expr mode
+    args++;
     rwptrs_arg = &*args++;
     rwptrs_arg->setName("rwptrs");
     strides_arg = &*args++;
@@ -66,14 +70,26 @@ void ExprIRGenerator::define_function_signature() {
     props_arg = &*args++;
     props_arg->setName("props");
 
-    func->addParamAttr(1, llvm::Attribute::ReadOnly); // strides (int32_t*)
-    func->addParamAttr(2, llvm::Attribute::ReadOnly); // props (float*)
+    func->addParamAttr(2, llvm::Attribute::ReadOnly); // strides (int32_t*)
+    func->addParamAttr(3, llvm::Attribute::ReadOnly); // props (float*)
 }
 
 void ExprIRGenerator::generate_loops() {
     llvm::BasicBlock* entry_bb =
         llvm::BasicBlock::Create(context, "entry", func);
     builder.SetInsertPoint(entry_bb);
+
+    // Pre-allocate static arrays
+    for (const auto& token : tokens) {
+        if (token.type == TokenType::ARRAY_ALLOC_STATIC) {
+            const auto& payload = std::get<TokenPayload_ArrayOp>(token.payload);
+            llvm::ArrayType* array_ty =
+                llvm::ArrayType::get(builder.getFloatTy(), payload.static_size);
+            llvm::Value* array_ptr =
+                createAllocaInEntry(array_ty, payload.name + "_array");
+            named_arrays[payload.name] = array_ptr;
+        }
+    }
 
     llvm::Function* parent_func = builder.GetInsertBlock()->getParent();
     llvm::BasicBlock* loop_y_header =
@@ -401,6 +417,48 @@ bool ExprIRGenerator::process_mode_specific_token(
         llvm::Value* coord_y = builder.CreateFPToSI(coord_y_f, i32_ty);
         llvm::Value* coord_x = builder.CreateFPToSI(coord_x_f, i32_ty);
         generate_pixel_store(val_to_store, coord_x, coord_y);
+        return true;
+    }
+
+    // Array
+    case TokenType::ARRAY_ALLOC_STATIC:
+        // Already handled in generate_loops()
+        return true;
+
+    case TokenType::ARRAY_LOAD: {
+        const auto& payload = std::get<TokenPayload_ArrayOp>(token.payload);
+        llvm::Value* idx_f = rpn_stack.back();
+        rpn_stack.pop_back();
+
+        llvm::Value* idx = builder.CreateFPToSI(idx_f, i32_ty);
+
+        llvm::Value* array_ptr = named_arrays.at(payload.name);
+
+        llvm::Value* elem_ptr = builder.CreateInBoundsGEP(
+            llvm::cast<llvm::AllocaInst>(array_ptr)->getAllocatedType(),
+            array_ptr, {builder.getInt32(0), idx});
+
+        llvm::Value* value = builder.CreateLoad(float_ty, elem_ptr);
+        rpn_stack.push_back(value);
+        return true;
+    }
+
+    case TokenType::ARRAY_STORE: {
+        const auto& payload = std::get<TokenPayload_ArrayOp>(token.payload);
+        llvm::Value* idx_f = rpn_stack.back();
+        rpn_stack.pop_back();
+        llvm::Value* value = rpn_stack.back();
+        rpn_stack.pop_back();
+
+        llvm::Value* idx = builder.CreateFPToSI(idx_f, i32_ty);
+
+        llvm::Value* array_ptr = named_arrays.at(payload.name);
+
+        llvm::Value* elem_ptr = builder.CreateInBoundsGEP(
+            llvm::cast<llvm::AllocaInst>(array_ptr)->getAllocatedType(),
+            array_ptr, {builder.getInt32(0), idx});
+
+        builder.CreateStore(value, elem_ptr);
         return true;
     }
 

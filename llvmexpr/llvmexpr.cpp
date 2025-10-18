@@ -68,6 +68,11 @@ struct SingleExprData : BaseExprData {
     std::map<std::string, int> output_prop_map;
     std::vector<Token> tokens;
     ExpressionAnalysisResults analysis_results;
+
+    struct DynamicArray {
+        std::vector<float> buffer;
+    };
+    std::map<std::string, DynamicArray> dynamic_arrays;
 };
 
 void validateAndInitClips(BaseExprData* d, const VSMap* in,
@@ -302,8 +307,8 @@ const VSFrame* VS_CC exprGetFrame(int n, int activationReason,
                     d->compiled[plane] = jit_cache.at(key);
                 }
 
-                d->compiled[plane].func_ptr(rwptrs.data(), strides.data(),
-                                            props.data());
+                d->compiled[plane].func_ptr(nullptr, rwptrs.data(),
+                                            strides.data(), props.data());
             }
         }
 
@@ -516,7 +521,7 @@ const VSFrame* VS_CC singleExprGetFrame(int n, int activationReason,
             d->compiled = jit_cache.at(key);
         }
 
-        d->compiled.func_ptr(rwptrs.data(), strides.data(), props.data());
+        d->compiled.func_ptr(d, rwptrs.data(), strides.data(), props.data());
 
         VSMap* dst_props = vsapi->getFramePropertiesRW(dst_frame);
         for (size_t i = 0; i < d->output_props.size(); ++i) {
@@ -622,6 +627,33 @@ void VS_CC singleExprCreate(const VSMap* in, VSMap* out,
 }
 
 } // anonymous namespace
+
+// Host API for JIT code to manage dynamic arrays
+// TODO: Move this to a separate file.
+// TODO: Optimize this.
+extern "C" {
+
+float* llvmexpr_ensure_buffer(void* context, const char* name,
+                              int64_t requested_size) {
+    if (!context)
+        return nullptr;
+    SingleExprData* d = static_cast<SingleExprData*>(context);
+    auto& array = d->dynamic_arrays[std::string(name)];
+    if (static_cast<size_t>(requested_size) > array.buffer.size()) {
+        array.buffer.resize(requested_size);
+    }
+    return array.buffer.data();
+}
+
+int64_t llvmexpr_get_buffer_size(void* context, const char* name) {
+    if (!context)
+        return 0;
+    SingleExprData* d = static_cast<SingleExprData*>(context);
+    auto it = d->dynamic_arrays.find(std::string(name));
+    return (it != d->dynamic_arrays.end()) ? it->second.buffer.size() : 0;
+}
+
+} // extern "C"
 
 VS_EXTERNAL_API(void)
 VapourSynthPluginInit2(VSPlugin* plugin, const VSPLUGINAPI* vspapi) {

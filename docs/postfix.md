@@ -208,11 +208,74 @@ The compiler performs a rigorous static analysis of the control flow. If it dete
 
 **Example:** `x 2 / my_var! my_var@ my_var@ *` (In `Expr`, this calculates `(x/2)^2`).
 
-#### **4.3. Data Access & Output**
+#### **4.3. Arrays**
+
+Arrays provide a way to store and manipulate multiple values in a named collection. They are particularly useful for implementing lookup tables, buffering pixel data, or performing complex iterative computations.
+
+##### **4.3.1. Array Allocation**
+
+Arrays must be allocated before use. The allocation method depends on whether the size is known at compile time and which execution mode you're using.
+
+- **Static Allocation:** `arrayname{}^size`
+  - Allocates an array with a fixed size known at compile time.
+  - `size` must be a positive integer literal (e.g., `buffer{}^256`).
+  - Available in both `Expr` and `SingleExpr`.
+  - In `Expr`: Arrays are allocated on the stack with minimal overhead and are friendly to LLVM's auto-vectorizer.
+  - In `SingleExpr`: Arrays are heap-allocated and managed by the host.
+  - Stack effect: 0 (no values consumed or produced).
+
+- **Dynamic Allocation:** `size arrayname{}^` (**SingleExpr only**)
+  - Allocates an array with a size determined at runtime.
+  - Pops the `size` value from the stack. If the value is not an integer, it will be converted (truncated).
+  - The array is heap-allocated and can be resized by allocating again with a different size.
+  - **Not available in `Expr` mode** - attempting to use this will result in a compilation error.
+  - Stack effect: -1 (consumes the size value).
+  - **Example:** `width^0 height^0 * pixelbuffer{}^` allocates an array sized to hold every pixel in plane 0.
+
+##### **4.3.2. Array Access**
+
+- **Reading:** `index arrayname{}@`
+  - Reads a value from the array at the specified index.
+  - Pops the `index` from the stack. If the index is not an integer, it will be converted (truncated).
+  - Pushes the value stored at that index onto the stack.
+  - Stack effect: 0 (consumes index, produces value).
+  - **Example:** `5 buffer{}@` reads the value at index 5 from `buffer`.
+
+- **Writing:** `value index arrayname{}!`
+  - Writes a value to the array at the specified index.
+  - Pops the `index` and then the `value` from the stack. If the index is not an integer, it will be converted (truncated).
+  - Stack effect: -2 (consumes both value and index).
+  - **Example:** `42.0 10 buffer{}!` writes 42.0 to index 10 of `buffer`.
+
+##### **4.3.3. Array Initialization and Safety**
+
+Like variables, arrays undergo static initialization analysis:
+- The compiler verifies that an array is allocated before any read or write operations.
+- Attempting to access an uninitialized array will result in a compilation error.
+- Array indices are **not** bounds-checked at runtime. Accessing an out-of-bounds index results in **undefined behavior**.
+
+##### **4.3.4. Array Scope and Persistence**
+
+- **In `Expr`:** Arrays are allocated per-pixel and only exist during the evaluation of that pixel. They cannot share data between pixels.
+- **In `SingleExpr`:** Arrays are allocated once per filter instance and persist across frame evaluations.
+  - **Important Note:** Due to VapourSynth's parallel frame processing, frames may be processed out of order or simultaneously. Arrays should **not** be used for inter-frame communication or accumulation, as this will produce non-deterministic results.
+  - Array values are preserved in intra-frame resizes and reallocations.
+  - **Example:**
+    Do note that comments are not allowed in the expression, therefore the example is only for demonstration purposes. To actually run this example, for each line everything after `#` should be removed.
+    ```
+    N 3 + buffer{}^ # Allocate an array "buffer" of size N + 3
+    N 1 - N buffer{}! # Write value (N - 1) to index N
+    N 6 + buffer{}^ # Reallocate "buffer" to size N + 6
+    5 width - N 5 + buffer{}! # Write value (5 - width) to index (N + 5)
+    N 5 + buffer{}@ prop1$ # Read the value at index N + 5, should be (5 - width)
+    N buffer{}@ prop2$ # Read the value at index N, should be (N - 1)
+    ```
+
+#### **4.4. Data Access & Output**
 
 Both `Expr` and `SingleExpr` can read pixel data and frame properties. However, their methods and capabilities differ significantly due to their execution models.
 
-##### **4.3.1. Pixel Access (`Expr` only)**
+##### **4.4.1. Pixel Access (`Expr` only)**
 
 In `Expr`, you can access pixels from any clip at absolute or relative coordinates.
 
@@ -233,7 +296,7 @@ In `Expr`, you can access pixels from any clip at absolute or relative coordinat
     - `:b`: Uses the behavior from the filter's global `boundary` parameter.
   - **Warning:** Absolute access may not be vectorized by the JIT compiler if coordinates are computed at runtime, which can cause severe performance degradation. Use relative access with constant offsets where possible.
 
-##### **4.3.2. Pixel & Data I/O (`SingleExpr` only)**
+##### **4.4.2. Pixel & Data I/O (`SingleExpr` only)**
 
 Since `SingleExpr` has no concept of a "current pixel," all data I/O must be explicit and use absolute coordinates.
 
@@ -250,7 +313,7 @@ Since `SingleExpr` has no concept of a "current pixel," all data I/O must be exp
   - **Example:** `255 0 0 @[]^0` writes the value `255` to the top-left pixel (0, 0) of the first plane.
   - **Important:** If a pixel is not explicitly written to, its value is copied from the first input clip (`src0`).
 
-##### **4.3.3. Frame Property Access**
+##### **4.4.3. Frame Property Access**
 
 - **Reading (Both `Expr` and `SingleExpr`):** `clip.PropertyName`
   - Loads a scalar numerical frame property. `clip` can be any clip identifier (`x`, `y`, `srcN`, etc.).
@@ -265,7 +328,7 @@ Since `SingleExpr` has no concept of a "current pixel," all data I/O must be exp
   - **Atomicity:** Property writes are atomic. A subsequent read within the same expression will see the newly written value.
   - **Example:** `x.PlaneStatsMax 2 / MyNewProp$` reads `PlaneStatsMax` from clip `x`, divides it by 2, and writes the result to a new property named `MyNewProp`.
 
-#### **4.4. `Expr`-Specific Output Control**
+#### **4.5. `Expr`-Specific Output Control**
 
 These operators provide fine-grained control over the default per-pixel output behavior in `Expr`. They are not available in `SingleExpr`.
 

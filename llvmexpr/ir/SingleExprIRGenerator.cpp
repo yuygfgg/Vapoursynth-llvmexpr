@@ -48,18 +48,22 @@ SingleExprIRGenerator::SingleExprIRGenerator(
 void SingleExprIRGenerator::define_function_signature() {
     llvm::Type* void_ty = llvm::Type::getVoidTy(context);
     llvm::Type* ptr_ty = llvm::PointerType::get(context, 0);
+    llvm::Type* context_ptr_ty = ptr_ty; // opaque pointer (void*)
     llvm::Type* i8_ptr_ptr_ty = ptr_ty; // opaque pointer (represents uint8_t**)
     llvm::Type* i32_ptr_ty = ptr_ty;    // opaque pointer (represents int32_t*)
     llvm::Type* float_ptr_ty = ptr_ty;  // opaque pointer (represents float*)
 
     llvm::FunctionType* func_ty = llvm::FunctionType::get(
-        void_ty, {i8_ptr_ptr_ty, i32_ptr_ty, float_ptr_ty}, false);
+        void_ty, {context_ptr_ty, i8_ptr_ptr_ty, i32_ptr_ty, float_ptr_ty},
+        false);
 
     func = llvm::Function::Create(func_ty, llvm::Function::ExternalLinkage,
                                   func_name, &module);
     func->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
 
     auto args = func->arg_begin();
+    context_arg = &*args++;
+    context_arg->setName("context");
     rwptrs_arg = &*args++;
     rwptrs_arg->setName("rwptrs");
     strides_arg = &*args++;
@@ -67,7 +71,25 @@ void SingleExprIRGenerator::define_function_signature() {
     props_arg = &*args++;
     props_arg->setName("props");
 
-    func->addParamAttr(1, llvm::Attribute::ReadOnly); // strides (int32_t*)
+    func->addParamAttr(2, llvm::Attribute::ReadOnly); // strides (int32_t*)
+
+    // Declare Host API functions for dynamic array management
+    llvm::Type* i64_ty = builder.getInt64Ty();
+    llvm::Type* i8_ptr_ty = ptr_ty;
+
+    // float* llvmexpr_ensure_buffer(void* context, const char* name, int64_t size)
+    llvm::FunctionType* ensure_buffer_ty = llvm::FunctionType::get(
+        float_ptr_ty, {context_ptr_ty, i8_ptr_ty, i64_ty}, false);
+    llvmexpr_ensure_buffer_func = llvm::Function::Create(
+        ensure_buffer_ty, llvm::Function::ExternalLinkage,
+        "llvmexpr_ensure_buffer", &module);
+
+    // int64_t llvmexpr_get_buffer_size(void* context, const char* name)
+    llvm::FunctionType* get_buffer_size_ty =
+        llvm::FunctionType::get(i64_ty, {context_ptr_ty, i8_ptr_ty}, false);
+    llvmexpr_get_buffer_size_func = llvm::Function::Create(
+        get_buffer_size_ty, llvm::Function::ExternalLinkage,
+        "llvmexpr_get_buffer_size", &module);
 }
 
 void SingleExprIRGenerator::
@@ -322,6 +344,70 @@ bool SingleExprIRGenerator::process_mode_specific_token(
             builder.CreateLoad(float_ty, prop_allocas.at(payload.prop_name)));
         return true;
     }
+
+    // Array
+    case TokenType::ARRAY_ALLOC_STATIC: {
+        const auto& payload = std::get<TokenPayload_ArrayOp>(token.payload);
+        llvm::Value* size_val = builder.getInt64(payload.static_size);
+        llvm::Value* name_str =
+            builder.CreateGlobalString(payload.name, payload.name + "_name");
+        llvm::Value* buffer_ptr = builder.CreateCall(
+            llvmexpr_ensure_buffer_func, {context_arg, name_str, size_val});
+        array_ptr_cache[payload.name] = buffer_ptr;
+        return true;
+    }
+
+    case TokenType::ARRAY_ALLOC_DYN: {
+        const auto& payload = std::get<TokenPayload_ArrayOp>(token.payload);
+        llvm::Value* size_f = rpn_stack.back();
+        rpn_stack.pop_back();
+
+        llvm::Value* size_val =
+            builder.CreateFPToSI(size_f, builder.getInt64Ty());
+
+        llvm::Value* name_str =
+            builder.CreateGlobalString(payload.name, payload.name + "_name");
+
+        llvm::Value* buffer_ptr = builder.CreateCall(
+            llvmexpr_ensure_buffer_func, {context_arg, name_str, size_val});
+
+        array_ptr_cache[payload.name] = buffer_ptr;
+        return true;
+    }
+
+    case TokenType::ARRAY_LOAD: {
+        const auto& payload = std::get<TokenPayload_ArrayOp>(token.payload);
+        llvm::Value* idx_f = rpn_stack.back();
+        rpn_stack.pop_back();
+
+        llvm::Value* idx = builder.CreateFPToSI(idx_f, i32_ty);
+
+        llvm::Value* array_ptr = array_ptr_cache.at(payload.name);
+
+        llvm::Value* elem_ptr = builder.CreateGEP(float_ty, array_ptr, idx);
+
+        llvm::Value* value = builder.CreateLoad(float_ty, elem_ptr);
+        rpn_stack.push_back(value);
+        return true;
+    }
+
+    case TokenType::ARRAY_STORE: {
+        const auto& payload = std::get<TokenPayload_ArrayOp>(token.payload);
+        llvm::Value* idx_f = rpn_stack.back();
+        rpn_stack.pop_back();
+        llvm::Value* value = rpn_stack.back();
+        rpn_stack.pop_back();
+
+        llvm::Value* idx = builder.CreateFPToSI(idx_f, i32_ty);
+
+        llvm::Value* array_ptr = array_ptr_cache.at(payload.name);
+
+        llvm::Value* elem_ptr = builder.CreateGEP(float_ty, array_ptr, idx);
+
+        builder.CreateStore(value, elem_ptr);
+        return true;
+    }
+
     default:
         return false;
     }

@@ -482,3 +482,123 @@ def test_subsampled_plane_access(
     res = core.llvmexpr.Expr(subsampled_ramp_clip, ["", expr])
     frame = res.get_frame(0)
     assert frame[1][y, x] == pytest.approx(expected)
+
+
+def test_array_static_allocation_basic():
+    """Test basic static array allocation and access."""
+    clip = core.std.BlankClip(format=vs.GRAYS, width=10, height=10, color=0)
+    expr = "buffer{}^10 42.0 5 buffer{}! 5 buffer{}@"
+    res = core.llvmexpr.Expr(clip, expr, vs.GRAYS)
+    assert res.get_frame(0)[0][0, 0] == pytest.approx(42.0)
+
+
+def test_array_write_and_read_multiple():
+    """Test writing and reading multiple values to/from array."""
+    clip = core.std.BlankClip(format=vs.GRAYS, width=10, height=10, color=0)
+    expr = """
+        arr{}^5
+        10.0 0 arr{}!
+        20.0 1 arr{}!
+        30.0 2 arr{}!
+        0 arr{}@ 1 arr{}@ + 2 arr{}@ +
+    """
+    res = core.llvmexpr.Expr(clip, expr, vs.GRAYS)
+    assert res.get_frame(0)[0][0, 0] == pytest.approx(60.0)
+
+
+def test_array_lookup_table():
+    """Test using array as a lookup table."""
+    clip = core.std.BlankClip(format=vs.GRAYS, width=10, height=10, color=2.0)
+    # Create a lookup table with powers of 2
+    expr = """
+        lut{}^5
+        1.0 0 lut{}!
+        2.0 1 lut{}!
+        4.0 2 lut{}!
+        8.0 3 lut{}!
+        16.0 4 lut{}!
+        x lut{}@
+    """
+    res = core.llvmexpr.Expr(clip, expr, vs.GRAYS)
+    assert res.get_frame(0)[0][0, 0] == pytest.approx(4.0)  # lut[2] = 4.0
+
+
+def test_array_with_variables():
+    """Test array operations combined with variables."""
+    clip = core.std.BlankClip(format=vs.GRAYS, width=10, height=10, color=3.0)
+    expr = """
+        data{}^3
+        100.0 val!
+        val@ 0 data{}!
+        val@ 2 * 1 data{}!
+        val@ 3 * 2 data{}!
+        X data{}@
+    """
+    res = core.llvmexpr.Expr(clip, expr, vs.GRAYS)
+    frame = res.get_frame(0)
+    assert frame[0][0, 0] == pytest.approx(100.0)  # data[0]
+    assert frame[0][0, 1] == pytest.approx(200.0)  # data[1]
+    assert frame[0][0, 2] == pytest.approx(300.0)  # data[2]
+
+
+def test_array_boundary_access():
+    """Test accessing first and last elements of array."""
+    clip = core.std.BlankClip(format=vs.GRAYS, width=10, height=10, color=0)
+    expr = """
+        arr{}^10
+        111.0 0 arr{}!
+        999.0 9 arr{}!
+        X 5 < 0 arr{}@ 9 arr{}@ ?
+    """
+    res = core.llvmexpr.Expr(clip, expr, vs.GRAYS)
+    frame = res.get_frame(0)
+    assert frame[0][0, 0] == pytest.approx(111.0)  # x < 5, use arr[0]
+    assert frame[0][0, 7] == pytest.approx(999.0)  # x >= 5, use arr[9]
+
+
+def test_array_float_index_truncation():
+    """Test that float indices are properly converted to integers."""
+    clip = core.std.BlankClip(format=vs.GRAYS, width=10, height=10, color=0)
+    # Use float index 2.7, should truncate to 2
+    expr = """
+        arr{}^5
+        10.0 0 arr{}!
+        20.0 1 arr{}!
+        30.0 2 arr{}!
+        40.0 3 arr{}!
+        2.7 arr{}@
+    """
+    res = core.llvmexpr.Expr(clip, expr, vs.GRAYS)
+    assert res.get_frame(0)[0][0, 0] == pytest.approx(30.0)
+
+
+def test_array_multiple_arrays():
+    """Test using multiple independent arrays."""
+    clip = core.std.BlankClip(format=vs.GRAYS, width=10, height=10, color=0)
+    expr = """
+        a{}^3
+        b{}^3
+        10.0 0 a{}!
+        20.0 1 a{}!
+        100.0 0 b{}!
+        200.0 1 b{}!
+        0 a{}@ 0 b{}@ +
+    """
+    res = core.llvmexpr.Expr(clip, expr, vs.GRAYS)
+    assert res.get_frame(0)[0][0, 0] == pytest.approx(110.0)  # a[0] + b[0]
+
+
+def test_array_dynamic_allocation_error():
+    """Test that dynamic array allocation fails in Expr mode."""
+    clip = core.std.BlankClip(format=vs.GRAYS, width=10, height=10, color=0)
+    with pytest.raises(
+        vs.Error,
+    ):
+        core.llvmexpr.Expr(clip, "10 arr{}^ 0", vs.GRAYS)
+
+
+def test_array_uninitialized_error():
+    """Test that using uninitialized array raises an error."""
+    clip = core.std.BlankClip(format=vs.GRAYS, width=10, height=10, color=0)
+    with pytest.raises(vs.Error, match="Array is uninitialized"):
+        core.llvmexpr.Expr(clip, "0 arr{}@", vs.GRAYS)

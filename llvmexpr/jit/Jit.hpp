@@ -32,8 +32,8 @@
 #include "llvm/IR/Module.h"
 #include "llvm/TargetParser/Triple.h"
 
-using ProcessProc = void (*)(uint8_t** rwptrs, const int* strides,
-                             float* props);
+using ProcessProc = void (*)(void* context, uint8_t** rwptrs,
+                             const int* strides, float* props);
 
 struct CompiledFunction {
     ProcessProc func_ptr = nullptr;

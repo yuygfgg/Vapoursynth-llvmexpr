@@ -135,12 +135,18 @@ void ExpressionAnalyser::validate_and_build_cfg() {
         }
     }
 
-    // Data-flow analysis for initialized variables
+    // Data-flow analysis for initialized variables and arrays
     std::set<std::string> all_vars;
     for (const auto& token : tokens) {
         if (token.type == TokenType::VAR_STORE ||
             token.type == TokenType::VAR_LOAD) {
             all_vars.insert(std::get<TokenPayload_Var>(token.payload).name);
+        } else if (token.type == TokenType::ARRAY_ALLOC_STATIC ||
+                   token.type == TokenType::ARRAY_ALLOC_DYN ||
+                   token.type == TokenType::ARRAY_STORE ||
+                   token.type == TokenType::ARRAY_LOAD) {
+            all_vars.insert(std::get<TokenPayload_ArrayOp>(token.payload).name +
+                            "{}");
         }
     }
 
@@ -151,6 +157,11 @@ void ExpressionAnalyser::validate_and_build_cfg() {
             if (tokens[j].type == TokenType::VAR_STORE) {
                 gen_sets[i].insert(
                     std::get<TokenPayload_Var>(tokens[j].payload).name);
+            } else if (tokens[j].type == TokenType::ARRAY_ALLOC_STATIC ||
+                       tokens[j].type == TokenType::ARRAY_ALLOC_DYN) {
+                gen_sets[i].insert(
+                    std::get<TokenPayload_ArrayOp>(tokens[j].payload).name +
+                    "{}");
             }
         }
     }
@@ -194,7 +205,7 @@ void ExpressionAnalyser::validate_and_build_cfg() {
         }
     }
 
-    // Validate variables
+    // Validate variables and arrays
     for (size_t i = 0; i < results.cfg_blocks.size(); ++i) {
         std::set<std::string> defined_in_block = in_sets[i];
         for (int j = results.cfg_blocks[i].start_token_idx;
@@ -211,6 +222,20 @@ void ExpressionAnalyser::validate_and_build_cfg() {
             } else if (token.type == TokenType::VAR_STORE) {
                 defined_in_block.insert(
                     std::get<TokenPayload_Var>(token.payload).name);
+            } else if (token.type == TokenType::ARRAY_LOAD ||
+                       token.type == TokenType::ARRAY_STORE) {
+                const auto& payload =
+                    std::get<TokenPayload_ArrayOp>(token.payload);
+                std::string array_name = payload.name + "{}";
+                if (defined_in_block.find(array_name) ==
+                    defined_in_block.end()) {
+                    throw std::runtime_error(std::format(
+                        "Array is uninitialized: {} (idx {})", array_name, j));
+                }
+            } else if (token.type == TokenType::ARRAY_ALLOC_STATIC ||
+                       token.type == TokenType::ARRAY_ALLOC_DYN) {
+                defined_in_block.insert(
+                    std::get<TokenPayload_ArrayOp>(token.payload).name + "{}");
             }
         }
     }
