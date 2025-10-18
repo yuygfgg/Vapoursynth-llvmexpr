@@ -342,3 +342,12 @@ def test_array_uninitialized_error():
     clip = core.std.BlankClip(width=10, height=10, format=vs.GRAY8, color=0)
     with pytest.raises(vs.Error, match="Array is uninitialized"):
         core.llvmexpr.SingleExpr(clip, "0 arr{}@ result$")
+
+
+def test_error_on_array_reallocation():
+    """Test that reallocating an array raises an error."""
+    clip = core.std.BlankClip(width=10, height=10, format=vs.GRAY8, color=0)
+    with pytest.raises(
+        vs.Error, match="Statically allocated array cannot be reallocated"
+    ):
+        core.llvmexpr.SingleExpr(clip, "a{}^10 10 a{}^")

@@ -166,6 +166,19 @@ void ExpressionAnalyser::validate_and_build_cfg() {
         }
     }
 
+    std::vector<std::set<std::string>> static_alloc_gen_sets(
+        results.cfg_blocks.size());
+    for (size_t i = 0; i < results.cfg_blocks.size(); ++i) {
+        for (int j = results.cfg_blocks[i].start_token_idx;
+             j < results.cfg_blocks[i].end_token_idx; ++j) {
+            if (tokens[j].type == TokenType::ARRAY_ALLOC_STATIC) {
+                static_alloc_gen_sets[i].insert(
+                    std::get<TokenPayload_ArrayOp>(tokens[j].payload).name +
+                    "{}");
+            }
+        }
+    }
+
     std::vector<std::set<std::string>> in_sets(results.cfg_blocks.size());
     std::vector<std::set<std::string>> out_sets(results.cfg_blocks.size(),
                                                 all_vars);
@@ -205,9 +218,45 @@ void ExpressionAnalyser::validate_and_build_cfg() {
         }
     }
 
+    // Data-flow analysis for statically allocated arrays.
+    std::vector<std::set<std::string>> static_alloc_in_sets(
+        results.cfg_blocks.size());
+    std::vector<std::set<std::string>> static_alloc_out_sets(
+        results.cfg_blocks.size());
+
+    changed = true;
+    while (changed) {
+        changed = false;
+        for (size_t i = 0; i < results.cfg_blocks.size(); ++i) {
+            // IN[i] = Union of OUT[p] for all predecessors p
+            std::set<std::string> new_in;
+            for (int p_idx : results.cfg_blocks[i].predecessors) {
+                new_in.insert(static_alloc_out_sets[p_idx].begin(),
+                              static_alloc_out_sets[p_idx].end());
+            }
+
+            if (new_in != static_alloc_in_sets[i]) {
+                static_alloc_in_sets[i] = new_in;
+                changed =
+                    true; // Not strictly needed, but helps convergence view
+            }
+
+            // OUT[i] = GEN[i] U IN[i]
+            std::set<std::string> new_out = static_alloc_gen_sets[i];
+            new_out.insert(static_alloc_in_sets[i].begin(),
+                           static_alloc_in_sets[i].end());
+
+            if (new_out != static_alloc_out_sets[i]) {
+                static_alloc_out_sets[i] = new_out;
+                changed = true;
+            }
+        }
+    }
+
     // Validate variables and arrays
     for (size_t i = 0; i < results.cfg_blocks.size(); ++i) {
         std::set<std::string> defined_in_block = in_sets[i];
+        std::set<std::string> static_in_block = static_alloc_in_sets[i];
         for (int j = results.cfg_blocks[i].start_token_idx;
              j < results.cfg_blocks[i].end_token_idx; ++j) {
             const auto& token = tokens[j];
@@ -234,8 +283,19 @@ void ExpressionAnalyser::validate_and_build_cfg() {
                 }
             } else if (token.type == TokenType::ARRAY_ALLOC_STATIC ||
                        token.type == TokenType::ARRAY_ALLOC_DYN) {
-                defined_in_block.insert(
-                    std::get<TokenPayload_ArrayOp>(token.payload).name + "{}");
+                const auto& payload =
+                    std::get<TokenPayload_ArrayOp>(token.payload);
+                std::string array_name = payload.name + "{}";
+                if (static_in_block.count(array_name)) {
+                    throw std::runtime_error(
+                        std::format("Statically allocated array cannot be "
+                                    "reallocated: {} (idx {})",
+                                    payload.name, j));
+                }
+                if (token.type == TokenType::ARRAY_ALLOC_STATIC) {
+                    static_in_block.insert(array_name);
+                }
+                defined_in_block.insert(array_name);
             }
         }
     }

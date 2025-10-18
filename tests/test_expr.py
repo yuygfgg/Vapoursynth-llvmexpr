@@ -437,6 +437,7 @@ def test_non_integer_coordinate_rounding() -> None:
         ("1 drop2", "Stack underflow"),
         ("2 3 swap2", "Stack underflow"),
         ("invalid_token", "Invalid token"),
+        ("a{}^10 a{}^10 0", "Statically allocated array cannot be reallocated"),
     ],
 )
 def test_validation_errors(expr: str, err_msg: str) -> None:

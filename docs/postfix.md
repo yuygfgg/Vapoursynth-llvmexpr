@@ -252,6 +252,7 @@ Arrays must be allocated before use. The allocation method depends on whether th
 Like variables, arrays undergo static initialization analysis:
 - The compiler verifies that an array is allocated before any read or write operations.
 - Attempting to access an uninitialized array will result in a compilation error.
+- An array allocated statically (`arrayname{}^size`) cannot be reallocated by any means (either statically or dynamically). The compiler will raise an error if it detects a re-allocation attempt. This applies to both `Expr` and `SingleExpr`.
 - Array indices are **not** bounds-checked at runtime. Accessing an out-of-bounds index results in **undefined behavior**.
 
 ##### **4.3.4. Array Scope and Persistence**
