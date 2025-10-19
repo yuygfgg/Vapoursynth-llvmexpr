@@ -1,0 +1,327 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "LLVMExpr Infix",
+  "scopeName": "source.llvmexpr-infix",
+  "fileTypes": [
+    "llvmexpr",
+    "expr"
+  ],
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#directives"
+    },
+    {
+      "include": "#labels"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#function_definition"
+    },
+    {
+      "include": "#function_calls"
+    },
+    {
+      "include": "#property_access"
+    },
+    {
+      "include": "#static_pixel_access"
+    },
+    {
+      "include": "#storage_types"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#special_variables"
+    },
+    {
+      "include": "#literals"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#punctuation"
+    },
+    {
+      "include": "#illegal"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.number-sign.llvmexpr-infix",
+          "match": "#.*$"
+        }
+      ]
+    },
+    "directives": {
+      "patterns": [
+        {
+          "name": "keyword.other.directive.global.llvmexpr-infix",
+          "match": "^<global(?:\\.\\w+|<[a-zA-Z_]\\w*>)*>"
+        }
+      ]
+    },
+    "labels": {
+      "patterns": [
+        {
+          "captures": {
+            "1": {
+              "name": "entity.name.label.llvmexpr-infix"
+            }
+          },
+          "match": "^\\s*([a-zA-Z_]\\w*):"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.flow.llvmexpr-infix",
+          "match": "\\b(if|else|while|goto|return|exit)\\b"
+        },
+        {
+          "name": "storage.type.function.llvmexpr-infix",
+          "match": "\\b(function)\\b"
+        }
+      ]
+    },
+    "storage_types": {
+      "patterns": [
+        {
+          "name": "storage.type.llvmexpr-infix",
+          "match": "\\b(Value|Clip|Literal|Array)\\b"
+        }
+      ]
+    },
+    "function_definition": {
+      "begin": "\\b(function)\\s+([a-zA-Z_][\\w]*)(\\()",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.type.function.llvmexpr-infix"
+        },
+        "2": {
+          "name": "entity.name.function.llvmexpr-infix"
+        },
+        "3": {
+          "name": "punctuation.definition.parameters.begin.llvmexpr-infix"
+        }
+      },
+      "end": "(\\))",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.parameters.end.llvmexpr-infix"
+        }
+      },
+      "name": "meta.function.definition.llvmexpr-infix",
+      "patterns": [
+        {
+          "include": "#storage_types"
+        },
+        {
+          "name": "variable.parameter.llvmexpr-infix",
+          "match": "\\b([a-zA-Z_][\\w]*)\\b"
+        },
+        {
+          "include": "#punctuation"
+        }
+      ]
+    },
+    "function_calls": {
+      "patterns": [
+        {
+          "name": "support.function.built-in.llvmexpr-infix",
+          "match": "\\b(sin|cos|tan|asin|acos|atan|atan2|exp|exp2|log|log2|log10|sqrt|abs|sgn|floor|ceil|round|trunc|min|max|copysign|clamp|fma|nth_\\d+|new|resize|dyn|store|set_prop)\\b(?=\\s*\\()"
+        },
+        {
+          "captures": {
+            "1": {
+              "name": "entity.name.function.llvmexpr-infix"
+            }
+          },
+          "match": "\\b([a-zA-Z_][\\w]*)\\b(?=\\s*\\()"
+        }
+      ]
+    },
+    "property_access": {
+      "patterns": [
+        {
+          "name": "meta.property-access.llvmexpr-infix",
+          "begin": "(\\$(?:[a-w]|src\\d+))(\\.)",
+          "beginCaptures": {
+            "1": {
+              "name": "variable.other.constant.clip.llvmexpr-infix"
+            },
+            "2": {
+              "name": "punctuation.accessor.llvmexpr-infix"
+            }
+          },
+          "end": "(?=[^\\w_])",
+          "patterns": [
+            {
+              "name": "variable.other.property.llvmexpr-infix",
+              "match": "[a-zA-Z_][\\w]*"
+            }
+          ]
+        }
+      ]
+    },
+    "static_pixel_access": {
+      "patterns": [
+        {
+          "begin": "(\\$(?:[a-w]|src\\d+))(\\[)",
+          "beginCaptures": {
+            "1": {
+              "name": "variable.other.constant.clip.llvmexpr-infix"
+            },
+            "2": {
+              "name": "punctuation.brackets.square.begin.llvmexpr-infix"
+            }
+          },
+          "end": "(\\])(:[cm])?",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.brackets.square.end.llvmexpr-infix"
+            },
+            "2": {
+              "name": "keyword.other.boundary-suffix.llvmexpr-infix"
+            }
+          },
+          "name": "meta.pixel-access.static.llvmexpr-infix",
+          "patterns": [
+            {
+              "include": "#literals"
+            },
+            {
+              "include": "#punctuation"
+            }
+          ]
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.llvmexpr-infix",
+          "match": "\\$(pi|N|X|Y|width|height)\\b"
+        },
+        {
+          "name": "variable.other.constant.clip.llvmexpr-infix",
+          "match": "\\$(?:[a-w]|src\\d+)\\b"
+        }
+      ]
+    },
+    "special_variables": {
+      "patterns": [
+        {
+          "name": "variable.language.special.result.llvmexpr-infix",
+          "match": "\\bRESULT\\b"
+        }
+      ]
+    },
+    "literals": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.llvmexpr-infix",
+          "match": "\\b0x[0-9a-fA-F]+(?:\\.[0-9a-fA-F]*)?(?:[pP][+-]?[0-9]+)?\\b"
+        },
+        {
+          "name": "constant.numeric.octal.llvmexpr-infix",
+          "match": "\\b0[0-7]+\\b"
+        },
+        {
+          "name": "constant.numeric.float.llvmexpr-infix",
+          "match": "\\b(?:[0-9]+\\.[0-9]*|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.llvmexpr-infix",
+          "match": "\\b[0-9]+(?:[eE][+-]?[0-9]+)?\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.llvmexpr-infix",
+          "match": "="
+        },
+        {
+          "name": "keyword.operator.ternary.llvmexpr-infix",
+          "match": "[?:]"
+        },
+        {
+          "name": "keyword.operator.logical.llvmexpr-infix",
+          "match": "&&|\\|\\||!"
+        },
+        {
+          "name": "keyword.operator.bitwise.llvmexpr-infix",
+          "match": "\\&|\\||\\^|~"
+        },
+        {
+          "name": "keyword.operator.comparison.llvmexpr-infix",
+          "match": "==|!="
+        },
+        {
+          "name": "keyword.operator.relational.llvmexpr-infix",
+          "match": "<=|>=|<|>"
+        },
+        {
+          "name": "keyword.operator.arithmetic.llvmexpr-infix",
+          "match": "\\*\\*|\\*|/|%|\\+|-|-"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.terminator.statement.llvmexpr-infix",
+          "match": ";"
+        },
+        {
+          "name": "punctuation.separator.comma.llvmexpr-infix",
+          "match": ","
+        },
+        {
+          "name": "punctuation.parenthesis.begin.llvmexpr-infix",
+          "match": "\\("
+        },
+        {
+          "name": "punctuation.parenthesis.end.llvmexpr-infix",
+          "match": "\\)"
+        },
+        {
+          "name": "punctuation.brace.curly.begin.llvmexpr-infix",
+          "match": "\\{"
+        },
+        {
+          "name": "punctuation.brace.curly.end.llvmexpr-infix",
+          "match": "\\}"
+        },
+        {
+          "name": "punctuation.brackets.square.begin.llvmexpr-infix",
+          "match": "\\["
+        },
+        {
+          "name": "punctuation.brackets.square.end.llvmexpr-infix",
+          "match": "\\]"
+        }
+      ]
+    },
+    "illegal": {
+      "patterns": [
+        {
+          "name": "invalid.illegal.reserved-prefix.llvmexpr-infix",
+          "match": "\\b__internal_\\w*\\b"
+        }
+      ]
+    }
+  }
+}

@@ -97,6 +97,14 @@ llvmexpr.SingleExpr(clip[] clips, string expr[, int boundary=0, string dump_ir="
   - `0`: Postfix notation (RPN)
   - `1`: Infix notation (C-style) - automatically converted to postfix
 
+### LLVMExpr Infix Syntax Highlighting VSCode Extension
+
+A VSCode extension for syntax highlighting of LLVMExpr infix expressions is available. It is not yet published to the VSCode Marketplace, but can be installed manually by copying the extension files to the `.vscode/extensions` directory.
+
+```bash
+cp -r llvmexpr-vsc ~/.vscode/extensions/llvmexpr-vsc
+```
+
 ### Examples
 
 See [examples](examples) for examples of infix code.

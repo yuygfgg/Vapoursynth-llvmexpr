@@ -1,0 +1,35 @@
+{
+  "name": "llvmexpr-infix-syntax",
+  "displayName": "LLVMExpr Infix Syntax Highlighting",
+  "description": "Provides syntax highlighting for the LLVMExpr infix language.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.50.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "llvmexpr-infix",
+        "aliases": [
+          "LLVMExpr Infix",
+          "llvmexpr"
+        ],
+        "extensions": [
+          ".llvmexpr",
+          ".expr"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "llvmexpr-infix",
+        "scopeName": "source.llvmexpr-infix",
+        "path": "./syntaxes/llvmexpr-infix.tmLanguage.json"
+      }
+    ]
+  }
+}
