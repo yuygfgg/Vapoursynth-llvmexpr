@@ -50,10 +50,17 @@ class PostfixBuilder {
     void add_exit_marker();
 
     // Stack manipulation
-    void add_dropN(int count=1);
-    void add_dupN(int count=0);
-    void add_swapN(int count=1);
+    void add_dropN(int count = 1);
+    void add_dupN(int count = 0);
+    void add_swapN(int count = 1);
     void add_sortN(int count);
+
+    // Array operations
+    void add_array_alloc_static(const std::string& array_name,
+                                const std::string& size);
+    void add_array_alloc_dynamic(const std::string& array_name);
+    void add_array_load(const std::string& array_name);
+    void add_array_store(const std::string& array_name);
 
     // For raw/unstructured parts
     void add_raw(const std::string& raw_string);

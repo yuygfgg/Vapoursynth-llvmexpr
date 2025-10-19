@@ -101,6 +101,14 @@ struct FrameDimensionExpr {
     FrameDimensionExpr(Token keyword, std::unique_ptr<Expr> plane);
 };
 
+struct ArrayAccessExpr {
+    std::unique_ptr<Expr> array;
+    std::unique_ptr<Expr> index;
+    int line = 0;
+
+    ArrayAccessExpr(std::unique_ptr<Expr> arr, std::unique_ptr<Expr> idx);
+};
+
 // Statement node types
 struct ExprStmt {
     std::unique_ptr<Expr> expr;
@@ -115,6 +123,15 @@ struct AssignStmt {
     int line = 0;
 
     AssignStmt(Token n, std::unique_ptr<Expr> v);
+};
+
+struct ArrayAssignStmt {
+    std::unique_ptr<Expr>
+        target; // Should be an ArrayAccessExpr
+    std::unique_ptr<Expr> value;
+    int line = 0;
+
+    ArrayAssignStmt(std::unique_ptr<Expr> t, std::unique_ptr<Expr> v);
 };
 
 struct BlockStmt {
@@ -196,10 +213,10 @@ struct FunctionDef {
 };
 
 struct Expr {
-    using ExprVariant =
-        std::variant<NumberExpr, VariableExpr, UnaryExpr, BinaryExpr,
-                     TernaryExpr, CallExpr, PropAccessExpr,
-                     StaticRelPixelAccessExpr, FrameDimensionExpr>;
+    using ExprVariant = std::variant<NumberExpr, VariableExpr, UnaryExpr,
+                                     BinaryExpr, TernaryExpr, CallExpr,
+                                     PropAccessExpr, StaticRelPixelAccessExpr,
+                                     FrameDimensionExpr, ArrayAccessExpr>;
 
     ExprVariant value;
 
@@ -216,9 +233,9 @@ struct Expr {
 };
 
 struct Stmt {
-    using StmtVariant =
-        std::variant<ExprStmt, AssignStmt, BlockStmt, IfStmt, WhileStmt,
-                     ReturnStmt, LabelStmt, GotoStmt, FunctionDef, GlobalDecl>;
+    using StmtVariant = std::variant<ExprStmt, AssignStmt, BlockStmt, IfStmt,
+                                     WhileStmt, ReturnStmt, LabelStmt, GotoStmt,
+                                     FunctionDef, GlobalDecl, ArrayAssignStmt>;
 
     StmtVariant value;
 
@@ -314,6 +331,20 @@ inline FunctionDef::FunctionDef(Token n, std::vector<Parameter> p,
     : name(std::move(n)), params(std::move(p)), body(std::move(b)),
       global_decl(std::move(g)) {
     line = name.line;
+}
+
+inline ArrayAccessExpr::ArrayAccessExpr(std::unique_ptr<Expr> arr,
+                                        std::unique_ptr<Expr> idx)
+    : array(std::move(arr)), index(std::move(idx)) {
+    if (array)
+        line = array->line();
+}
+
+inline ArrayAssignStmt::ArrayAssignStmt(std::unique_ptr<Expr> t,
+                                        std::unique_ptr<Expr> v)
+    : target(std::move(t)), value(std::move(v)) {
+    if (target)
+        line = target->line();
 }
 
 struct Program {

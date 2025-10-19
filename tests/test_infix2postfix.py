@@ -17,7 +17,6 @@ You should have received a copy of the GNU General Public License
 along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-import pytest
 import subprocess
 import tempfile
 import os
@@ -864,8 +863,493 @@ RESULT = 0
         assert "Standalone blocks are not allowed" in output
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+class TestArrays:
+    """Test array functionality."""
+
+    def test_array_creation_expr_mode(self):
+        """Test array creation with literal size in Expr mode."""
+        infix = """
+arr = new(10)
+arr[0] = 255
+RESULT = arr[0]
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "arr{}^10" in output
+        assert "255 0 arr{}!" in output
+        assert "0 arr{}@" in output
+
+    def test_array_creation_single_mode_literal(self):
+        """Test array creation with literal size in SingleExpr mode."""
+        infix = """
+buffer = new(256)
+buffer[0] = 128
+val = buffer[0]
+"""
+        success, output = run_infix2postfix(infix, "single")
+        assert success, f"Failed to convert: {output}"
+        assert "256 buffer{}^" in output
+        assert "128 0 buffer{}!" in output
+        assert "0 buffer{}@" in output
+
+    def test_array_creation_single_mode_dynamic(self):
+        """Test array creation with dynamic size in SingleExpr mode."""
+        infix = """
+size = $width * $height
+buffer = new(size)
+buffer[0] = 255
+"""
+        success, output = run_infix2postfix(infix, "single")
+        assert success, f"Failed to convert: {output}"
+        assert "width height * size!" in output
+        assert "size@ buffer{}^" in output
+        assert "255 0 buffer{}!" in output
+
+    def test_array_resize_single_mode(self):
+        """Test array resize in SingleExpr mode."""
+        infix = """
+arr = new(10)
+arr[0] = 100
+arr = resize(20)
+arr[10] = 200
+"""
+        success, output = run_infix2postfix(infix, "single")
+        assert success, f"Failed to convert: {output}"
+        assert "10 arr{}^" in output
+        assert "20 arr{}^" in output
+        assert "100 0 arr{}!" in output
+        assert "200 10 arr{}!" in output
+
+    def test_array_element_access_in_expression(self):
+        """Test array element access in expressions."""
+        infix = """
+arr = new(5)
+arr[0] = 10
+arr[1] = 20
+arr[2] = 30
+result = arr[0] + arr[1] * arr[2]
+RESULT = result
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "0 arr{}@" in output
+        assert "1 arr{}@" in output
+        assert "2 arr{}@" in output
+        assert "+" in output
+        assert "*" in output
+
+    def test_array_with_loop(self):
+        """Test array usage in a loop."""
+        infix = """
+arr = new(5)
+i = 0
+while (i < 5) {
+    arr[i] = i * 10
+    i = i + 1
+}
+RESULT = arr[3]
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "arr{}^5" in output
+        assert "i@ arr{}!" in output
+        assert "3 arr{}@" in output
+
+    def test_array_as_function_parameter(self):
+        """Test passing array to function."""
+        infix = """
+function fill_array(Array a, Value size, Value fill_val) {
+    i = 0
+    while (i < size) {
+        a[i] = fill_val
+        i = i + 1
+    }
+}
+
+my_array = new(3)
+fill_array(my_array, 3, 100)
+RESULT = my_array[0] + my_array[1] + my_array[2]
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "my_array{}^3" in output
+        assert "my_array{}!" in output
+        assert "my_array{}@" in output
+
+    def test_array_function_modifies_original(self):
+        """Test that array modifications in function affect original."""
+        infix = """
+function set_first(Array a, Value val) {
+    a[0] = val
+}
+
+arr = new(1)
+arr[0] = 10
+set_first(arr, 99)
+RESULT = arr[0]
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "arr{}^1" in output
+        # The function stores val parameter then writes to array
+        assert "__internal_func_set_first_val@" in output
+        assert "0 arr{}!" in output
+
+    def test_array_with_expression_index(self):
+        """Test array access with computed index."""
+        infix = """
+arr = new(10)
+idx = 3 + 2
+arr[idx] = 42
+val = arr[5]
+RESULT = val
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "3 2 + idx!" in output
+        assert "42 idx@ arr{}!" in output
+        assert "5 arr{}@" in output
+
+    def test_multiple_arrays(self):
+        """Test using multiple arrays."""
+        infix = """
+arr1 = new(2)
+arr2 = new(2)
+arr1[0] = 10
+arr1[1] = 20
+arr2[0] = arr1[0] * 2
+arr2[1] = arr1[1] * 2
+RESULT = arr2[0] + arr2[1]
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "arr1{}^2" in output
+        assert "arr2{}^2" in output
+        assert "0 arr1{}@" in output
+        assert "0 arr2{}!" in output
+
+    def test_array_in_single_expr_with_store(self):
+        """Test array in SingleExpr mode with store operations."""
+        infix = """
+lut = new(256)
+i = 0
+while (i < 256) {
+    lut[i] = i * i
+    i = i + 1
+}
+val = lut[128]
+store(0, 0, 0, val)
+"""
+        success, output = run_infix2postfix(infix, "single")
+        assert success, f"Failed to convert: {output}"
+        assert "256 lut{}^" in output
+        assert "i@ lut{}!" in output
+        assert "128 lut{}@" in output
+
+    def test_array_distinguish_from_pixel_access(self):
+        """Test that array access is distinguished from pixel access."""
+        infix = """
+arr = new(5)
+arr[3] = $x[1, 0]
+RESULT = arr[3]
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "arr{}^5" in output
+        assert "x[1,0]" in output  # Pixel access
+        assert "3 arr{}!" in output  # Array write
+        assert "3 arr{}@" in output  # Array read
+
+    # Error cases
+
+    def test_array_expr_mode_requires_literal_size(self):
+        """Test that Expr mode requires literal size for new()."""
+        infix = """
+size = 10
+arr = new(size)
+RESULT = 1
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail with non-literal size in Expr mode"
+        assert "array size must be a numeric literal" in output
+
+    def test_array_resize_not_in_expr_mode(self):
+        """Test that resize() is not available in Expr mode."""
+        infix = """
+arr = new(10)
+arr = resize(20)
+RESULT = 1
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail using resize() in Expr mode"
+        assert "resize() is only available in SingleExpr mode" in output
+
+    def test_array_cannot_be_reallocated_with_new(self):
+        """Test that an array cannot be allocated twice with new()."""
+        infix = """
+arr = new(10)
+arr = new(20)
+RESULT = arr[5]
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail reallocating array with new()"
+        assert "Cannot reallocate array" in output
+
+    def test_array_can_be_resized_in_single_mode(self):
+        """Test that an array can be resized with resize() in SingleExpr mode."""
+        infix = """
+arr = new(10)
+arr[0] = 100
+arr = resize(20)
+arr[15] = 200
+"""
+        success, output = run_infix2postfix(infix, "single")
+        assert success, f"Failed to convert: {output}"
+        assert "10 arr{}^" in output
+        assert "20 arr{}^" in output
+
+    def test_resize_requires_prior_allocation(self):
+        """Test that resize() requires the array to be allocated first."""
+        infix = """
+arr = resize(10)
+"""
+        success, output = run_infix2postfix(infix, "single")
+        assert not success, "Should fail using resize() on unallocated variable"
+        assert "is undefined or not an array." in output
+
+    def test_resize_on_non_array_variable(self):
+        """Test that resize() cannot be used on non-array variables."""
+        infix = """
+val = 42
+val = resize(10)
+"""
+        success, output = run_infix2postfix(infix, "single")
+        assert not success, "Should fail using resize() on non-array"
+        assert "not an array" in output
+
+    def test_array_cannot_be_reassigned_to_value(self):
+        """Test that an array variable cannot be reassigned to a non-array value."""
+        infix = """
+arr = new(10)
+arr = 42
+"""
+        success, output = run_infix2postfix(infix, "single")
+        assert not success, "Should fail reassigning array to value"
+        assert "is an array and cannot be reassigned" in output
+
+    def test_array_cannot_be_reassigned_to_value_expr_mode(self):
+        """Test that an array variable cannot be reassigned to a value in Expr mode."""
+        infix = """
+arr = new(10)
+arr = 42
+RESULT = arr
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail reassigning array to value"
+        assert "is an array and cannot be reassigned" in output
+
+    def test_array_cannot_be_assigned_to_variable(self):
+        """Test that arrays cannot be assigned to other variables."""
+        infix = """
+arr1 = new(10)
+arr2 = arr1
+RESULT = 1
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail assigning array to variable"
+        assert "Cannot assign array" in output
+
+    def test_array_cannot_be_assigned_in_function(self):
+        """Test that arrays cannot be assigned to variables in functions."""
+        infix = """
+function process(Array a) {
+    tmp = a
+    return tmp[0]
+}
+arr = new(5)
+RESULT = process(arr)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail assigning array parameter to variable"
+        assert "Cannot assign array" in output
+
+    def test_function_cannot_return_array(self):
+        """Test that functions cannot return arrays."""
+        infix = """
+function get_array() {
+    arr = new(5)
+    return arr
+}
+RESULT = get_array()
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail returning array from function"
+        assert "Functions cannot return arrays" in output
+
+    def test_function_cannot_return_array_parameter(self):
+        """Test that functions cannot return array parameters."""
+        infix = """
+function return_param(Array a) {
+    return a
+}
+arr = new(5)
+RESULT = return_param(arr)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail returning array parameter"
+        assert "Functions cannot return arrays" in output
+
+    def test_array_access_undefined_variable(self):
+        """Test accessing undefined array."""
+        infix = """
+val = undefined_array[0]
+RESULT = val
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail accessing undefined array"
+        assert "is used before being defined" in output
+
+    def test_array_access_on_non_array(self):
+        """Test array access on non-array variable."""
+        infix = """
+not_array = 42
+val = not_array[0]
+RESULT = val
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail accessing non-array as array"
+        assert "is not an array" in output
+
+    def test_array_assign_to_non_array(self):
+        """Test array assignment to non-array variable."""
+        infix = """
+not_array = 42
+not_array[0] = 10
+RESULT = not_array
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail assigning to non-array as array"
+        assert "is not an array" in output
+
+    def test_array_function_param_type_mismatch(self):
+        """Test passing non-array to Array parameter."""
+        infix = """
+function process(Array a) {
+    return a[0]
+}
+val = 42
+RESULT = process(val)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail passing non-array to Array parameter"
+
+    def test_array_function_param_requires_variable(self):
+        """Test that Array parameter requires a variable, not expression."""
+        infix = """
+function process(Array a) {
+    return a[0]
+}
+arr = new(5)
+arr[0] = 10
+RESULT = process(arr[0])
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert (
+            not success
+        ), "Should fail passing non-variable expression to Array parameter"
+
+    def test_array_overloading_by_type(self):
+        """Test function overloading with Array type."""
+        infix = """
+function process(Array a) {
+    return a[0]
+}
+function process(Value v) {
+    return v * 2
+}
+arr = new(2)
+arr[0] = 10
+result1 = process(arr)
+result2 = process(20)
+RESULT = result1 + result2
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "arr{}^2" in output
+        assert "0 arr{}@" in output
+        assert "__internal_func_process_v@ 2 *" in output
+
+    def test_array_complex_scenario_expr(self):
+        """Test complex array scenario in Expr mode."""
+        infix = """
+lut = new(256)
+i = 0
+while (i < 256) {
+    lut[i] = sqrt(i)
+    i = i + 1
+}
+
+pixel = $x
+idx = pixel > 255 ? 255 : pixel
+RESULT = lut[idx]
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "lut{}^256" in output
+        assert "sqrt" in output
+        assert "?" in output
+
+    def test_array_complex_scenario_single(self):
+        """Test complex array scenario in SingleExpr mode."""
+        infix = """
+w = frame.width[0]
+h = frame.height[0]
+histogram = new(256)
+
+i = 0
+while (i < 256) {
+    histogram[i] = 0
+    i = i + 1
+}
+
+val1 = dyn($x, 0, 0, 0)
+val2 = dyn($x, w - 1, 0, 0)
+val3 = dyn($x, 0, h - 1, 0)
+val4 = dyn($x, w - 1, h - 1, 0)
+
+set_prop(Histogram0, histogram[0])
+set_prop(Histogram255, histogram[255])
+"""
+        success, output = run_infix2postfix(infix, "single")
+        assert success, f"Failed to convert: {output}"
+        assert "256 histogram{}^" in output
+        # Array write is: value index array{}!
+        assert "i@ histogram{}!" in output
+        assert "0 histogram{}@" in output
+        assert "255 histogram{}@" in output
+
+    def test_array_nested_function_calls(self):
+        """Test arrays with nested function calls."""
+        infix = """
+function get_value(Array a, Value idx) {
+    return a[idx]
+}
+
+function set_value(Array a, Value idx, Value val) {
+    a[idx] = val
+}
+
+arr = new(3)
+set_value(arr, 0, 100)
+set_value(arr, 1, 200)
+result = get_value(arr, 0) + get_value(arr, 1)
+RESULT = result
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "arr{}^3" in output
+        assert "arr{}!" in output
+        assert "arr{}@" in output
 
 
 class TestControlFlowValidation:

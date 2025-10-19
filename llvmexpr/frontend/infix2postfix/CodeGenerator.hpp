@@ -50,6 +50,7 @@ class CodeGenerator {
     ExprResult handle(const PropAccessExpr& expr);
     ExprResult handle(const StaticRelPixelAccessExpr& expr);
     ExprResult handle(const FrameDimensionExpr& expr);
+    ExprResult handle(const ArrayAccessExpr& expr);
 
     // Statement handlers
     PostfixBuilder handle(const ExprStmt& stmt);
@@ -62,6 +63,7 @@ class CodeGenerator {
     PostfixBuilder handle(const GotoStmt& stmt);
     PostfixBuilder handle(const FunctionDef& stmt);
     PostfixBuilder handle(const GlobalDecl& stmt);
+    PostfixBuilder handle(const ArrayAssignStmt& stmt);
 
     void check_stack_effect(const std::string& s, int expected, int line);
     int compute_stack_effect(const std::string& s, int line);
@@ -75,7 +77,7 @@ class CodeGenerator {
     void check_variable_defined(const std::string& var_name, int line);
     void enter_scope();
     void exit_scope();
-    void define_variable_in_current_scope(const std::string& var_name);
+    void define_variable_in_current_scope(const std::string& var_name, Type type = Type::VALUE);
     std::string rename_variable(const std::string& var_name);
 
     bool is_clip_name(const std::string& s);
@@ -97,6 +99,9 @@ class CodeGenerator {
     std::set<std::string> local_scope_vars;
     std::vector<std::set<std::string>> scope_stack;
     std::set<std::string> all_defined_vars_in_scope;
+    
+    // Variable type tracking
+    std::map<std::string, Type> variable_types;
 
     // Function inlining context
     std::map<std::string, std::string> var_rename_map;

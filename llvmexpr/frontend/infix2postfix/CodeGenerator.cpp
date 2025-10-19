@@ -170,6 +170,12 @@ CodeGenerator::ExprResult CodeGenerator::handle(const VariableExpr& expr) {
 
     std::string renamed = rename_variable(name);
     b.add_variable_load(renamed);
+
+    auto type_it = variable_types.find(renamed);
+    if (type_it != variable_types.end() && type_it->second == Type::ARRAY) {
+        return {b, Type::ARRAY};
+    }
+
     return {b, Type::VALUE};
 }
 
@@ -269,6 +275,18 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
         std::vector<ExprResult> arg_results;
         arg_results.reserve(expr.args.size());
         for (const auto& arg : expr.args) {
+            if (auto* var_expr = get_if<VariableExpr>(arg.get())) {
+                std::string var_name = var_expr->name.value;
+                if (!var_name.starts_with("$")) {
+                    std::string renamed_var = rename_variable(var_name);
+                    auto type_it = variable_types.find(renamed_var);
+                    if (type_it != variable_types.end() &&
+                        type_it->second == Type::ARRAY) {
+                        arg_results.push_back({{}, Type::ARRAY});
+                        continue;
+                    }
+                }
+            }
             arg_results.push_back(generate(arg.get()));
         }
 
@@ -652,6 +670,38 @@ CodeGenerator::handle(const FrameDimensionExpr& expr) {
     return {b, Type::VALUE};
 }
 
+CodeGenerator::ExprResult CodeGenerator::handle(const ArrayAccessExpr& expr) {
+    auto* var_expr = get_if<VariableExpr>(expr.array.get());
+    if (!var_expr) {
+        throw CodeGenError("Array access requires a variable as the array.",
+                           expr.line);
+    }
+
+    std::string array_name = var_expr->name.value;
+    std::string renamed_array = rename_variable(array_name);
+
+    check_variable_defined(array_name, expr.line);
+
+    auto type_it = variable_types.find(renamed_array);
+    if (type_it == variable_types.end() || type_it->second != Type::ARRAY) {
+        throw CodeGenError(
+            std::format("Variable '{}' is not an array.", array_name),
+            expr.line);
+    }
+
+    auto index_result = generate(expr.index.get());
+    if (!is_convertible(index_result.type, Type::VALUE)) {
+        throw CodeGenError("Array index must be convertible to a value.",
+                           expr.index->line());
+    }
+
+    PostfixBuilder b;
+    b.append(index_result.postfix);
+    b.add_array_load(renamed_array);
+
+    return {b, Type::VALUE};
+}
+
 PostfixBuilder CodeGenerator::handle(const ExprStmt& stmt) {
     PostfixBuilder b = generate(stmt.expr.get()).postfix;
     check_stack_effect(b.get_expression(), 0, stmt.line);
@@ -668,10 +718,100 @@ PostfixBuilder CodeGenerator::handle(const AssignStmt& stmt) {
         }
     }
 
+    // Check if this is a new() or resize() call for array allocation
+    if (auto* call_expr = get_if<CallExpr>(stmt.value.get())) {
+        if (call_expr->callee == "new" || call_expr->callee == "resize") {
+            if (call_expr->args.size() != 1) {
+                throw CodeGenError(
+                    std::format("{}() requires exactly 1 argument (size).",
+                                call_expr->callee),
+                    stmt.line);
+            }
+
+            std::string var_name = stmt.name.value;
+            std::string renamed_var = rename_variable(var_name);
+
+            auto type_it = variable_types.find(renamed_var);
+            bool is_already_array = (type_it != variable_types.end() &&
+                                     type_it->second == Type::ARRAY);
+
+            if (call_expr->callee == "resize") {
+                if (mode == Mode::Expr) {
+                    throw CodeGenError(
+                        "resize() is only available in SingleExpr mode.",
+                        stmt.line);
+                }
+                if (!is_already_array) {
+                    throw CodeGenError(
+                        std::format(
+                            "Variable '{}' is undefined or not an array. ",
+                            var_name),
+                        stmt.line);
+                }
+            } else { // call_expr->callee == "new"
+                if (is_already_array) {
+                    throw CodeGenError(
+                        std::format("Cannot reallocate array '{}'.", var_name),
+                        stmt.line);
+                }
+            }
+
+            PostfixBuilder b;
+
+            if (mode == Mode::Expr) {
+                auto* num_expr = get_if<NumberExpr>(call_expr->args[0].get());
+                if (!num_expr) {
+                    throw CodeGenError(
+                        "In Expr mode, array size must be a numeric literal.",
+                        stmt.line);
+                }
+                b.add_array_alloc_static(renamed_var, num_expr->value.value);
+            } else {
+                auto size_result = generate(call_expr->args[0].get());
+                if (!is_convertible(size_result.type, Type::VALUE)) {
+                    throw CodeGenError(
+                        "Array size must be convertible to a value.",
+                        stmt.line);
+                }
+                b.append(size_result.postfix);
+                b.add_array_alloc_dynamic(renamed_var);
+            }
+
+            check_stack_effect(b.get_expression(), 0, stmt.line);
+
+            define_variable_in_current_scope(renamed_var, Type::ARRAY);
+
+            if (current_function == nullptr) {
+                if (scope_stack.empty()) {
+                    defined_globals.insert(var_name);
+                }
+            } else {
+                local_scope_vars.insert(var_name);
+            }
+            return b;
+        }
+    }
+
     auto value_code = generate(stmt.value.get());
+
+    if (value_code.type == Type::ARRAY) {
+        throw CodeGenError(std::format("Cannot assign array to variable '{}'.",
+                                       stmt.name.value),
+                           stmt.line);
+    }
 
     std::string var_name = stmt.name.value;
     std::string renamed_var = rename_variable(var_name);
+
+    auto type_it = variable_types.find(renamed_var);
+    if (type_it != variable_types.end() && type_it->second == Type::ARRAY) {
+        throw CodeGenError(
+            std::format(
+                "Variable '{}' is an array and cannot be reassigned to a "
+                "non-array value.",
+                var_name),
+            stmt.line);
+    }
 
     PostfixBuilder b;
     b.append(value_code.postfix);
@@ -679,7 +819,7 @@ PostfixBuilder CodeGenerator::handle(const AssignStmt& stmt) {
 
     check_stack_effect(b.get_expression(), 0, stmt.line);
 
-    define_variable_in_current_scope(renamed_var);
+    define_variable_in_current_scope(renamed_var, Type::VALUE);
 
     if (current_function == nullptr) {
         if (scope_stack.empty()) {
@@ -688,6 +828,55 @@ PostfixBuilder CodeGenerator::handle(const AssignStmt& stmt) {
     } else {
         local_scope_vars.insert(var_name);
     }
+    return b;
+}
+
+PostfixBuilder CodeGenerator::handle(const ArrayAssignStmt& stmt) {
+    auto* array_access = get_if<ArrayAccessExpr>(stmt.target.get());
+    if (!array_access) {
+        throw CodeGenError("Array assignment target must be an array access.",
+                           stmt.line);
+    }
+
+    auto* var_expr = get_if<VariableExpr>(array_access->array.get());
+    if (!var_expr) {
+        throw CodeGenError("Array access requires a variable as the array.",
+                           stmt.line);
+    }
+
+    std::string array_name = var_expr->name.value;
+    std::string renamed_array = rename_variable(array_name);
+
+    check_variable_defined(array_name, stmt.line);
+
+    auto type_it = variable_types.find(renamed_array);
+    if (type_it == variable_types.end() || type_it->second != Type::ARRAY) {
+        throw CodeGenError(
+            std::format("Variable '{}' is not an array.", array_name),
+            stmt.line);
+    }
+
+    PostfixBuilder b;
+
+    auto value_result = generate(stmt.value.get());
+    if (!is_convertible(value_result.type, Type::VALUE)) {
+        throw CodeGenError(
+            "Array assignment value must be convertible to a value.",
+            stmt.value->line());
+    }
+    b.append(value_result.postfix);
+
+    auto index_result = generate(array_access->index.get());
+    if (!is_convertible(index_result.type, Type::VALUE)) {
+        throw CodeGenError("Array index must be convertible to a value.",
+                           array_access->index->line());
+    }
+    b.append(index_result.postfix);
+
+    b.add_array_store(renamed_array);
+
+    check_stack_effect(b.get_expression(), 0, stmt.line);
+
     return b;
 }
 
@@ -752,7 +941,11 @@ PostfixBuilder CodeGenerator::handle(const ReturnStmt& stmt) {
             stmt.line);
     }
     if (stmt.value) {
-        return generate(stmt.value.get()).postfix;
+        auto result = generate(stmt.value.get());
+        if (result.type == Type::ARRAY) {
+            throw CodeGenError("Functions cannot return arrays.", stmt.line);
+        }
+        return result.postfix;
     }
     return {};
 }
@@ -977,6 +1170,50 @@ PostfixBuilder CodeGenerator::inline_function_call(
                 param_map[param_name] = param_name;
                 new_local_vars.insert(param_name);
                 all_defined_vars_in_scope.insert(param_name);
+            } else if (param_type == Type::ARRAY) {
+                // Array parameters must be array variables
+                auto* var_expr = get_if<VariableExpr>(arg_expr);
+                if (!var_expr) {
+                    throw CodeGenError(
+                        std::format(
+                            "Array parameter '{}' in function '{}' must be "
+                            "passed an array variable.",
+                            param_name, func_name),
+                        call_line);
+                }
+
+                std::string arg_var_name = var_expr->name.value;
+
+                // Temporarily restore scope to check variable
+                auto temp_all_defined = all_defined_vars_in_scope;
+                auto temp_scope_stack = scope_stack;
+                all_defined_vars_in_scope = saved_all_defined;
+                scope_stack = saved_scope_stack;
+
+                // Check that the argument is defined and is an array
+                check_variable_defined(arg_var_name, call_line);
+                std::string renamed_arg = rename_variable(arg_var_name);
+
+                auto type_it = variable_types.find(renamed_arg);
+                if (type_it == variable_types.end() ||
+                    type_it->second != Type::ARRAY) {
+                    throw CodeGenError(
+                        std::format(
+                            "Argument '{}' passed to array parameter '{}' "
+                            "in function '{}' is not an array.",
+                            arg_var_name, param_name, func_name),
+                        call_line);
+                }
+
+                // Restore function scope
+                all_defined_vars_in_scope = temp_all_defined;
+                scope_stack = temp_scope_stack;
+
+                // Map parameter name to the renamed argument variable
+                param_map[param_name] = renamed_arg;
+                new_local_vars.insert(param_name);
+                all_defined_vars_in_scope.insert(renamed_arg);
+                variable_types[renamed_arg] = Type::ARRAY;
             } else { // Type::VALUE
                 // Restore scope temporarily to generate argument value
                 auto temp_all_defined = all_defined_vars_in_scope;
@@ -1149,13 +1386,14 @@ void CodeGenerator::exit_scope() {
         const auto& scope_vars = scope_stack.back();
         for (const auto& var : scope_vars) {
             all_defined_vars_in_scope.erase(var);
+            variable_types.erase(var);
         }
         scope_stack.pop_back();
     }
 }
 
 void CodeGenerator::define_variable_in_current_scope(
-    const std::string& var_name) {
+    const std::string& var_name, Type type) {
     if (all_defined_vars_in_scope.find(var_name) ==
         all_defined_vars_in_scope.end()) {
         if (!scope_stack.empty()) {
@@ -1163,6 +1401,7 @@ void CodeGenerator::define_variable_in_current_scope(
         }
     }
     all_defined_vars_in_scope.insert(var_name);
+    variable_types[var_name] = type;
 }
 
 bool CodeGenerator::builtin_param_type_is_evaluatable(

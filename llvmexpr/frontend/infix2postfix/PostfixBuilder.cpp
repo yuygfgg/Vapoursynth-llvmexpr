@@ -176,6 +176,23 @@ void PostfixBuilder::add_sortN(int count) {
     push_token(std::format("sort{}", count));
 }
 
+void PostfixBuilder::add_array_alloc_static(const std::string& array_name,
+                                            const std::string& size) {
+    push_token(std::format("{}{{}}^{}", array_name, size));
+}
+
+void PostfixBuilder::add_array_alloc_dynamic(const std::string& array_name) {
+    push_token(std::format("{}{{}}^", array_name));
+}
+
+void PostfixBuilder::add_array_load(const std::string& array_name) {
+    push_token(std::format("{}{{}}@", array_name));
+}
+
+void PostfixBuilder::add_array_store(const std::string& array_name) {
+    push_token(std::format("{}{{}}!", array_name));
+}
+
 void PostfixBuilder::add_raw(const std::string& raw_string) {
     std::stringstream ss(raw_string);
     std::string token;

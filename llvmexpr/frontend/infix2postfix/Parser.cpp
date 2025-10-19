@@ -185,16 +185,32 @@ std::unique_ptr<BlockStmt> Parser::parseBlock() {
 }
 
 std::unique_ptr<Stmt> Parser::parseExprStatement() {
-    // Check if this is an assignment statement
-    if (peek().type == TokenType::Identifier) {
-        Token name = peek();
-        if (peek(1).type == TokenType::Assign) {
-            advance(); // identifier
-            advance(); // '='
-            auto value = parseTernary();
-            return make_node<Stmt, AssignStmt>(name, std::move(value));
-        }
+    if (peek().type == TokenType::Identifier &&
+        peek(1).type == TokenType::Assign) {
+        Token name = advance(); // identifier
+        advance();              // '='
+        auto value = parseTernary();
+        return make_node<Stmt, AssignStmt>(name, std::move(value));
     }
+
+    if (peek().type == TokenType::Identifier &&
+        peek(1).type == TokenType::LBracket) {
+        auto left_expr = parsePostfix();
+
+        if (match({TokenType::Assign})) {
+            auto right_expr = parseTernary();
+
+            if (get_if<ArrayAccessExpr>(left_expr.get())) {
+                return make_node<Stmt, ArrayAssignStmt>(std::move(left_expr),
+                                                        std::move(right_expr));
+            } else {
+                error(peek(), "Invalid assignment target.");
+            }
+        }
+
+        return make_node<Stmt, ExprStmt>(std::move(left_expr));
+    }
+
     auto expr = parseTernary();
     return make_node<Stmt, ExprStmt>(std::move(expr));
 }
@@ -204,7 +220,9 @@ std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
     Token name = consume(TokenType::Identifier, "Expect function name.");
 
     const auto& builtins = get_builtin_functions();
-    if (builtins.count(name.value) || name.value.starts_with("nth_")) {
+    // TODO: resize is not a built-in function in Expr mode.
+    if (builtins.count(name.value) || name.value.starts_with("nth_") ||
+        name.value == "new" || name.value == "resize") {
         error(name,
               std::format(
                   "Function name '{}' conflicts with a built-in function.",
@@ -229,6 +247,8 @@ std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
                     param_type = Type::CLIP;
                 } else if (type_token.value == "Literal") {
                     param_type = Type::LITERAL;
+                } else if (type_token.value == "Array") {
+                    param_type = Type::ARRAY;
                 } else {
                     error(type_token,
                           std::format("Unknown type '{}' for parameter.",
@@ -408,44 +428,52 @@ std::unique_ptr<Expr> Parser::parsePostfix() {
             expr = finishCall(std::move(expr));
         } else if (match({TokenType::LBracket})) {
             auto index1 = parseTernary();
-            consume(TokenType::Comma, "Expect ',' in index operator");
-            auto index2 = parseTernary();
-            consume(TokenType::RBracket, "Expect ']' after indices");
-            std::string suffix;
-            if (match({TokenType::Colon})) {
-                Token s =
-                    consume(TokenType::Identifier, "Expect boundary suffix");
-                suffix = std::format(":{}", s.value);
-            }
-            if (auto* var = get_if<VariableExpr>(expr.get())) {
-                auto get_constant_token = [](Expr* e) -> Token* {
-                    if (auto* num = get_if<NumberExpr>(e)) {
-                        return &num->value;
-                    }
-                    if (auto* unary = get_if<UnaryExpr>(e)) {
-                        if (unary->op.type == TokenType::Minus) {
-                            if (auto* num =
-                                    get_if<NumberExpr>(unary->right.get())) {
-                                static Token neg_token;
-                                neg_token = num->value;
-                                neg_token.value =
-                                    std::format("-{}", neg_token.value);
-                                return &neg_token;
+
+            if (match({TokenType::Comma})) {
+                // Pixel access: array[offsetX, offsetY]
+                auto index2 = parseTernary();
+                consume(TokenType::RBracket, "Expect ']' after indices");
+                std::string suffix;
+                if (match({TokenType::Colon})) {
+                    Token s = consume(TokenType::Identifier,
+                                      "Expect boundary suffix");
+                    suffix = std::format(":{}", s.value);
+                }
+                if (auto* var = get_if<VariableExpr>(expr.get())) {
+                    auto get_constant_token = [](Expr* e) -> Token* {
+                        if (auto* num = get_if<NumberExpr>(e)) {
+                            return &num->value;
+                        }
+                        if (auto* unary = get_if<UnaryExpr>(e)) {
+                            if (unary->op.type == TokenType::Minus) {
+                                if (auto* num = get_if<NumberExpr>(
+                                        unary->right.get())) {
+                                    static Token neg_token;
+                                    neg_token = num->value;
+                                    neg_token.value =
+                                        std::format("-{}", neg_token.value);
+                                    return &neg_token;
+                                }
                             }
                         }
+                        return nullptr;
+                    };
+
+                    Token* x_tok = get_constant_token(index1.get());
+                    Token* y_tok = get_constant_token(index2.get());
+
+                    if (x_tok && y_tok) {
+                        return make_node<Expr, StaticRelPixelAccessExpr>(
+                            var->name, *x_tok, *y_tok, suffix);
                     }
-                    return nullptr;
-                };
-
-                Token* x_tok = get_constant_token(index1.get());
-                Token* y_tok = get_constant_token(index2.get());
-
-                if (x_tok && y_tok) {
-                    return make_node<Expr, StaticRelPixelAccessExpr>(
-                        var->name, *x_tok, *y_tok, suffix);
                 }
+                error(peek(), "Dynamic pixel access should use dyn().");
+            } else {
+                // Array access: array[index]
+                consume(TokenType::RBracket, "Expect ']' after array index.");
+                expr = make_node<Expr, ArrayAccessExpr>(std::move(expr),
+                                                        std::move(index1));
             }
-            error(peek(), "Dynamic pixel access should use dyn().");
         } else if (match({TokenType::Dot})) {
             Token prop = consume(TokenType::Identifier,
                                  "Expect property name after '.'");

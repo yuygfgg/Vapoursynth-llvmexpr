@@ -262,6 +262,8 @@ Functions are called using standard syntax: `functionName(argument1, argument2, 
 | `clamp`                           | 3                   | `clamp(x, lo, hi)`; clamps to `[lo, hi]`.                     |
 | `fma`                             | 3                   | Fused multiply-add: `(a * b) + c`.                            |
 | `nth_N`                           | `M` (where `M ≥ N`) | `nth_3(a, b, c, d)` returns the 3rd smallest of the 4 values. |
+| `new`                             | 1                   | Allocates an array. In `Expr` mode, size must be a literal. In `SingleExpr`, size can be an expression. |
+| `resize`                          | 1                   | Resizes an array. Alias for `new()` in `SingleExpr` mode only.|
 
 Notes:
 
@@ -332,9 +334,9 @@ function functionName(Type1 param1, Type2 param2) {
   - `Value`: A standard floating-point value, the most general type.
   - `Clip`: A source clip constant (e.g., `$a`, `$src1`).
   - `Literal`: A literal constant value (numeric literal).
+  - `Array`: A reference to an array created with `new()`.
 
 - **Return Statement:** A function can have **at most one** `return` statement, which must be the last non-empty statement in its body. If a function has no `return` statement, it produces no value.
-- **Parameters:** Function parameters are read-only and cannot be reassigned within the function body.
 - **Inlining:** Function calls are effectively inlined at compile time. Recursion is not supported.
 - **Nesting:** Function definitions cannot be nested.
 
@@ -465,3 +467,86 @@ while (counter > 0) {
 }
 RESULT = counter # will be 0
 ```
+
+## 10. Arrays
+
+Arrays are collections of values that can be created and accessed by an index. They are especially useful in `SingleExpr` mode for tasks like building lookup tables, histograms, or buffering data for complex calculations.
+
+### 10.1. Declaration and Initialization
+
+Arrays are created by calling the built-in `new()` function and assigning the result to a variable.
+
+- **`Expr` Mode (Fixed-Size Only):**
+  - The size must be a numeric literal.
+  - `my_lut = new(256);`
+
+- **`SingleExpr` Mode (Fixed or Dynamic Size):**
+  - Fixed size: `my_array = new(100);`
+  - Dynamic size: The size can be any expression that results in a value.
+    ```
+    # Create an array to hold a value for each pixel
+    frame_size = $width * $height;
+    pixel_buffer = new(frame_size);
+    ```
+  - The `resize()` function can be used to change an array's size.
+    ```
+    pixel_buffer = resize(new_size);
+    ```
+    Note: An array must be allocated using `new()` before it can be resized.
+
+### 10.2. Element Access
+
+C-style square brackets `[]` are used to read from and write to array elements.
+
+- **Writing:** `my_array[index_expression] = value_expression;`
+- **Reading:** `value = my_array[index_expression];`
+
+**Syntax Disambiguation:** Array access is distinguished from relative pixel access by the number of arguments in the brackets.
+- `my_array[i]` (1 argument) is an array access.
+- `$x[0, 1]` (2 arguments) is a pixel access.
+
+**Example (`SingleExpr` mode):**
+```
+# Create and populate a lookup table
+lut = new(256);
+i = 0;
+while (i < 256) {
+    lut[i] = i * i; # Store the square of the index
+    i = i + 1;
+}
+
+# In a later part of the script, use the LUT
+some_value = dyn($x, 10, 10, 0);
+result_from_lut = lut[some_value]; # Read from the LUT
+```
+
+### 10.3. Arrays as Function Parameters
+
+Arrays can be passed to user-defined functions by specifying the `Array` type in the function signature. The array is passed by reference, meaning the function can modify the original array.
+
+**Example:**
+```
+# Function to fill an array with a value
+function fill_array(Array a, Value fill_val, Value len) {
+    i = 0;
+    while (i < len) {
+        a[i] = fill_val;
+        i = i + 1;
+    }
+}
+
+# Usage
+my_data = new(10);
+fill_array(my_data, 3.14, 10); # my_data is now filled with 3.14
+```
+
+### 10.4. Scope and Lifetime
+
+The lifetime of an array depends on the execution mode:
+
+- **`Expr` mode:** Arrays are temporary and exist only for the evaluation of a single pixel. They are re-created and destroyed for each pixel and cannot be used to share data between pixels.
+- **`SingleExpr` mode:** Arrays are persistent and exist for the lifetime of the filter instance. Their contents are preserved between frame evaluations. **Warning:** Due to VapourSynth's parallel processing, you should not rely on arrays for communication *between* frames, as frame evaluation order is not guaranteed.
+
+### 10.5. Safety
+
+**Warning:** The language does not perform runtime bounds checking on array access. Accessing an index outside the allocated size (e.g., `my_array[-1]` or `my_array[size]`) will result in **undefined behavior**, which may include crashes or memory corruption. It is the script author's responsibility to ensure all access is within bounds.

@@ -14,6 +14,7 @@ enum class Type {
     CLIP,
     LITERAL,
     LITERAL_STRING,
+    ARRAY,
 };
 
 inline std::string to_string(Type t) {
@@ -26,6 +27,8 @@ inline std::string to_string(Type t) {
         return "Literal";
     case Type::LITERAL_STRING:
         return "LiteralString";
+    case Type::ARRAY:
+        return "Array";
     }
 }
 
