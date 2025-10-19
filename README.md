@@ -104,6 +104,7 @@ See [examples](examples) for examples of infix code.
 - [8x8 DCT](examples/8x8dct.expr)
 - [8x8 IDCT](examples/8x8idct.expr)
 - [NL-Means](examples/nl-means.expr)
+- [Area Filter](examples/area_filter.expr)
 
 ## Documentation
 

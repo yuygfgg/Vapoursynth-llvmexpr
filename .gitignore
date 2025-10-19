@@ -10,3 +10,4 @@ build/*
 tmp.py
 exprutils.egg-info/*
 *.expr
+!examples/*.expr
