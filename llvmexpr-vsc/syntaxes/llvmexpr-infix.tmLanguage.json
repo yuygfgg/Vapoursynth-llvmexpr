@@ -50,6 +50,9 @@
       "include": "#punctuation"
     },
     {
+      "include": "#variables"
+    },
+    {
       "include": "#illegal"
     }
   ],
@@ -65,8 +68,45 @@
     "directives": {
       "patterns": [
         {
-          "name": "keyword.other.directive.global.llvmexpr-infix",
-          "match": "^<global(?:\\.\\w+|<[a-zA-Z_]\\w*>)*>"
+          "begin": "^(<global)",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.directive.global.llvmexpr-infix"
+            }
+          },
+          "end": "(>)",
+          "endCaptures": {
+            "1": {
+              "name": "keyword.other.directive.global.llvmexpr-infix"
+            }
+          },
+          "name": "meta.directive.global.llvmexpr-infix",
+          "patterns": [
+            {
+              "name": "keyword.other.directive.global.modifier.llvmexpr-infix",
+              "match": "\\.(none|all)"
+            },
+            {
+              "begin": "(<)",
+              "beginCaptures": {
+                "1": {
+                  "name": "punctuation.definition.variable.begin.llvmexpr-infix"
+                }
+              },
+              "end": "(>)",
+              "endCaptures": {
+                "1": {
+                  "name": "punctuation.definition.variable.end.llvmexpr-infix"
+                }
+              },
+              "patterns": [
+                {
+                  "name": "variable.other.llvmexpr-infix",
+                  "match": "[a-zA-Z_]\\w*"
+                }
+              ]
+            }
+          ]
         }
       ]
     },
@@ -86,7 +126,11 @@
       "patterns": [
         {
           "name": "keyword.control.flow.llvmexpr-infix",
-          "match": "\\b(if|else|while|goto|return|exit)\\b"
+          "match": "\\b(if|else|while|goto|return)\\b"
+        },
+        {
+          "name": "keyword.control.exit.llvmexpr-infix",
+          "match": "\\b(exit)\\b"
         },
         {
           "name": "storage.type.function.llvmexpr-infix",
@@ -138,8 +182,20 @@
     "function_calls": {
       "patterns": [
         {
-          "name": "support.function.built-in.llvmexpr-infix",
-          "match": "\\b(sin|cos|tan|asin|acos|atan|atan2|exp|exp2|log|log2|log10|sqrt|abs|sgn|floor|ceil|round|trunc|min|max|copysign|clamp|fma|nth_\\d+|new|resize|dyn|store|set_prop)\\b(?=\\s*\\()"
+          "name": "support.function.math.llvmexpr-infix",
+          "match": "\\b(sin|cos|tan|asin|acos|atan|atan2|exp|exp2|log|log2|log10|sqrt|abs|sgn|floor|ceil|round|trunc|min|max|copysign|clamp|fma)\\b(?=\\s*\\()"
+        },
+        {
+          "name": "support.function.selection.llvmexpr-infix",
+          "match": "\\b(nth_\\d+)\\b(?=\\s*\\()"
+        },
+        {
+          "name": "support.function.memory.llvmexpr-infix",
+          "match": "\\b(new|resize)\\b(?=\\s*\\()"
+        },
+        {
+          "name": "support.function.io.llvmexpr-infix",
+          "match": "\\b(dyn|store|set_prop)\\b(?=\\s*\\()"
         },
         {
           "captures": {
@@ -224,6 +280,10 @@
         {
           "name": "variable.language.special.result.llvmexpr-infix",
           "match": "\\bRESULT\\b"
+        },
+        {
+          "name": "variable.language.special.frame.llvmexpr-infix",
+          "match": "\\bframe\\b"
         }
       ]
     },
@@ -312,6 +372,14 @@
         {
           "name": "punctuation.brackets.square.end.llvmexpr-infix",
           "match": "\\]"
+        }
+      ]
+    },
+    "variables": {
+      "patterns": [
+        {
+          "name": "variable.other.llvmexpr-infix",
+          "match": "\\b[a-zA-Z_]\\w*\\b"
         }
       ]
     },

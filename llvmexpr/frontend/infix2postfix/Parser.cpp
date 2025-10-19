@@ -215,18 +215,15 @@ std::unique_ptr<BlockStmt> Parser::parseBlock() {
             }
             panic_mode = false;
         } catch (const ParserError& e) {
-            // Error already recorded, synchronize and continue
             if (!panic_mode) {
                 panic_mode = true;
             }
             synchronize();
 
-            // If we hit the closing brace or EOF during synchronization, break
             if (peek().type == TokenType::RBrace || isAtEnd()) {
                 break;
             }
 
-            // Safety check: if we haven't moved forward, force advance to avoid infinite loop
             if (current == pos_before && !isAtEnd() &&
                 peek().type != TokenType::RBrace) {
                 advance();
@@ -616,7 +613,6 @@ bool Parser::isAtEnd() const { return peek().type == TokenType::EndOfFile; }
 
 void Parser::report_error(const Token& token, const std::string& message) {
     if (panic_mode) {
-        // Already in panic mode, don't report cascading errors
         return;
     }
 
@@ -638,13 +634,10 @@ void Parser::error(const Token& token, const std::string& message) {
 void Parser::synchronize() {
     panic_mode = false;
 
-    // Skip tokens until we find a good synchronization point
     while (!isAtEnd()) {
-        // Check if previous token was a statement terminator
         if (current > 0) {
             TokenType prev = tokens[current - 1].type;
             if (prev == TokenType::Semicolon || prev == TokenType::Newline) {
-                // Skip any additional terminators
                 while (peek().type == TokenType::Semicolon ||
                        peek().type == TokenType::Newline) {
                     advance();
@@ -653,7 +646,6 @@ void Parser::synchronize() {
             }
         }
 
-        // Stop at the start of a new statement or declaration
         switch (peek().type) {
         case TokenType::Function:
         case TokenType::Global:
@@ -669,7 +661,6 @@ void Parser::synchronize() {
             break;
         }
 
-        // Always advance to avoid infinite loop
         advance();
     }
 }
