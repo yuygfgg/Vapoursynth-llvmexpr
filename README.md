@@ -83,12 +83,13 @@ This function executes an expression only once per frame. It is not suitable for
 
 **Function Signature:**
 ```
-llvmexpr.SingleExpr(clip[] clips, string expr[, int boundary=0, string dump_ir="", int opt_level=5, int approx_math=2, int infix=0])
+llvmexpr.SingleExpr(clip[] clips, string expr[, int format, int boundary=0, string dump_ir="", int opt_level=5, int approx_math=2, int infix=0])
 ```
 
 **Parameters:**
 - `clips`: Input video clips.
 - `expr`: A single expression string. Unlike `Expr`, only one string is accepted for all planes. Format depends on `infix` parameter
+- `format`: Output format (optional)
 - `boundary`: Boundary handling mode for pixel reads (0=clamp, 1=mirror). This does not affect writes.
 - `dump_ir`: Path to dump LLVM IR for debugging (optional).
 - `opt_level`: Optimization level (> 0, default: 5).

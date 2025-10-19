@@ -105,6 +105,32 @@ void validateAndInitClips(BaseExprData* d, const VSMap* in,
     d->vi = *vi[0];
 }
 
+void parseFormatParam(BaseExprData* d, const VSMap* in, const VSAPI* vsapi,
+                      VSCore* core) {
+    int err = 0;
+    const int format_id =
+        static_cast<int>(vsapi->mapGetInt(in, "format", 0, &err));
+    if (!err) {
+        VSVideoFormat temp_format;
+        if (vsapi->getVideoFormatByID(&temp_format, format_id, core)) {
+            if (d->vi.format.numPlanes != temp_format.numPlanes) {
+                throw std::runtime_error("The number of planes in the "
+                                         "inputs and output must match.");
+            }
+            VSVideoFormat new_format;
+            if (vsapi->queryVideoFormat(&new_format, d->vi.format.colorFamily,
+                                        temp_format.sampleType,
+                                        temp_format.bitsPerSample,
+                                        d->vi.format.subSamplingW,
+                                        d->vi.format.subSamplingH, core)) {
+                d->vi.format = new_format;
+            } else {
+                throw std::runtime_error("Failed to query new format.");
+            }
+        }
+    }
+}
+
 void parseCommonParams(BaseExprData* d, const VSMap* in, const VSAPI* vsapi) {
     int err = 0;
 
@@ -334,27 +360,7 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
 
     try {
         validateAndInitClips(d.get(), in, vsapi);
-        const int format_id =
-            static_cast<int>(vsapi->mapGetInt(in, "format", 0, &err));
-        if (!err) {
-            VSVideoFormat temp_format;
-            if (vsapi->getVideoFormatByID(&temp_format, format_id, core)) {
-                if (d->vi.format.numPlanes != temp_format.numPlanes) {
-                    throw std::runtime_error("The number of planes in the "
-                                             "inputs and output must match.");
-                }
-                VSVideoFormat new_format;
-                if (vsapi->queryVideoFormat(
-                        &new_format, d->vi.format.colorFamily,
-                        temp_format.sampleType, temp_format.bitsPerSample,
-                        d->vi.format.subSamplingW, d->vi.format.subSamplingH,
-                        core)) {
-                    d->vi.format = new_format;
-                } else {
-                    throw std::runtime_error("Failed to query new format.");
-                }
-            }
-        }
+        parseFormatParam(d.get(), in, vsapi, core);
 
         const int nexpr = vsapi->mapNumElements(in, "expr");
         if (nexpr == 0)
@@ -547,6 +553,7 @@ void VS_CC singleExprCreate(const VSMap* in, VSMap* out,
 
     try {
         validateAndInitClips(d.get(), in, vsapi);
+        parseFormatParam(d.get(), in, vsapi, core);
 
         const char* expr_str = vsapi->mapGetData(in, "expr", 0, &err);
         if (err)
@@ -665,9 +672,9 @@ VapourSynthPluginInit2(VSPlugin* plugin, const VSPLUGINAPI* vspapi) {
         "clips:vnode[];expr:data[];format:int:opt;boundary:int:opt;"
         "dump_ir:data:opt;opt_level:int:opt;approx_math:int:opt;infix:int:opt;",
         "clip:vnode;", exprCreate, nullptr, plugin);
-    vspapi->registerFunction(
-        "SingleExpr",
-        "clips:vnode[];expr:data;boundary:int:opt;dump_ir:data:opt;opt_"
-        "level:int:opt;approx_math:int:opt;infix:int:opt;",
-        "clip:vnode;", singleExprCreate, nullptr, plugin);
+    vspapi->registerFunction("SingleExpr",
+                             "clips:vnode[];expr:data;format:int:opt;boundary:"
+                             "int:opt;dump_ir:data:opt;opt_"
+                             "level:int:opt;approx_math:int:opt;infix:int:opt;",
+                             "clip:vnode;", singleExprCreate, nullptr, plugin);
 }
