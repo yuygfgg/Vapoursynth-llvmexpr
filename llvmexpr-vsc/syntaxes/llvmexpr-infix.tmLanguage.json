@@ -182,6 +182,60 @@
     "function_calls": {
       "patterns": [
         {
+          "name": "meta.function-call.set-prop.llvmexpr-infix",
+          "begin": "\\b(set_prop)\\s*(\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "support.function.io.llvmexpr-infix"
+            },
+            "2": {
+              "name": "punctuation.parenthesis.begin.llvmexpr-infix"
+            }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.parenthesis.end.llvmexpr-infix"
+            }
+          },
+          "patterns": [
+            {
+              "begin": "\\G",
+              "end": "(?=[,)])",
+              "patterns": [
+                {
+                  "name": "string.unquoted.property-name.llvmexpr-infix",
+                  "match": "[a-zA-Z_]\\w*"
+                }
+              ]
+            },
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#function_calls"
+            },
+            {
+              "include": "#constants"
+            },
+            {
+              "include": "#special_variables"
+            },
+            {
+              "include": "#literals"
+            },
+            {
+              "include": "#operators"
+            },
+            {
+              "include": "#punctuation"
+            },
+            {
+              "include": "#variables"
+            }
+          ]
+        },
+        {
           "name": "support.function.math.llvmexpr-infix",
           "match": "\\b(sin|cos|tan|asin|acos|atan|atan2|exp|exp2|log|log2|log10|sqrt|abs|sgn|floor|ceil|round|trunc|min|max|copysign|clamp|fma)\\b(?=\\s*\\()"
         },
@@ -195,7 +249,7 @@
         },
         {
           "name": "support.function.io.llvmexpr-infix",
-          "match": "\\b(dyn|store|set_prop)\\b(?=\\s*\\()"
+          "match": "\\b(dyn|store)\\b(?=\\s*\\()"
         },
         {
           "captures": {
