@@ -17,6 +17,11 @@ class ParserError : public std::runtime_error {
     int line;
 };
 
+struct ErrorInfo {
+    std::string message;
+    int line;
+};
+
 class Parser {
   public:
     explicit Parser(const std::vector<Token>& tokens);
@@ -64,10 +69,14 @@ class Parser {
     Token previous() const;
     bool isAtEnd() const;
     void error(const Token& token, const std::string& message);
+    void synchronize();
+    void report_error(const Token& token, const std::string& message);
 
     std::vector<Token> tokens;
     int current = 0;
     std::set<std::string> defined_functions;
+    std::vector<ErrorInfo> errors;
+    bool panic_mode = false;
 };
 
 } // namespace infix2postfix
