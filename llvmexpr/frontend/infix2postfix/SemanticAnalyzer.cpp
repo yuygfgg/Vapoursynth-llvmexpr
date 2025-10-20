@@ -197,8 +197,6 @@ std::shared_ptr<Symbol> SemanticAnalyzer::defineSymbol(SymbolKind kind,
     symbol->name = name;
     symbol->type = type;
     symbol->definition_line = line;
-    // Keep mangled_name same as name initially; CodeGenerator will handle function inlining renaming
-    symbol->mangled_name = name;
 
     if (!current_scope->define(symbol)) {
         return current_scope->resolve(name);
@@ -271,7 +269,6 @@ Type SemanticAnalyzer::analyze(VariableExpr& expr) {
                 symbol->name = name;
                 symbol->type = Type::VALUE;
                 symbol->definition_line = expr.line;
-                symbol->mangled_name = name;
             }
         } else if (current_function->global_mode == GlobalMode::SPECIFIC) {
             // Global declaration is forward declared
@@ -283,7 +280,6 @@ Type SemanticAnalyzer::analyze(VariableExpr& expr) {
                     symbol->name = name;
                     symbol->type = Type::VALUE;
                     symbol->definition_line = expr.line;
-                    symbol->mangled_name = name;
                 }
             }
         }

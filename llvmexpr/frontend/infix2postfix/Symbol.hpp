@@ -22,8 +22,6 @@ struct Symbol {
     Type type;
     int definition_line;
 
-    std::string mangled_name;
-
     const FunctionSignature* signature = nullptr;
 };
 

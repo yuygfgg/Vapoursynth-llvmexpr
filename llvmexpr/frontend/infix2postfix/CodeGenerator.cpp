@@ -96,7 +96,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const VariableExpr& expr) {
     if (var_rename_map.count(name)) {
         var_name = var_rename_map.at(name);
     } else if (expr.symbol) {
-        var_name = expr.symbol->mangled_name;
+        var_name = expr.symbol->name;
     }
 
     b.add_variable_load(var_name);
@@ -349,10 +349,10 @@ CodeGenerator::ExprResult CodeGenerator::handle(const ArrayAccessExpr& expr) {
         if (var_rename_map.count(array_name)) {
             array_name = var_rename_map.at(array_name);
         } else if (expr.array_symbol) {
-            array_name = expr.array_symbol->mangled_name;
+            array_name = expr.array_symbol->name;
         }
     } else if (expr.array_symbol) {
-        array_name = expr.array_symbol->mangled_name;
+        array_name = expr.array_symbol->name;
     }
 
     auto index_result = generate(expr.index.get());
@@ -377,7 +377,7 @@ PostfixBuilder CodeGenerator::handle(const AssignStmt& stmt) {
     if (var_rename_map.count(name)) {
         var_name = var_rename_map.at(name);
     } else if (stmt.symbol) {
-        var_name = stmt.symbol->mangled_name;
+        var_name = stmt.symbol->name;
     }
     // Check if this is a new() or resize() call for array allocation
     if (auto* call_expr = get_if<CallExpr>(stmt.value.get())) {
@@ -420,10 +420,10 @@ PostfixBuilder CodeGenerator::handle(const ArrayAssignStmt& stmt) {
         if (var_rename_map.count(array_name)) {
             array_name = var_rename_map.at(array_name);
         } else if (array_access->array_symbol) {
-            array_name = array_access->array_symbol->mangled_name;
+            array_name = array_access->array_symbol->name;
         }
     } else if (array_access->array_symbol) {
-        array_name = array_access->array_symbol->mangled_name;
+        array_name = array_access->array_symbol->name;
     }
 
     PostfixBuilder b;
@@ -501,7 +501,7 @@ PostfixBuilder CodeGenerator::handle(const ReturnStmt& stmt) {
 PostfixBuilder CodeGenerator::handle(const LabelStmt& stmt) {
     PostfixBuilder b;
     std::string label_name =
-        stmt.symbol ? stmt.symbol->mangled_name : stmt.name.value;
+        stmt.symbol ? stmt.symbol->name : stmt.name.value;
     b.add_label(label_name);
     return b;
 }
@@ -509,7 +509,7 @@ PostfixBuilder CodeGenerator::handle(const LabelStmt& stmt) {
 PostfixBuilder CodeGenerator::handle(const GotoStmt& stmt) {
     PostfixBuilder b;
     std::string label_name = stmt.target_label_symbol
-                                 ? stmt.target_label_symbol->mangled_name
+                                 ? stmt.target_label_symbol->name
                                  : stmt.label.value;
     if (stmt.condition) {
         b.append(generate(stmt.condition.get()).postfix);
@@ -584,7 +584,7 @@ PostfixBuilder CodeGenerator::inline_function_call(
                     param_map[param_name] =
                         saved_var_rename_map.at(arg_var_name);
                 } else if (var_expr->symbol) {
-                    param_map[param_name] = var_expr->symbol->mangled_name;
+                    param_map[param_name] = var_expr->symbol->name;
                 } else {
                     param_map[param_name] = arg_var_name;
                 }
