@@ -47,14 +47,6 @@ inline double locale_independent_stod(const std::string& s) {
     return val;
 }
 
-inline int parse_std_clip_idx(char c) {
-    if (c >= 'x' && c <= 'z') {
-        return c - 'x';
-    } else {
-        return c - 'a' + 3;
-    }
-}
-
 struct TokenInfo {
     TokenType type;
     std::string_view name;

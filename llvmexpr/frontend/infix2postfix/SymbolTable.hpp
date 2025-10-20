@@ -9,7 +9,7 @@
 namespace infix2postfix {
 
 class SymbolTable {
-public:
+  public:
     explicit SymbolTable(SymbolTable* parent = nullptr);
 
     bool define(std::shared_ptr<Symbol> symbol);
@@ -18,7 +18,7 @@ public:
 
     SymbolTable* get_parent() const { return parent; }
 
-private:
+  private:
     SymbolTable* parent;
     std::map<std::string, std::shared_ptr<Symbol>> symbols;
 };
@@ -26,4 +26,3 @@ private:
 } // namespace infix2postfix
 
 #endif
-

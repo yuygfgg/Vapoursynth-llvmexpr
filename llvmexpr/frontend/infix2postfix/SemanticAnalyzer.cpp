@@ -1,28 +1,27 @@
 #include "SemanticAnalyzer.hpp"
+#include "../Tokenizer.hpp"
 #include "Builtins.hpp"
 #include <algorithm>
+#include <cstddef>
 #include <format>
 #include <functional>
 
 namespace infix2postfix {
 
 namespace {
-bool is_clip_postfix_internal(const std::string& s) {
+int get_clip_index(const std::string& s) {
     if (s.length() == 1 && s[0] >= 'a' && s[0] <= 'z')
-        return true;
+        return parse_std_clip_idx(s[0]);
     if (s.rfind("src", 0) == 0) {
         for (size_t i = 3; i < s.length(); ++i) {
             if (!std::isdigit(s[i]))
-                return false;
+                return -1;
         }
-        return true;
+        return std::stoi(s.substr(3));
     }
-    return false;
+    return -1;
 }
 
-bool is_convertible_internal(Type from, Type to) {
-    return from == to || (to == Type::VALUE && from != Type::LITERAL_STRING);
-}
 } // namespace
 
 SemanticAnalyzer::SemanticAnalyzer(Mode mode, int num_inputs)
@@ -240,16 +239,28 @@ Type SemanticAnalyzer::analyze(VariableExpr& expr) {
     if (name.starts_with("$")) {
         std::string base_name = name.substr(1);
 
-        if ((base_name == "X" || base_name == "Y") && mode == Mode::Single) {
-            reportError("X and Y coordinates are only available in Expr mode. "
-                        "SingleExpr processes the entire frame at once, not "
-                        "pixel-by-pixel.",
-                        expr.line);
-        }
-
-        if (isClipName(base_name)) {
+        if (base_name == "X" || base_name == "Y") {
+            if (mode == Mode::Single) {
+                reportError(
+                    "X and Y coordinates are only available in Expr mode. "
+                    "SingleExpr processes the entire frame at once, not "
+                    "pixel-by-pixel.",
+                    expr.line);
+            }
+            return Type::VALUE;
+        } else if (get_clip_index(base_name) != -1) {
+            if (get_clip_index(base_name) > num_inputs - 1) {
+                reportError(
+                    std::format("Clip index '{}' is out of range", base_name),
+                    expr.line);
+            }
             return Type::CLIP;
+        } else if (base_name == "width" || base_name == "height" ||
+                   base_name == "pi" || base_name == "N") {
+            return Type::VALUE;
         }
+        reportError(std::format("Invalid identifier '{}'.", base_name),
+                    expr.line);
         return Type::VALUE;
     }
 
@@ -650,29 +661,35 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
     }
 }
 
-Type SemanticAnalyzer::analyze(const PropAccessExpr& expr) {
-    std::string clip_name = expr.clip.value;
+void SemanticAnalyzer::validateClipReference(const std::string& clip_name,
+                                             int line) {
+    std::string name = clip_name;
 
-    if (clip_name.starts_with("$")) {
-        clip_name = clip_name.substr(1);
-        if (!isClipName(clip_name)) {
-            reportError(
-                std::format("Invalid clip identifier '{}' for property access.",
-                            expr.clip.value),
-                expr.line);
+    if (name.starts_with("$")) {
+        name = name.substr(1);
+        if (get_clip_index(name) == -1) {
+            reportError(std::format("Invalid clip identifier '{}'.", clip_name),
+                        line);
+        }
+        if (get_clip_index(name) > num_inputs - 1) {
+            reportError(std::format("Clip index '{}' is out of range", name),
+                        line);
         }
     } else {
         // Check if it's a function parameter of Clip type
-        auto symbol = current_scope->resolve(clip_name);
+        auto symbol = current_scope->resolve(name);
         if (!symbol || symbol->type != Type::CLIP) {
             reportError(
-                std::format("Clip '{}' is used as a property access target but "
-                            "was not a clip constant or Clip parameter.",
-                            expr.clip.value),
-                expr.line);
+                std::format(
+                    "Clip '{}' is not a clip constant or Clip parameter.",
+                    clip_name),
+                line);
         }
     }
+}
 
+Type SemanticAnalyzer::analyze(const PropAccessExpr& expr) {
+    validateClipReference(expr.clip.value, expr.line);
     return Type::VALUE;
 }
 
@@ -685,28 +702,7 @@ Type SemanticAnalyzer::analyze(const StaticRelPixelAccessExpr& expr) {
                     expr.line);
     }
 
-    std::string clip_name = expr.clip.value;
-
-    if (clip_name.starts_with("$")) {
-        clip_name = clip_name.substr(1);
-        if (!isClipName(clip_name)) {
-            reportError(
-                std::format("Invalid clip identifier '{}' for pixel access.",
-                            expr.clip.value),
-                expr.line);
-        }
-    } else {
-        // Check if it's a function parameter of Clip type
-        auto symbol = current_scope->resolve(clip_name);
-        if (!symbol || symbol->type != Type::CLIP) {
-            reportError(
-                std::format("Clip '{}' is used for pixel access but "
-                            "was not a clip constant or Clip parameter.",
-                            expr.clip.value),
-                expr.line);
-        }
-    }
-
+    validateClipReference(expr.clip.value, expr.line);
     return Type::VALUE;
 }
 
@@ -1094,12 +1090,8 @@ void SemanticAnalyzer::collectLabels(Stmt* stmt, std::set<std::string>& labels,
     }
 }
 
-bool SemanticAnalyzer::isClipName(const std::string& s) {
-    return is_clip_postfix_internal(s);
-}
-
 bool SemanticAnalyzer::isConvertible(Type from, Type to) {
-    return is_convertible_internal(from, to);
+    return from == to || (to == Type::VALUE && from != Type::LITERAL_STRING);
 }
 
 bool SemanticAnalyzer::builtinParamTypeIsEvaluatable(

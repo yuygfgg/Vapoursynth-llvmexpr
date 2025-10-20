@@ -532,12 +532,12 @@ std::unique_ptr<Expr> Parser::finishCall(std::unique_ptr<Expr> callee) {
             } while (match({TokenType::Comma}));
         }
         consume(TokenType::RParen, "Expect ')' after arguments.");
-        return make_node<Expr, CallExpr>(var->name, std::move(args), "");
+        return make_node<Expr, CallExpr>(var->name, std::move(args));
     }
     error(peek(), "Invalid call target.");
     Token placeholder{TokenType::Identifier, "error", peek().line};
     return make_node<Expr, CallExpr>(placeholder,
-                                     std::vector<std::unique_ptr<Expr>>{}, "");
+                                     std::vector<std::unique_ptr<Expr>>{});
 }
 
 std::unique_ptr<Expr> Parser::parsePrimary() {

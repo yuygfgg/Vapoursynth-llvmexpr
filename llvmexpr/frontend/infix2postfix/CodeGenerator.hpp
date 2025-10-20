@@ -81,12 +81,10 @@ class CodeGenerator {
     int num_inputs;
     int label_counter = 0;
 
-    // Context for function inlining
     std::map<std::string, Expr*> param_substitutions;
     std::map<std::string, std::string> var_rename_map;
     const FunctionSignature* current_function = nullptr;
 
-    // Label tracking for inlining
     std::set<std::string> current_function_labels;
 };
 

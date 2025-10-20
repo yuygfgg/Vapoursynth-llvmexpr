@@ -198,7 +198,6 @@ Token Tokenizer::globalDeclaration() {
     if (depth == 0) {
         return makeToken(TokenType::Global);
     }
-    // Unterminated global declaration
     return makeToken(TokenType::Invalid, source.substr(start, current - start));
 }
 

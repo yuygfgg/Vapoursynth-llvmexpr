@@ -9,12 +9,7 @@ namespace infix2postfix {
 struct Stmt;
 struct Expr;
 
-enum class SymbolKind {
-    VARIABLE,
-    FUNCTION,
-    PARAMETER,
-    LABEL
-};
+enum class SymbolKind { VARIABLE, FUNCTION, PARAMETER, LABEL };
 
 struct Symbol {
     SymbolKind kind;
@@ -28,4 +23,3 @@ struct Symbol {
 } // namespace infix2postfix
 
 #endif
-

@@ -65,13 +65,11 @@ struct TernaryExpr {
 struct CallExpr {
     std::string callee;
     std::vector<std::unique_ptr<Expr>> args;
-    std::string boundary_suffix;
     int line = 0;
     const FunctionSignature* resolved_signature = nullptr;
     FunctionDef* resolved_def = nullptr;
 
-    CallExpr(Token callee_token, std::vector<std::unique_ptr<Expr>> a,
-             std::string suffix = "");
+    CallExpr(Token callee_token, std::vector<std::unique_ptr<Expr>> a);
 };
 
 struct PropAccessExpr {
@@ -287,10 +285,8 @@ inline TernaryExpr::TernaryExpr(std::unique_ptr<Expr> c,
 }
 
 inline CallExpr::CallExpr(Token callee_token,
-                          std::vector<std::unique_ptr<Expr>> a,
-                          std::string suffix)
-    : callee(std::move(callee_token.value)), args(std::move(a)),
-      boundary_suffix(std::move(suffix)) {
+                          std::vector<std::unique_ptr<Expr>> a)
+    : callee(std::move(callee_token.value)), args(std::move(a)) {
     line = callee_token.line;
 }
 

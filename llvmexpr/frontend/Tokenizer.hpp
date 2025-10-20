@@ -203,6 +203,15 @@ enum class ExprMode {
     SINGLE_EXPR,
 };
 
+// Utility functions
+inline int parse_std_clip_idx(char c) {
+    if (c >= 'x' && c <= 'z') {
+        return c - 'x';
+    } else {
+        return c - 'a' + 3;
+    }
+}
+
 // Public interface
 std::vector<Token> tokenize(const std::string& expr, int num_inputs,
                             ExprMode mode = ExprMode::EXPR);

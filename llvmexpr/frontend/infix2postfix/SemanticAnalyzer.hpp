@@ -84,7 +84,6 @@ class SemanticAnalyzer {
 
     void reportError(const std::string& message, int line);
     void reportWarning(const std::string& message, int line);
-    bool isClipName(const std::string& s);
     bool isConvertible(Type from, Type to);
     bool builtinParamTypeIsEvaluatable(
         const std::vector<struct BuiltinFunction>& overloads, size_t param_idx);
@@ -104,8 +103,10 @@ class SemanticAnalyzer {
     void collectUsedGlobalsInStmt(Stmt* stmt,
                                   std::set<std::string>& used_globals);
 
+    void validateClipReference(const std::string& clip_name, int line);
+
     Mode mode;
-    [[maybe_unused]] int num_inputs;
+    int num_inputs;
     bool has_result = false;
     bool result_defined_in_global_scope = false;
 

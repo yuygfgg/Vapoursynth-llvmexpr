@@ -24,4 +24,3 @@ std::shared_ptr<Symbol> SymbolTable::resolve(const std::string& name) const {
 }
 
 } // namespace infix2postfix
-
