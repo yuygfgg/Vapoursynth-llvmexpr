@@ -103,6 +103,8 @@ class SemanticAnalyzer {
     void collectUsedGlobalsInStmt(Stmt* stmt,
                                   std::set<std::string>& used_globals);
 
+    bool path_always_returns(Stmt* stmt);
+
     void validateClipReference(const std::string& clip_name, int line);
 
     Mode mode;

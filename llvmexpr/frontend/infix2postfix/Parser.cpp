@@ -212,7 +212,10 @@ std::unique_ptr<Stmt> Parser::parseExprStatement() {
     if (peek().type == TokenType::Identifier &&
         peek(1).type == TokenType::Assign) {
         Token name = advance(); // identifier
-        advance();              // '='
+        if (name.value.rfind("__internal_", 0) == 0) {
+            error(name, "Variable name cannot start with '__internal_'.");
+        }
+        advance(); // '='
         auto value = parseTernary();
         return make_node<Stmt, AssignStmt>(name, std::move(value));
     }
@@ -242,6 +245,9 @@ std::unique_ptr<Stmt> Parser::parseExprStatement() {
 std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
     consume(TokenType::Function, "Expect 'function'.");
     Token name = consume(TokenType::Identifier, "Expect function name.");
+    if (name.value.rfind("__internal_", 0) == 0) {
+        error(name, "Function name cannot start with '__internal_'.");
+    }
 
     const auto& builtins = get_builtin_functions();
     // TODO: resize is not a built-in function in Expr mode.
@@ -288,6 +294,12 @@ std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
                 param_type = Type::VALUE;
             } else {
                 error(peek(), "Expect a parameter declaration.");
+                break; // Avoid infinite loop on error
+            }
+            if (name_token.type == TokenType::Identifier &&
+                name_token.value.rfind("__internal_", 0) == 0) {
+                error(name_token,
+                      "Parameter name cannot start with '__internal_'.");
             }
             params.push_back({type_token, name_token, param_type});
         } while (match({TokenType::Comma}));
@@ -339,6 +351,12 @@ std::unique_ptr<GlobalDecl> Parser::parseGlobalDecl() {
 
             if (var_name.empty()) {
                 error(keyword, "Empty variable name in global declaration.");
+            }
+
+            if (var_name.rfind("__internal_", 0) == 0) {
+                error(keyword, std::format("Invalid identifier '{}': cannot "
+                                           "start with '__internal_'.",
+                                           var_name));
             }
 
             if (!std::isalpha(var_name[0]) && var_name[0] != '_') {

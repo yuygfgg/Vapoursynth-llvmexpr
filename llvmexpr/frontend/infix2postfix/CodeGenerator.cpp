@@ -465,11 +465,33 @@ PostfixBuilder CodeGenerator::handle(const WhileStmt& stmt) {
 }
 
 PostfixBuilder CodeGenerator::handle(const ReturnStmt& stmt) {
+    PostfixBuilder b;
+
     if (stmt.value) {
+        if (!current_function->returns_value) {
+            throw CodeGenError(
+                std::format("Function '{}' should not return a value.",
+                            current_function->name),
+                stmt.line);
+        }
         auto result = generate(stmt.value.get());
-        return result.postfix;
+        b.append(result.postfix);
+        std::string ret_var_name =
+            std::format("__internal_ret_{}", current_function->name);
+        b.add_variable_store(ret_var_name);
+    } else {
+        if (current_function->returns_value) {
+            throw CodeGenError(std::format("Function '{}' must return a value.",
+                                           current_function->name),
+                               stmt.line);
+        }
     }
-    return {};
+
+    std::string ret_label =
+        std::format("__internal_ret_label_{}", current_function->name);
+    b.add_unconditional_jump(ret_label);
+
+    return b;
 }
 
 PostfixBuilder CodeGenerator::handle(const LabelStmt& stmt) {
@@ -611,6 +633,14 @@ PostfixBuilder CodeGenerator::inline_function_call(
     PostfixBuilder body_builder = handle(*func_def->body);
     body_builder.prefix_labels(label_prefix);
 
+    std::string ret_label = std::format("__internal_ret_label_{}", func_name);
+    body_builder.add_label(ret_label);
+
+    if (sig.returns_value) {
+        std::string ret_var = std::format("__internal_ret_{}", func_name);
+        body_builder.add_variable_load(ret_var);
+    }
+
     // Restore state
     param_substitutions = saved_param_substitutions;
     var_rename_map = saved_var_rename_map;
@@ -620,7 +650,7 @@ PostfixBuilder CodeGenerator::inline_function_call(
     inlined_builder.append(param_assignments);
     inlined_builder.append(body_builder);
 
-    int expected_effect = sig.has_return ? 1 : 0;
+    int expected_effect = sig.returns_value ? 1 : 0;
     try {
         int actual_effect =
             compute_stack_effect(inlined_builder.get_expression(), call_line);

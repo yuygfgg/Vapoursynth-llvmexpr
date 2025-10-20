@@ -79,11 +79,43 @@ bool SemanticAnalyzer::analyze(Program* program) {
                 sig.params.push_back({p.name.value, p.type});
             }
             sig.line = func_def->line;
+
             sig.has_return = false;
-            for (const auto& s : func_def->body->statements) {
-                if (get_if<ReturnStmt>(s.get()))
+            std::optional<bool> returns_value_opt;
+
+            std::function<void(Stmt*)> find_returns = [&](Stmt* s) {
+                if (!s)
+                    return;
+
+                if (auto* ret = get_if<ReturnStmt>(s)) {
                     sig.has_return = true;
+                    bool current_has_value = (ret->value != nullptr);
+                    if (!returns_value_opt.has_value()) {
+                        returns_value_opt = current_has_value;
+                    } else if (returns_value_opt.value() != current_has_value) {
+                        reportError(
+                            std::format(
+                                "Function '{}' has inconsistent return "
+                                "statements (some with values, some without).",
+                                func_def->name.value),
+                            ret->line);
+                    }
+                } else if (auto* block = get_if<BlockStmt>(s)) {
+                    for (const auto& inner_s : block->statements)
+                        find_returns(inner_s.get());
+                } else if (auto* if_s = get_if<IfStmt>(s)) {
+                    find_returns(if_s->then_branch.get());
+                    if (if_s->else_branch)
+                        find_returns(if_s->else_branch.get());
+                } else if (auto* while_s = get_if<WhileStmt>(s)) {
+                    find_returns(while_s->body.get());
+                }
+            };
+            for (const auto& s : func_def->body->statements) {
+                find_returns(s.get());
             }
+            sig.returns_value = returns_value_opt.value_or(false);
+
             if (func_def->global_decl) {
                 sig.global_mode = func_def->global_decl->mode;
                 for (const auto& g : func_def->global_decl->globals) {
@@ -993,41 +1025,20 @@ void SemanticAnalyzer::analyze(FunctionDef& stmt) {
         return;
     }
 
-    // Check return statement placement
-    const auto& stmts = stmt.body->statements;
-    std::function<void(Stmt*, int)> check_returns = [&](Stmt* s, int depth) {
-        if (!s)
-            return;
-        if (get_if<ReturnStmt>(s)) {
-            if (depth > 0) {
-                reportError(
-                    "'return' is not allowed inside blocks within a function.",
-                    s->line());
+    if (sig->has_return && sig->returns_value) {
+        bool body_always_returns = false;
+        for (const auto& s : stmt.body->statements) {
+            if (path_always_returns(s.get())) {
+                body_always_returns = true;
+                break;
             }
-        } else if (auto* block = get_if<BlockStmt>(s)) {
-            for (const auto& inner_s : block->statements) {
-                check_returns(inner_s.get(), depth + 1);
-            }
-        } else if (auto* if_s = get_if<IfStmt>(s)) {
-            check_returns(if_s->then_branch.get(), depth + 1);
-            if (if_s->else_branch) {
-                check_returns(if_s->else_branch.get(), depth + 1);
-            }
-        } else if (auto* while_s = get_if<WhileStmt>(s)) {
-            check_returns(while_s->body.get(), depth + 1);
         }
-    };
-
-    for (size_t i = 0; i < stmts.size(); ++i) {
-        const auto& stmt_ptr = stmts[i];
-        if (get_if<ReturnStmt>(stmt_ptr.get())) {
-            if (i != stmts.size() - 1) {
-                reportError(
-                    "'return' must be the last statement in a function body.",
-                    stmt_ptr->line());
-            }
-        } else {
-            check_returns(stmt_ptr.get(), 0);
+        if (!body_always_returns) {
+            reportError(
+                std::format(
+                    "Not all control paths in function '{}' return a value.",
+                    stmt.name.value),
+                stmt.line);
         }
     }
 
@@ -1088,6 +1099,29 @@ void SemanticAnalyzer::collectLabels(Stmt* stmt, std::set<std::string>& labels,
     } else if (auto* while_s = get_if<WhileStmt>(stmt)) {
         collectLabels(while_s->body.get(), labels, context, context_line);
     }
+}
+
+bool SemanticAnalyzer::path_always_returns(Stmt* stmt) {
+    if (!stmt)
+        return false;
+
+    if (get_if<ReturnStmt>(stmt)) {
+        return true;
+    }
+    if (auto* if_s = get_if<IfStmt>(stmt)) {
+        return path_always_returns(if_s->then_branch.get()) &&
+               (if_s->else_branch &&
+                path_always_returns(if_s->else_branch.get()));
+    }
+    if (auto* block = get_if<BlockStmt>(stmt)) {
+        for (const auto& s : block->statements) {
+            if (path_always_returns(s.get())) {
+                return true;
+            }
+        }
+        return false;
+    }
+    return false;
 }
 
 bool SemanticAnalyzer::isConvertible(Type from, Type to) {

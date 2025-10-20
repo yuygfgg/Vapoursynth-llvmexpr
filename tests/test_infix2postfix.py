@@ -545,7 +545,7 @@ RESULT = add(10, 20)
         assert success, f"Failed to convert: {output}"
         assert (
             output.strip()
-            == "10 __internal_func_add_x! 20 __internal_func_add_y! __internal_func_add_x@ __internal_func_add_y@ + RESULT! RESULT@"
+            == "10 __internal_func_add_x! 20 __internal_func_add_y! __internal_func_add_x@ __internal_func_add_y@ + __internal_ret_add! 1 __internal_ret_label_add# #__internal_ret_label_add __internal_ret_add@ RESULT! RESULT@"
         )
 
     def test_typed_function_and_global(self):
@@ -620,7 +620,9 @@ function test(a) {
 RESULT = test(4)
 """
         success, output = run_infix2postfix(infix, "expr")
-        assert not success, "Should fail when using undefined variable with <global.all>"
+        assert (
+            not success
+        ), "Should fail when using undefined variable with <global.all>"
         assert "undefined_var" in output
         assert "not defined in global scope before this call" in output
 
@@ -691,7 +693,7 @@ RESULT = process($x) + process(10.0)
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
         assert (
-            "x[1,1] 2 * 10.0 __internal_func_process_v! __internal_func_process_v@ 2 * + RESULT! RESULT@"
+            "x[1,1] 2 * __internal_ret_process! 1 __internal_ret_label_process# #__internal_ret_label_process __internal_ret_process@ 10.0 __internal_func_process_v! __internal_func_process_v@ 2 * __internal_ret_process! 1 __internal_ret_label_process# #__internal_ret_label_process __internal_ret_process@ + RESULT! RESULT@"
             in output
         )
 
@@ -705,7 +707,7 @@ RESULT = f(1) + f(2, 3)
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
         assert (
-            "1 __internal_func_f_x! __internal_func_f_x@ 2 __internal_func_f_x! 3 __internal_func_f_y! __internal_func_f_x@ __internal_func_f_y@ + + RESULT! RESULT@"
+            "1 __internal_func_f_x! __internal_func_f_x@ __internal_ret_f! 1 __internal_ret_label_f# #__internal_ret_label_f __internal_ret_f@ 2 __internal_func_f_x! 3 __internal_func_f_y! __internal_func_f_x@ __internal_func_f_y@ + __internal_ret_f! 1 __internal_ret_label_f# #__internal_ret_label_f __internal_ret_f@ + RESULT! RESULT@"
             in output
         )
 
@@ -720,7 +722,7 @@ RESULT = best(1.0, 2.0)
         assert success, f"Failed to convert: {output}"
         assert (
             output.strip()
-            == "1.0 __internal_func_best_v! 2.0 __internal_func_best_v2! 2 RESULT! RESULT@"
+            == "1.0 __internal_func_best_v! 2.0 __internal_func_best_v2! 2 __internal_ret_best! 1 __internal_ret_label_best# #__internal_ret_label_best __internal_ret_best@ RESULT! RESULT@"
         )
 
     def test_overload_tie_break(self):
@@ -732,7 +734,10 @@ RESULT = tie($x, $y)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert output.strip() == "y __internal_func_tie_v! 1 RESULT! RESULT@"
+        assert (
+            output.strip()
+            == "y __internal_func_tie_v! 1 __internal_ret_tie! 1 __internal_ret_label_tie# #__internal_ret_label_tie __internal_ret_tie@ RESULT! RESULT@"
+        )
 
     def test_duplicate_function_error(self):
         """Test that defining a function with the same signature twice errors."""
@@ -1533,7 +1538,8 @@ RESULT = f(10)
         assert not success
         assert "'return' statements are not allowed in the global scope" in output
 
-    def test_return_not_last_statement(self):
+    def test_code_after_return_is_valid(self):
+        """A return statement doesn't have to be the last one; code after it is just unreachable."""
         infix = """
 function f() {
     return 1
@@ -1542,10 +1548,10 @@ function f() {
 RESULT = f()
 """
         success, output = run_infix2postfix(infix, "expr")
-        assert not success
-        assert "'return' must be the last statement in a function body" in output
+        assert success, f"Code after return should be valid: {output}"
 
-    def test_multiple_return_statements(self):
+    def test_multiple_consecutive_returns_are_valid(self):
+        """Multiple returns are allowed; subsequent ones are just unreachable."""
         infix = """
 function f() {
     return 1
@@ -1554,10 +1560,10 @@ function f() {
 RESULT = f()
 """
         success, output = run_infix2postfix(infix, "expr")
-        assert not success
-        assert "'return' must be the last statement in a function body" in output
+        assert success, f"Should be valid, second return is just unreachable: {output}"
 
-    def test_return_in_if_block(self):
+    def test_return_in_if_block_is_valid(self):
+        """A return inside a block is now valid."""
         infix = """
 function f(a) {
     if (a > 0) {
@@ -1568,10 +1574,10 @@ function f(a) {
 RESULT = f(1)
 """
         success, output = run_infix2postfix(infix, "expr")
-        assert not success
-        assert "'return' is not allowed inside blocks within a function" in output
+        assert success, f"Return in if-block should now be valid: {output}"
 
-    def test_return_in_while_block(self):
+    def test_return_in_while_block_is_valid(self):
+        """A return inside a while is valid if all paths eventually return."""
         infix = """
 function f(a) {
     while(a > 0) {
@@ -1582,10 +1588,12 @@ function f(a) {
 RESULT = f(1)
 """
         success, output = run_infix2postfix(infix, "expr")
-        assert not success
-        assert "'return' is not allowed inside blocks within a function" in output
+        assert (
+            success
+        ), f"Return in while-block should be valid if another path returns: {output}"
 
-    def test_valid_return(self):
+    def test_valid_single_return(self):
+        """A simple single return at the end of a function is valid."""
         infix = """
 function f(a) {
     b = a + 1
@@ -1595,3 +1603,124 @@ RESULT = f(10)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed: {output}"
+
+
+class TestMultipleReturns:
+    def test_valid_multiple_value_returns(self):
+        """Test a function with multiple value returns where all paths return."""
+        infix = """
+function sign(x) {
+    if (x > 0) {
+        return 1
+    } else if (x < 0) {
+        return -1
+    } else {
+        return 0
+    }
+}
+RESULT = sign($X)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Should be valid: {output}"
+        # Check for the generated structure
+        assert "__internal_ret_sign" in output
+        assert "__internal_ret_label_sign" in output
+        assert "1 __internal_ret_sign!" in output
+        assert "-1 __internal_ret_sign!" in output
+        assert "0 __internal_ret_sign!" in output
+        assert "#__internal_ret_label_sign" in output
+        assert "__internal_ret_sign@" in output
+
+    def test_valid_void_early_exit(self):
+        """Test a void function with an early empty return."""
+        infix = """
+function do_stuff(val) {
+    if (val < 0) {
+        return;
+    }
+    a = val * 2
+}
+do_stuff(10)
+RESULT = 0
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Should be valid: {output}"
+        assert "__internal_ret_label_do_stuff" in output
+        assert "1 __internal_ret_label_do_stuff#" in output  # unconditional jump
+        assert "a!" in output
+
+    def test_invalid_missing_return_path(self):
+        """Test a value-returning function with a missing return path."""
+        infix = """
+function invalid_sign(x) {
+    if (x > 0) {
+        return 1
+    }
+    # Missing return for x <= 0
+}
+RESULT = invalid_sign($X)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail due to missing return path"
+        assert (
+            "Not all control paths in function 'invalid_sign' return a value" in output
+        )
+
+    def test_invalid_mixed_returns(self):
+        """Test a function with mixed value and void returns."""
+        infix = """
+function mixed(x) {
+    if (x > 0) {
+        return 1
+    } else {
+        return
+    }
+}
+RESULT = mixed($X)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail due to mixed returns"
+        assert "has inconsistent return statements" in output
+
+    def test_return_in_while_loop_ok_for_void(self):
+        """Test a void function with a return inside a while loop."""
+        infix = """
+function find_first_negative(Array a, Value size) {
+    i = 0
+    while (i < size) {
+        if (a[i] < 0) {
+            return; # Early exit
+        }
+        i = i + 1
+    }
+}
+arr = new(10)
+find_first_negative(arr, 10)
+RESULT = 0
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Should be valid: {output}"
+        assert "__internal_ret_label_find_first_negative" in output
+
+    def test_return_in_while_loop_fail_for_value_return(self):
+        """Test a value-returning function with a return only inside a while loop."""
+        infix = """
+function find_first_negative_val(Array a, Value size) {
+    i = 0
+    while (i < size) {
+        if (a[i] < 0) {
+            return a[i] # Not guaranteed to execute
+        }
+        i = i + 1
+    }
+    # Missing return if loop finishes
+}
+arr = new(10)
+RESULT = find_first_negative_val(arr, 10)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail because return is not guaranteed"
+        assert (
+            "Not all control paths in function 'find_first_negative_val' return a value"
+            in output
+        )

@@ -336,7 +336,17 @@ function functionName(Type1 param1, Type2 param2) {
   - `Literal`: A literal constant value (numeric literal).
   - `Array`: A reference to an array created with `new()`.
 
-- **Return Statement:** A function can have **at most one** `return` statement, which must be the last non-empty statement in its body. If a function has no `return` statement, it produces no value.
+- **Return Statement:** The `return` statement exits a function. It can appear multiple times within a function body and can be used with or without a value.
+
+  - `return expression;`: Exits the function and provides a return value.
+  - `return;`: Exits a function that does not return a value (a "void" function).
+
+  The language enforces the following rules for `return` statements:
+
+  1.  **Consistency:** Within a single function, all `return` statements must be consistent. You cannot mix `return <value>;` and `return;`.
+  2.  **Completeness for Value-Returning Functions:** If a function returns a value (i.e., contains at least one `return <value>;`), the compiler will verify that **all possible control flow paths** end in a `return` statement. If any path can exit without returning a value, a compile-time error is raised.
+  3.  **Flexibility for Void Functions:** If a function does not return a value (it only contains empty `return;` statements or no `return` statements at all), it is not required for all paths to have a `return`. The function can simply "fall off" the end when its last statement is executed.
+
 - **Inlining:** Function calls are effectively inlined at compile time. Recursion is not supported.
 - **Nesting:** Function definitions cannot be nested.
 

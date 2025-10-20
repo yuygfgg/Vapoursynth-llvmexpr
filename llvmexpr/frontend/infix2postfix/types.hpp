@@ -183,6 +183,7 @@ struct FunctionSignature {
     std::string name;
     std::vector<ParameterInfo> params;
     bool has_return;
+    bool returns_value;
     int line;
     GlobalMode global_mode = GlobalMode::NONE;
     std::set<std::string> specific_globals;
