@@ -2,30 +2,25 @@
 #define LLVMEXPR_INFIX2POSTFIX_PARSER_HPP
 
 #include "AST.hpp"
-#include <format>
 #include <set>
-#include <stdexcept>
 #include <vector>
 
 namespace infix2postfix {
-
-class ParserError : public std::runtime_error {
-  public:
-    ParserError(const std::string& message, int line)
-        : std::runtime_error(std::format("Line {}: {}", line, message)),
-          line(line) {}
-    int line;
-};
 
 struct ErrorInfo {
     std::string message;
     int line;
 };
 
+struct ParseResult {
+    std::unique_ptr<Program> ast;
+    std::vector<ErrorInfo> errors;
+};
+
 class Parser {
   public:
     explicit Parser(const std::vector<Token>& tokens);
-    std::unique_ptr<Program> parse();
+    ParseResult parse();
 
   private:
     std::unique_ptr<Stmt> parseDeclaration();

@@ -8,7 +8,7 @@ namespace infix2postfix {
 
 Parser::Parser(const std::vector<Token>& tokens) : tokens(tokens) {}
 
-std::unique_ptr<Program> Parser::parse() {
+ParseResult Parser::parse() {
     auto program = std::make_unique<Program>();
     while (!isAtEnd()) {
         // Skip any leading empty statements
@@ -19,40 +19,18 @@ std::unique_ptr<Program> Parser::parse() {
         }
 
         int pos_before = current;
-        try {
-            auto stmt = parseDeclaration();
-            if (stmt) {
-                program->statements.push_back(std::move(stmt));
-            }
-            panic_mode = false;
-        } catch (const ParserError& e) {
-            if (!panic_mode) {
-                panic_mode = true;
-            }
-            synchronize();
+        auto stmt = parseDeclaration();
+        if (stmt) {
+            program->statements.push_back(std::move(stmt));
+        }
+        panic_mode = false;
 
-            if (current == pos_before && !isAtEnd()) {
-                advance();
-            }
+        if (current == pos_before && !isAtEnd() && !errors.empty()) {
+            advance();
         }
     }
 
-    // Throw an exception with all of the errors.
-    if (!errors.empty()) {
-        std::string combined_message;
-        for (const auto& err : errors) {
-            if (!combined_message.empty()) {
-                combined_message += "\n";
-            }
-            combined_message +=
-                std::format("Line {}: {}", err.line, err.message);
-        }
-        throw ParserError(std::format("Found {} error(s):\n{}", errors.size(),
-                                      combined_message),
-                          errors[0].line);
-    }
-
-    return program;
+    return ParseResult{std::move(program), std::move(errors)};
 }
 
 std::unique_ptr<Stmt> Parser::parseDeclaration() {
@@ -98,7 +76,8 @@ std::unique_ptr<Stmt> Parser::parseDeclaration() {
     }
 
     error(peek(), "Expected newline or semicolon after statement.");
-    std::unreachable();
+    synchronize();
+    return stmt;
 }
 
 std::unique_ptr<Stmt> Parser::parseStatement() {
@@ -109,6 +88,8 @@ std::unique_ptr<Stmt> Parser::parseStatement() {
     if (peek().type == TokenType::LBrace) {
         error(peek(), "Standalone blocks are not allowed. Braces can only be "
                       "used for function, if, else, or while bodies.");
+        synchronize();
+        return nullptr;
     }
     if (peek().type == TokenType::Goto)
         return parseGotoStatement();
@@ -208,26 +189,19 @@ std::unique_ptr<BlockStmt> Parser::parseBlock() {
         }
 
         int pos_before = current;
-        try {
-            auto stmt = parseDeclaration();
-            if (stmt) {
-                statements.push_back(std::move(stmt));
-            }
-            panic_mode = false;
-        } catch (const ParserError& e) {
-            if (!panic_mode) {
-                panic_mode = true;
-            }
-            synchronize();
+        auto stmt = parseDeclaration();
+        if (stmt) {
+            statements.push_back(std::move(stmt));
+        }
+        panic_mode = false;
 
-            if (peek().type == TokenType::RBrace || isAtEnd()) {
-                break;
-            }
+        if (peek().type == TokenType::RBrace || isAtEnd()) {
+            break;
+        }
 
-            if (current == pos_before && !isAtEnd() &&
-                peek().type != TokenType::RBrace) {
-                advance();
-            }
+        if (current == pos_before && !isAtEnd() &&
+            peek().type != TokenType::RBrace && !errors.empty()) {
+            advance();
         }
     }
     consume(TokenType::RBrace, "Expect '}' to end a block.");
@@ -561,7 +535,9 @@ std::unique_ptr<Expr> Parser::finishCall(std::unique_ptr<Expr> callee) {
         return make_node<Expr, CallExpr>(var->name, std::move(args), "");
     }
     error(peek(), "Invalid call target.");
-    std::unreachable();
+    Token placeholder{TokenType::Identifier, "error", peek().line};
+    return make_node<Expr, CallExpr>(placeholder,
+                                     std::vector<std::unique_ptr<Expr>>{}, "");
 }
 
 std::unique_ptr<Expr> Parser::parsePrimary() {
@@ -575,7 +551,8 @@ std::unique_ptr<Expr> Parser::parsePrimary() {
         return expr;
     }
     error(peek(), "Expect expression.");
-    std::unreachable();
+    Token placeholder{TokenType::Number, "0", peek().line};
+    return make_node<Expr, NumberExpr>(placeholder);
 }
 
 bool Parser::match(const std::vector<TokenType>& types) {
@@ -592,7 +569,7 @@ Token Parser::consume(TokenType type, const std::string& message) {
     if (peek().type == type)
         return advance();
     error(peek(), message);
-    std::unreachable();
+    return peek();
 }
 
 Token Parser::advance() {
@@ -628,7 +605,9 @@ void Parser::report_error(const Token& token, const std::string& message) {
 
 void Parser::error(const Token& token, const std::string& message) {
     report_error(token, message);
-    throw ParserError(message, token.line);
+    if (!panic_mode) {
+        panic_mode = true;
+    }
 }
 
 void Parser::synchronize() {

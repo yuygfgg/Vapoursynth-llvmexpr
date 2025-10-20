@@ -21,22 +21,26 @@
 #include <format>
 #include <stdexcept>
 
+#include "infix2postfix/AnalysisEngine.hpp"
 #include "infix2postfix/CodeGenerator.hpp"
-#include "infix2postfix/Parser.hpp"
 #include "infix2postfix/Tokenizer.hpp"
 
-std::string convertInfixToPostfix(const std::string& infix_expr,
-                                  int num_inputs,
+std::string convertInfixToPostfix(const std::string& infix_expr, int num_inputs,
                                   infix2postfix::Mode mode) {
     try {
         infix2postfix::Tokenizer tokenizer(infix_expr);
         auto tokens = tokenizer.tokenize();
 
-        infix2postfix::Parser parser(tokens);
-        auto ast = parser.parse();
+        infix2postfix::AnalysisEngine engine(tokens, mode, num_inputs);
+        bool success = engine.runAnalysis();
+
+        if (!success) {
+            std::string diagnostics = engine.formatDiagnostics();
+            throw std::runtime_error(diagnostics);
+        }
 
         infix2postfix::CodeGenerator generator(mode, num_inputs);
-        return generator.generate(ast.get());
+        return generator.generate(engine.getAST());
     } catch (const std::exception& e) {
         throw std::runtime_error(
             std::format("Infix to postfix conversion error: {}", e.what()));

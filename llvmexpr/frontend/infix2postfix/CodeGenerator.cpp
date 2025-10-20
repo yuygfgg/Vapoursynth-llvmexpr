@@ -3,9 +3,9 @@
 #include "PostfixBuilder.hpp"
 #include "PostfixHelper.hpp"
 #include "types.hpp"
-#include <algorithm>
 #include <format>
 #include <functional>
+#include <utility>
 
 namespace infix2postfix {
 
@@ -42,41 +42,12 @@ std::string CodeGenerator::generate(Program* program) {
     // Collect global labels
     for (const auto& stmt : program->statements) {
         if (auto* label_def = get_if<LabelStmt>(stmt.get())) {
-            if (global_labels.count(label_def->name.value)) {
-                throw CodeGenError(
-                    std::format("Duplicate label '{}' in global scope",
-                                label_def->name.value),
-                    label_def->line);
-            }
             global_labels.insert(label_def->name.value);
         }
     }
 
     for (const auto& stmt : program->statements) {
         if (auto* func_def = get_if<FunctionDef>(stmt.get())) {
-            if (functions.count(func_def->name.value)) {
-                for (const auto& existing_sig :
-                     functions.at(func_def->name.value)) {
-                    if (existing_sig.params.size() == func_def->params.size()) {
-                        bool same = true;
-                        for (size_t i = 0; i < func_def->params.size(); ++i) {
-                            if (existing_sig.params[i].type !=
-                                func_def->params[i].type) {
-                                same = false;
-                                break;
-                            }
-                        }
-                        if (same) {
-                            throw CodeGenError(
-                                std::format(
-                                    "Duplicate function signature for '{}'",
-                                    func_def->name.value),
-                                func_def->line);
-                        }
-                    }
-                }
-            }
-
             FunctionSignature sig;
             sig.name = func_def->name.value;
             for (const auto& p : func_def->params) {
@@ -102,16 +73,6 @@ std::string CodeGenerator::generate(Program* program) {
     PostfixBuilder builder;
     for (const auto& stmt : program->statements) {
         builder.append(generate(stmt.get()));
-    }
-
-    if (mode == Mode::Expr && !has_result) {
-        throw CodeGenError(
-            "Final result must be assigned to variable 'RESULT'!", 0);
-    }
-
-    if (mode == Mode::Expr && !result_defined_in_global_scope) {
-        throw CodeGenError(
-            "'RESULT' must be defined in the global scope in Expr mode.", 0);
     }
 
     if (mode == Mode::Expr) {
@@ -149,15 +110,6 @@ CodeGenerator::ExprResult CodeGenerator::handle(const VariableExpr& expr) {
 
     if (name.starts_with("$")) {
         std::string base_name = name.substr(1);
-
-        if ((base_name == "X" || base_name == "Y") && mode == Mode::Single) {
-            throw CodeGenError(
-                "X and Y coordinates are only available in Expr mode. "
-                "SingleExpr processes the entire frame at once, not "
-                "pixel-by-pixel.",
-                expr.line);
-        }
-
         b.add_constant(base_name);
 
         if (is_clip_name(base_name)) {
@@ -165,8 +117,6 @@ CodeGenerator::ExprResult CodeGenerator::handle(const VariableExpr& expr) {
         }
         return {b, Type::VALUE};
     }
-
-    check_variable_defined(name, expr.line);
 
     std::string renamed = rename_variable(name);
     b.add_variable_load(renamed);
@@ -193,16 +143,6 @@ CodeGenerator::ExprResult CodeGenerator::handle(const UnaryExpr& expr) {
     }
 
     auto right = generate(expr.right.get());
-    if (!is_convertible(right.type, Type::VALUE)) {
-        throw CodeGenError(
-            std::format("Cannot apply unary operator '{}' to type "
-                        "'{}' which is not convertible to a "
-                        "value.",
-                        token_type_to_string(expr.op.type),
-                        to_string(right.type)),
-            expr.line);
-    }
-
     PostfixBuilder b = right.postfix;
     b.add_unary_op(expr.op.type);
     return {b, Type::VALUE};
@@ -211,23 +151,6 @@ CodeGenerator::ExprResult CodeGenerator::handle(const UnaryExpr& expr) {
 CodeGenerator::ExprResult CodeGenerator::handle(const BinaryExpr& expr) {
     auto left = generate(expr.left.get());
     auto right = generate(expr.right.get());
-
-    if (!is_convertible(left.type, Type::VALUE)) {
-        throw CodeGenError(
-            std::format("Left operand of binary operator '{}' has type "
-                        "'{}' which is not convertible to a value.",
-                        token_type_to_string(expr.op.type),
-                        to_string(left.type)),
-            expr.line);
-    }
-    if (!is_convertible(right.type, Type::VALUE)) {
-        throw CodeGenError(
-            std::format("Right operand of binary operator '{}' has type "
-                        "'{}' which is not convertible to a value.",
-                        token_type_to_string(expr.op.type),
-                        to_string(right.type)),
-            expr.line);
-    }
 
     PostfixBuilder b;
     b.append(left.postfix);
@@ -238,25 +161,8 @@ CodeGenerator::ExprResult CodeGenerator::handle(const BinaryExpr& expr) {
 
 CodeGenerator::ExprResult CodeGenerator::handle(const TernaryExpr& expr) {
     auto cond = generate(expr.cond.get());
-    if (!is_convertible(cond.type, Type::VALUE)) {
-        throw CodeGenError(
-            std::format("Ternary condition has type '{}' which is not "
-                        "convertible to a value.",
-                        to_string(cond.type)),
-            expr.line);
-    }
-
     auto true_branch = generate(expr.true_expr.get());
     auto false_branch = generate(expr.false_expr.get());
-
-    // TODO: The type of the ternary expression is the type of its branches
-    if (!is_convertible(true_branch.type, Type::VALUE) ||
-        !is_convertible(false_branch.type, Type::VALUE)) {
-        throw CodeGenError(
-            "Both branches of a ternary expression must be convertible to a "
-            "value.",
-            expr.line);
-    }
 
     PostfixBuilder b;
     b.append(cond.postfix);
@@ -328,20 +234,6 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
             }
         }
 
-        if (candidates.empty()) {
-            std::string arg_types_str;
-            for (size_t i = 0; i < arg_results.size(); ++i) {
-                arg_types_str += to_string(arg_results[i].type);
-                if (i < arg_results.size() - 1)
-                    arg_types_str += ", ";
-            }
-            throw CodeGenError(
-                std::format(
-                    "No matching user-defined function for call to '{}({})'",
-                    expr.callee, arg_types_str),
-                expr.line);
-        }
-
         Candidate* best_candidate = &candidates[0];
         for (size_t i = 1; i < candidates.size(); ++i) {
             if (candidates[i].conversion_count <
@@ -354,24 +246,6 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
                     best_candidate = &candidates[i];
                 }
             }
-        }
-
-        int best_conversion_count = best_candidate->conversion_count;
-        int best_first_conversion_index =
-            best_candidate->first_conversion_index;
-        int num_best = 0;
-        for (const auto& cand : candidates) {
-            if (cand.conversion_count == best_conversion_count &&
-                cand.first_conversion_index == best_first_conversion_index) {
-                num_best++;
-            }
-        }
-
-        if (num_best > 1) {
-            throw CodeGenError(
-                std::format("Ambiguous call to overloaded function '{}'",
-                            expr.callee),
-                expr.line);
         }
 
         PostfixBuilder b = inline_function_call(
@@ -440,29 +314,6 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
             }
         }
 
-        if (candidates.empty()) {
-            std::string arg_types_str;
-            for (size_t i = 0; i < expr.args.size(); ++i) {
-                if (builtin_param_type_is_evaluatable(overloads, i)) {
-                    if (!arg_results[i].has_value()) {
-                        arg_results[i] = generate(expr.args[i].get());
-                    }
-                    arg_types_str += to_string(arg_results[i]->type);
-                } else {
-                    arg_types_str += "LiteralString";
-                }
-
-                if (i < expr.args.size() - 1)
-                    arg_types_str += ", ";
-            }
-            throw CodeGenError(
-                std::format("No matching overload for function '{}({})' in {} "
-                            "mode.",
-                            expr.callee, arg_types_str,
-                            mode == Mode::Expr ? "Expr" : "SingleExpr"),
-                expr.line);
-        }
-
         Candidate* best_candidate = &candidates[0];
         for (size_t i = 1; i < candidates.size(); ++i) {
             if (candidates[i].conversion_count <
@@ -475,25 +326,6 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
                     best_candidate = &candidates[i];
                 }
             }
-        }
-
-        int best_conversion_count = best_candidate->conversion_count;
-        int best_first_conversion_index =
-            best_candidate->first_conversion_index;
-        int num_best = 0;
-        for (const auto& cand : candidates) {
-            if (cand.conversion_count == best_conversion_count &&
-                cand.first_conversion_index == best_first_conversion_index) {
-                num_best++;
-            }
-        }
-
-        if (num_best > 1) {
-            throw CodeGenError(
-                std::format(
-                    "Ambiguous call to overloaded built-in function '{}'",
-                    expr.callee),
-                expr.line);
         }
 
         if (best_candidate->builtin->special_handler) {
@@ -516,35 +348,11 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
 
     } else if (expr.callee.starts_with("nth_")) {
         std::string n_str = expr.callee.substr(4);
-        if (n_str.empty() ||
-            !std::all_of(n_str.begin(), n_str.end(), ::isdigit)) {
-            throw CodeGenError(
-                std::format("Invalid nth_N function name '{}'", expr.callee),
-                expr.line);
-        }
         int n = std::stoi(n_str);
         int arg_count = expr.args.size();
-        if (arg_count < n) {
-            throw CodeGenError(std::format("Function '{}' requires at least {} "
-                                           "arguments, but {} were provided.",
-                                           expr.callee, n, arg_count),
-                               expr.line);
-        }
-        if (n < 1) {
-            throw CodeGenError(
-                std::format("Invalid nth_N function name '{}'", expr.callee),
-                expr.line);
-        }
         PostfixBuilder b;
         for (const auto& arg : expr.args) {
             auto res = generate(arg.get());
-            if (!is_convertible(res.type, Type::VALUE)) {
-                throw CodeGenError(
-                    std::format("Argument to function '{}' has type '{}' which "
-                                "is not convertible to Value.",
-                                expr.callee, to_string(res.type)),
-                    arg->line());
-            }
             b.append(res.postfix);
         }
         b.add_sortN(arg_count);
@@ -554,8 +362,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
 
         return {b, Type::VALUE};
     } else {
-        throw CodeGenError(std::format("Unknown function '{}'", expr.callee),
-                           expr.line);
+        std::unreachable();
     }
 }
 
@@ -565,30 +372,9 @@ CodeGenerator::ExprResult CodeGenerator::handle(const PropAccessExpr& expr) {
     if (param_substitutions.count(clip_name)) {
         auto* subst_expr = param_substitutions.at(clip_name);
         auto res = generate(subst_expr);
-        if (res.type != Type::CLIP) {
-            throw CodeGenError(
-                std::format("Parameter '{}' is used as a clip for property "
-                            "access but was not a clip constant.",
-                            expr.clip.value),
-                expr.line);
-        }
         clip_name = res.postfix.get_expression();
     } else {
-        if (!clip_name.starts_with("$")) {
-            throw CodeGenError(
-                std::format("Clip '{}' is used as a property access target but "
-                            "was not a clip constant.",
-                            expr.clip.value),
-                expr.line);
-        }
         clip_name = clip_name.substr(1);
-    }
-
-    if (!is_clip_name(clip_name)) {
-        throw CodeGenError(
-            std::format("Invalid clip identifier '{}' for property access.",
-                        expr.clip.value),
-            expr.line);
     }
 
     b.add_prop_access(clip_name, expr.prop.value);
@@ -597,41 +383,13 @@ CodeGenerator::ExprResult CodeGenerator::handle(const PropAccessExpr& expr) {
 
 CodeGenerator::ExprResult
 CodeGenerator::handle(const StaticRelPixelAccessExpr& expr) {
-    if (mode == Mode::Single) {
-        throw CodeGenError("Static relative pixel access (clip[x,y]) is only "
-                           "available in Expr mode. "
-                           "Use dyn(clip, x, y, plane) for absolute access in "
-                           "SingleExpr mode.",
-                           expr.line);
-    }
     std::string clip_name = expr.clip.value;
     if (param_substitutions.count(clip_name)) {
         auto* subst_expr = param_substitutions.at(clip_name);
         auto res = generate(subst_expr);
-        if (res.type != Type::CLIP) {
-            throw CodeGenError(
-                std::format("Parameter '{}' is used as a clip for pixel "
-                            "access but was not a clip constant.",
-                            expr.clip.value),
-                expr.line);
-        }
         clip_name = res.postfix.get_expression();
     } else {
-        if (!clip_name.starts_with("$")) {
-            throw CodeGenError(
-                std::format("Clip '{}' is used for pixel access but "
-                            "was not a clip constant.",
-                            expr.clip.value),
-                expr.line);
-        }
         clip_name = clip_name.substr(1);
-    }
-
-    if (!is_clip_name(clip_name)) {
-        throw CodeGenError(
-            std::format("Invalid clip identifier '{}' for pixel access.",
-                        expr.clip.value),
-            expr.line);
     }
 
     PostfixBuilder b;
@@ -642,28 +400,8 @@ CodeGenerator::handle(const StaticRelPixelAccessExpr& expr) {
 
 CodeGenerator::ExprResult
 CodeGenerator::handle(const FrameDimensionExpr& expr) {
-    if (mode == Mode::Expr) {
-        throw CodeGenError("frame.width[N] and frame.height[N] are only "
-                           "available in SingleExpr mode. "
-                           "Use width and height directly in Expr mode.",
-                           expr.line);
-    }
-
     auto plane_res = generate(expr.plane_index_expr.get());
-    if (plane_res.type != Type::LITERAL) {
-        throw CodeGenError("Plane index must be a literal constant.",
-                           expr.plane_index_expr->line());
-    }
-
     std::string plane_idx_str = plane_res.postfix.get_expression();
-    try {
-        std::stoi(plane_idx_str);
-    } catch (...) {
-        throw CodeGenError(
-            std::format("Plane index must be an integer constant, got: {}",
-                        plane_idx_str),
-            expr.plane_index_expr->line());
-    }
 
     PostfixBuilder b;
     b.add_frame_dimension(expr.dimension_name, plane_idx_str);
@@ -672,28 +410,10 @@ CodeGenerator::handle(const FrameDimensionExpr& expr) {
 
 CodeGenerator::ExprResult CodeGenerator::handle(const ArrayAccessExpr& expr) {
     auto* var_expr = get_if<VariableExpr>(expr.array.get());
-    if (!var_expr) {
-        throw CodeGenError("Array access requires a variable as the array.",
-                           expr.line);
-    }
-
     std::string array_name = var_expr->name.value;
     std::string renamed_array = rename_variable(array_name);
 
-    check_variable_defined(array_name, expr.line);
-
-    auto type_it = variable_types.find(renamed_array);
-    if (type_it == variable_types.end() || type_it->second != Type::ARRAY) {
-        throw CodeGenError(
-            std::format("Variable '{}' is not an array.", array_name),
-            expr.line);
-    }
-
     auto index_result = generate(expr.index.get());
-    if (!is_convertible(index_result.type, Type::VALUE)) {
-        throw CodeGenError("Array index must be convertible to a value.",
-                           expr.index->line());
-    }
 
     PostfixBuilder b;
     b.append(index_result.postfix);
@@ -721,58 +441,16 @@ PostfixBuilder CodeGenerator::handle(const AssignStmt& stmt) {
     // Check if this is a new() or resize() call for array allocation
     if (auto* call_expr = get_if<CallExpr>(stmt.value.get())) {
         if (call_expr->callee == "new" || call_expr->callee == "resize") {
-            if (call_expr->args.size() != 1) {
-                throw CodeGenError(
-                    std::format("{}() requires exactly 1 argument (size).",
-                                call_expr->callee),
-                    stmt.line);
-            }
-
             std::string var_name = stmt.name.value;
             std::string renamed_var = rename_variable(var_name);
-
-            auto type_it = variable_types.find(renamed_var);
-            bool is_already_array = (type_it != variable_types.end() &&
-                                     type_it->second == Type::ARRAY);
-
-            if (call_expr->callee == "resize") {
-                if (mode == Mode::Expr) {
-                    throw CodeGenError(
-                        "resize() is only available in SingleExpr mode.",
-                        stmt.line);
-                }
-                if (!is_already_array) {
-                    throw CodeGenError(
-                        std::format(
-                            "Variable '{}' is undefined or not an array. ",
-                            var_name),
-                        stmt.line);
-                }
-            } else { // call_expr->callee == "new"
-                if (is_already_array) {
-                    throw CodeGenError(
-                        std::format("Cannot reallocate array '{}'.", var_name),
-                        stmt.line);
-                }
-            }
 
             PostfixBuilder b;
 
             if (mode == Mode::Expr) {
                 auto* num_expr = get_if<NumberExpr>(call_expr->args[0].get());
-                if (!num_expr) {
-                    throw CodeGenError(
-                        "In Expr mode, array size must be a numeric literal.",
-                        stmt.line);
-                }
                 b.add_array_alloc_static(renamed_var, num_expr->value.value);
             } else {
                 auto size_result = generate(call_expr->args[0].get());
-                if (!is_convertible(size_result.type, Type::VALUE)) {
-                    throw CodeGenError(
-                        "Array size must be convertible to a value.",
-                        stmt.line);
-                }
                 b.append(size_result.postfix);
                 b.add_array_alloc_dynamic(renamed_var);
             }
@@ -794,24 +472,8 @@ PostfixBuilder CodeGenerator::handle(const AssignStmt& stmt) {
 
     auto value_code = generate(stmt.value.get());
 
-    if (value_code.type == Type::ARRAY) {
-        throw CodeGenError(std::format("Cannot assign array to variable '{}'.",
-                                       stmt.name.value),
-                           stmt.line);
-    }
-
     std::string var_name = stmt.name.value;
     std::string renamed_var = rename_variable(var_name);
-
-    auto type_it = variable_types.find(renamed_var);
-    if (type_it != variable_types.end() && type_it->second == Type::ARRAY) {
-        throw CodeGenError(
-            std::format(
-                "Variable '{}' is an array and cannot be reassigned to a "
-                "non-array value.",
-                var_name),
-            stmt.line);
-    }
 
     PostfixBuilder b;
     b.append(value_code.postfix);
@@ -833,44 +495,17 @@ PostfixBuilder CodeGenerator::handle(const AssignStmt& stmt) {
 
 PostfixBuilder CodeGenerator::handle(const ArrayAssignStmt& stmt) {
     auto* array_access = get_if<ArrayAccessExpr>(stmt.target.get());
-    if (!array_access) {
-        throw CodeGenError("Array assignment target must be an array access.",
-                           stmt.line);
-    }
-
     auto* var_expr = get_if<VariableExpr>(array_access->array.get());
-    if (!var_expr) {
-        throw CodeGenError("Array access requires a variable as the array.",
-                           stmt.line);
-    }
 
     std::string array_name = var_expr->name.value;
     std::string renamed_array = rename_variable(array_name);
 
-    check_variable_defined(array_name, stmt.line);
-
-    auto type_it = variable_types.find(renamed_array);
-    if (type_it == variable_types.end() || type_it->second != Type::ARRAY) {
-        throw CodeGenError(
-            std::format("Variable '{}' is not an array.", array_name),
-            stmt.line);
-    }
-
     PostfixBuilder b;
 
     auto value_result = generate(stmt.value.get());
-    if (!is_convertible(value_result.type, Type::VALUE)) {
-        throw CodeGenError(
-            "Array assignment value must be convertible to a value.",
-            stmt.value->line());
-    }
     b.append(value_result.postfix);
 
     auto index_result = generate(array_access->index.get());
-    if (!is_convertible(index_result.type, Type::VALUE)) {
-        throw CodeGenError("Array index must be convertible to a value.",
-                           array_access->index->line());
-    }
     b.append(index_result.postfix);
 
     b.add_array_store(renamed_array);
@@ -935,16 +570,8 @@ PostfixBuilder CodeGenerator::handle(const WhileStmt& stmt) {
 }
 
 PostfixBuilder CodeGenerator::handle(const ReturnStmt& stmt) {
-    if (current_function == nullptr) {
-        throw CodeGenError(
-            "'return' statements are not allowed in the global scope.",
-            stmt.line);
-    }
     if (stmt.value) {
         auto result = generate(stmt.value.get());
-        if (result.type == Type::ARRAY) {
-            throw CodeGenError("Functions cannot return arrays.", stmt.line);
-        }
         return result.postfix;
     }
     return {};
@@ -957,32 +584,6 @@ PostfixBuilder CodeGenerator::handle(const LabelStmt& stmt) {
 }
 
 PostfixBuilder CodeGenerator::handle(const GotoStmt& stmt) {
-    if (current_function != nullptr) {
-        // Inside a function
-        if (global_labels.count(stmt.label.value)) {
-            throw CodeGenError(std::format("goto from function '{}' to global "
-                                           "label '{}' is not allowed",
-                                           current_function->name,
-                                           stmt.label.value),
-                               stmt.line);
-        }
-        if (current_function_labels.find(stmt.label.value) ==
-            current_function_labels.end()) {
-            throw CodeGenError(
-                std::format("goto target '{}' not found in function '{}'",
-                            stmt.label.value, current_function->name),
-                stmt.line);
-        }
-    } else {
-        // Global scope
-        if (global_labels.find(stmt.label.value) == global_labels.end()) {
-            throw CodeGenError(
-                std::format("goto target '{}' not found in global scope",
-                            stmt.label.value),
-                stmt.line);
-        }
-    }
-
     PostfixBuilder b;
     if (stmt.condition) {
         b.append(generate(stmt.condition.get()).postfix);
@@ -1048,55 +649,12 @@ PostfixBuilder CodeGenerator::inline_function_call(
 
     const auto& func_name = sig.name;
 
-    // Check for return statements
-    const auto& stmts = func_def->body->statements;
-    for (size_t i = 0; i < stmts.size(); ++i) {
-        const auto& stmt_ptr = stmts[i];
-
-        std::function<void(Stmt*)> find_returns_in_blocks = [&](Stmt* s) {
-            if (!s)
-                return;
-            if (get_if<ReturnStmt>(s)) {
-                throw CodeGenError(
-                    "'return' is not allowed inside blocks within a function.",
-                    s->line());
-            }
-            if (auto* if_s = get_if<IfStmt>(s)) {
-                find_returns_in_blocks(if_s->then_branch.get());
-                if (if_s->else_branch)
-                    find_returns_in_blocks(if_s->else_branch.get());
-            } else if (auto* while_s = get_if<WhileStmt>(s)) {
-                find_returns_in_blocks(while_s->body.get());
-            } else if (auto* block = get_if<BlockStmt>(s)) {
-                for (const auto& inner_s : block->statements) {
-                    find_returns_in_blocks(inner_s.get());
-                }
-            }
-        };
-
-        if (get_if<ReturnStmt>(stmt_ptr.get())) {
-            if (i != stmts.size() - 1) {
-                throw CodeGenError(
-                    "'return' must be the last statement in a function body.",
-                    stmt_ptr->line());
-            }
-        } else {
-            find_returns_in_blocks(stmt_ptr.get());
-        }
-    }
-
     auto saved_current_function_labels = current_function_labels;
     current_function_labels.clear();
     std::function<void(Stmt*)> collect_labels = [&](Stmt* s) {
         if (!s)
             return;
         if (auto* label = get_if<LabelStmt>(s)) {
-            if (current_function_labels.count(label->name.value)) {
-                throw CodeGenError(
-                    std::format("Duplicate label '{}' in function '{}'",
-                                label->name.value, sig.name),
-                    label->line);
-            }
             current_function_labels.insert(label->name.value);
         } else if (auto* block = get_if<BlockStmt>(s)) {
             for (auto& inner_s : block->statements) {
@@ -1113,18 +671,6 @@ PostfixBuilder CodeGenerator::inline_function_call(
     };
     for (const auto& s : func_def->body->statements) {
         collect_labels(s.get());
-    }
-
-    if (sig.global_mode == GlobalMode::SPECIFIC) {
-        for (const auto& gv : sig.specific_globals) {
-            if (!defined_globals.count(gv)) {
-                throw CodeGenError(
-                    std::format("Global variable '{}' used in function '{}' is "
-                                "not defined before its first call",
-                                gv, func_name),
-                    call_line);
-            }
-        }
     }
 
     auto saved_rename_map = var_rename_map;
@@ -1171,39 +717,15 @@ PostfixBuilder CodeGenerator::inline_function_call(
                 new_local_vars.insert(param_name);
                 all_defined_vars_in_scope.insert(param_name);
             } else if (param_type == Type::ARRAY) {
-                // Array parameters must be array variables
                 auto* var_expr = get_if<VariableExpr>(arg_expr);
-                if (!var_expr) {
-                    throw CodeGenError(
-                        std::format(
-                            "Array parameter '{}' in function '{}' must be "
-                            "passed an array variable.",
-                            param_name, func_name),
-                        call_line);
-                }
-
                 std::string arg_var_name = var_expr->name.value;
 
-                // Temporarily restore scope to check variable
                 auto temp_all_defined = all_defined_vars_in_scope;
                 auto temp_scope_stack = scope_stack;
                 all_defined_vars_in_scope = saved_all_defined;
                 scope_stack = saved_scope_stack;
 
-                // Check that the argument is defined and is an array
-                check_variable_defined(arg_var_name, call_line);
                 std::string renamed_arg = rename_variable(arg_var_name);
-
-                auto type_it = variable_types.find(renamed_arg);
-                if (type_it == variable_types.end() ||
-                    type_it->second != Type::ARRAY) {
-                    throw CodeGenError(
-                        std::format(
-                            "Argument '{}' passed to array parameter '{}' "
-                            "in function '{}' is not an array.",
-                            arg_var_name, param_name, func_name),
-                        call_line);
-                }
 
                 // Restore function scope
                 all_defined_vars_in_scope = temp_all_defined;
@@ -1335,46 +857,10 @@ PostfixBuilder CodeGenerator::inline_function_call(
 }
 
 void CodeGenerator::check_variable_defined(const std::string& var_name,
-                                           int line) {
-    if (var_name == "frame") {
-        return;
-    }
-
-    std::string actual_name = rename_variable(var_name);
-
-    if (all_defined_vars_in_scope.count(actual_name) ||
-        all_defined_vars_in_scope.count(var_name)) {
-        return;
-    }
-
-    if (local_scope_vars.count(var_name) ||
-        local_scope_vars.count(actual_name)) {
-        return;
-    }
-
-    if (defined_globals.count(var_name)) {
-        if (current_function != nullptr) {
-            if (current_function->global_mode == GlobalMode::ALL) {
-                return;
-            } else if (current_function->global_mode == GlobalMode::SPECIFIC) {
-                if (current_function->specific_globals.count(var_name)) {
-                    return;
-                }
-            }
-            throw CodeGenError(
-                std::format(
-                    "Variable '{}' is a global variable but is not accessible "
-                    "in function '{}'. Use <global<{}>> or <global.all> before "
-                    "the function definition to grant access.",
-                    var_name, current_function->name, var_name),
-                line);
-        }
-        return;
-    }
-
-    throw CodeGenError(
-        std::format("Variable '{}' is used before being defined", var_name),
-        line);
+                                           [[maybe_unused]] int line) {
+    // Semantic analysis has already validated variable usage
+    // This function is kept for compatibility but doesn't throw errors
+    (void)var_name;
 }
 
 void CodeGenerator::enter_scope() {

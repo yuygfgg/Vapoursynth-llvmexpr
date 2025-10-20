@@ -4,8 +4,8 @@
 #include <sstream>
 #include <string>
 
+#include "AnalysisEngine.hpp"
 #include "CodeGenerator.hpp"
-#include "Parser.hpp"
 #include "Tokenizer.hpp"
 
 using namespace infix2postfix;
@@ -71,11 +71,17 @@ int main(int argc, char* argv[]) {
         Tokenizer tokenizer(source);
         auto tokens = tokenizer.tokenize();
 
-        Parser parser(tokens);
-        auto ast = parser.parse();
+        AnalysisEngine engine(tokens, mode, 114514); // 1919810
+        bool success = engine.runAnalysis();
 
-        CodeGenerator generator(mode, 114514); // 1919810
-        std::string postfix_code = generator.generate(ast.get());
+        if (!success) {
+            std::string diagnostics = engine.formatDiagnostics();
+            std::cerr << std::format("Analysis failed:\n{}\n", diagnostics);
+            return 1;
+        }
+
+        CodeGenerator generator(mode, 114514);
+        std::string postfix_code = generator.generate(engine.getAST());
 
         std::ofstream out_stream(output_file);
         if (!out_stream) {
