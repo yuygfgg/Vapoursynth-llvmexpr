@@ -68,12 +68,16 @@ struct SingleExprData : BaseExprData {
     std::map<std::string, int> output_prop_map;
     std::vector<Token> tokens;
     ExpressionAnalysisResults analysis_results;
+};
 
+struct SingleExprFrameData {
     struct DynamicArray {
         std::vector<float> buffer;
     };
     std::map<std::string, DynamicArray> dynamic_arrays;
 };
+
+thread_local SingleExprFrameData g_frame_data;
 
 void validateAndInitClips(BaseExprData* d, const VSMap* in,
                           const VSAPI* vsapi) {
@@ -640,24 +644,18 @@ void VS_CC singleExprCreate(const VSMap* in, VSMap* out,
 // TODO: Optimize this.
 extern "C" {
 
-float* llvmexpr_ensure_buffer(void* context, const char* name,
-                              int64_t requested_size) {
-    if (!context)
-        return nullptr;
-    SingleExprData* d = static_cast<SingleExprData*>(context);
-    auto& array = d->dynamic_arrays[std::string(name)];
+float* llvmexpr_ensure_buffer(const char* name, int64_t requested_size) {
+    auto& array = g_frame_data.dynamic_arrays[std::string(name)];
     if (static_cast<size_t>(requested_size) > array.buffer.size()) {
         array.buffer.resize(requested_size);
     }
     return array.buffer.data();
 }
 
-int64_t llvmexpr_get_buffer_size(void* context, const char* name) {
-    if (!context)
-        return 0;
-    SingleExprData* d = static_cast<SingleExprData*>(context);
-    auto it = d->dynamic_arrays.find(std::string(name));
-    return (it != d->dynamic_arrays.end()) ? it->second.buffer.size() : 0;
+int64_t llvmexpr_get_buffer_size(const char* name) {
+    auto it = g_frame_data.dynamic_arrays.find(std::string(name));
+    return (it != g_frame_data.dynamic_arrays.end()) ? it->second.buffer.size()
+                                                     : 0;
 }
 
 } // extern "C"

@@ -77,16 +77,16 @@ void SingleExprIRGenerator::define_function_signature() {
     llvm::Type* i64_ty = builder.getInt64Ty();
     llvm::Type* i8_ptr_ty = ptr_ty;
 
-    // float* llvmexpr_ensure_buffer(void* context, const char* name, int64_t size)
-    llvm::FunctionType* ensure_buffer_ty = llvm::FunctionType::get(
-        float_ptr_ty, {context_ptr_ty, i8_ptr_ty, i64_ty}, false);
+    // float* llvmexpr_ensure_buffer(const char* name, int64_t size)
+    llvm::FunctionType* ensure_buffer_ty =
+        llvm::FunctionType::get(float_ptr_ty, {i8_ptr_ty, i64_ty}, false);
     llvmexpr_ensure_buffer_func = llvm::Function::Create(
         ensure_buffer_ty, llvm::Function::ExternalLinkage,
         "llvmexpr_ensure_buffer", &module);
 
-    // int64_t llvmexpr_get_buffer_size(void* context, const char* name)
+    // int64_t llvmexpr_get_buffer_size(const char* name)
     llvm::FunctionType* get_buffer_size_ty =
-        llvm::FunctionType::get(i64_ty, {context_ptr_ty, i8_ptr_ty}, false);
+        llvm::FunctionType::get(i64_ty, {i8_ptr_ty}, false);
     llvmexpr_get_buffer_size_func = llvm::Function::Create(
         get_buffer_size_ty, llvm::Function::ExternalLinkage,
         "llvmexpr_get_buffer_size", &module);
@@ -352,7 +352,7 @@ bool SingleExprIRGenerator::process_mode_specific_token(
         llvm::Value* name_str =
             builder.CreateGlobalString(payload.name, payload.name + "_name");
         llvm::Value* buffer_ptr = builder.CreateCall(
-            llvmexpr_ensure_buffer_func, {context_arg, name_str, size_val});
+            llvmexpr_ensure_buffer_func, {name_str, size_val});
         array_ptr_cache[payload.name] = buffer_ptr;
         return true;
     }
@@ -369,7 +369,7 @@ bool SingleExprIRGenerator::process_mode_specific_token(
             builder.CreateGlobalString(payload.name, payload.name + "_name");
 
         llvm::Value* buffer_ptr = builder.CreateCall(
-            llvmexpr_ensure_buffer_func, {context_arg, name_str, size_val});
+            llvmexpr_ensure_buffer_func, {name_str, size_val});
 
         array_ptr_cache[payload.name] = buffer_ptr;
         return true;
