@@ -91,8 +91,7 @@ class SemanticAnalyzer {
 
     const FunctionSignature*
     resolveOverload(const std::string& name,
-                    const std::vector<std::unique_ptr<Expr>>& args,
-                    const std::string& boundary_suffix, int line,
+                    const std::vector<std::unique_ptr<Expr>>& args, int line,
                     CallExpr* call_expr = nullptr);
 
     void collectLabels(Stmt* stmt, std::set<std::string>& labels,

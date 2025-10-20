@@ -357,8 +357,7 @@ Type SemanticAnalyzer::analyze(TernaryExpr& expr) {
 }
 
 Type SemanticAnalyzer::analyze(CallExpr& expr) {
-    auto signature = resolveOverload(expr.callee, expr.args,
-                                     expr.boundary_suffix, expr.line, &expr);
+    auto signature = resolveOverload(expr.callee, expr.args, expr.line, &expr);
     expr.resolved_signature = signature;
 
     return Type::VALUE;
@@ -366,8 +365,7 @@ Type SemanticAnalyzer::analyze(CallExpr& expr) {
 
 const FunctionSignature* SemanticAnalyzer::resolveOverload(
     const std::string& name, const std::vector<std::unique_ptr<Expr>>& args,
-    [[maybe_unused]] const std::string& boundary_suffix, int line,
-    CallExpr* call_expr) {
+    int line, CallExpr* call_expr) {
     // User-defined functions
     if (function_signatures.count(name)) {
         const auto& overloads = function_signatures.at(name);
