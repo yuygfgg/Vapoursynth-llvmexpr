@@ -80,10 +80,12 @@ class CodeGenerator {
     Mode mode;
     int num_inputs;
     int label_counter = 0;
+    int call_site_counter = 0;
 
     std::map<std::string, Expr*> param_substitutions;
     std::map<std::string, std::string> var_rename_map;
     const FunctionSignature* current_function = nullptr;
+    std::vector<int> call_site_id_stack;
 
     std::set<std::string> current_function_labels;
 };

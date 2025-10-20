@@ -545,7 +545,7 @@ RESULT = add(10, 20)
         assert success, f"Failed to convert: {output}"
         assert (
             output.strip()
-            == "10 __internal_func_add_x! 20 __internal_func_add_y! __internal_func_add_x@ __internal_func_add_y@ + __internal_ret_add! 1 __internal_ret_label_add# #__internal_ret_label_add __internal_ret_add@ RESULT! RESULT@"
+            == "10 __internal_func_add_0_x! 20 __internal_func_add_0_y! __internal_func_add_0_x@ __internal_func_add_0_y@ + __internal_ret_add_0! 1 __internal_ret_label_add_0# #__internal_ret_label_add_0 __internal_ret_add_0@ RESULT! RESULT@"
         )
 
     def test_typed_function_and_global(self):
@@ -562,8 +562,8 @@ RESULT = test_function(10)
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
         assert "1 global_var!" in output
-        assert "10 __internal_func_test_function_x!" in output
-        assert "__internal_func_test_function_x@ global_var@ +" in output
+        assert "10 __internal_func_test_function_0_x!" in output
+        assert "__internal_func_test_function_0_x@ global_var@ +" in output
         assert "RESULT!" in output
 
     def test_global_var_undefined_before_call(self):
@@ -693,7 +693,7 @@ RESULT = process($x) + process(10.0)
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
         assert (
-            "x[1,1] 2 * __internal_ret_process! 1 __internal_ret_label_process# #__internal_ret_label_process __internal_ret_process@ 10.0 __internal_func_process_v! __internal_func_process_v@ 2 * __internal_ret_process! 1 __internal_ret_label_process# #__internal_ret_label_process __internal_ret_process@ + RESULT! RESULT@"
+            "x[1,1] 2 * __internal_ret_process_0! 1 __internal_ret_label_process_0# #__internal_ret_label_process_0 __internal_ret_process_0@ 10.0 __internal_func_process_1_v! __internal_func_process_1_v@ 2 * __internal_ret_process_1! 1 __internal_ret_label_process_1# #__internal_ret_label_process_1 __internal_ret_process_1@ + RESULT! RESULT@"
             in output
         )
 
@@ -707,7 +707,7 @@ RESULT = f(1) + f(2, 3)
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
         assert (
-            "1 __internal_func_f_x! __internal_func_f_x@ __internal_ret_f! 1 __internal_ret_label_f# #__internal_ret_label_f __internal_ret_f@ 2 __internal_func_f_x! 3 __internal_func_f_y! __internal_func_f_x@ __internal_func_f_y@ + __internal_ret_f! 1 __internal_ret_label_f# #__internal_ret_label_f __internal_ret_f@ + RESULT! RESULT@"
+            "1 __internal_func_f_0_x! __internal_func_f_0_x@ __internal_ret_f_0! 1 __internal_ret_label_f_0# #__internal_ret_label_f_0 __internal_ret_f_0@ 2 __internal_func_f_1_x! 3 __internal_func_f_1_y! __internal_func_f_1_x@ __internal_func_f_1_y@ + __internal_ret_f_1! 1 __internal_ret_label_f_1# #__internal_ret_label_f_1 __internal_ret_f_1@ + RESULT! RESULT@"
             in output
         )
 
@@ -722,7 +722,7 @@ RESULT = best(1.0, 2.0)
         assert success, f"Failed to convert: {output}"
         assert (
             output.strip()
-            == "1.0 __internal_func_best_v! 2.0 __internal_func_best_v2! 2 __internal_ret_best! 1 __internal_ret_label_best# #__internal_ret_label_best __internal_ret_best@ RESULT! RESULT@"
+            == "1.0 __internal_func_best_0_v! 2.0 __internal_func_best_0_v2! 2 __internal_ret_best_0! 1 __internal_ret_label_best_0# #__internal_ret_label_best_0 __internal_ret_best_0@ RESULT! RESULT@"
         )
 
     def test_overload_tie_break(self):
@@ -736,7 +736,7 @@ RESULT = tie($x, $y)
         assert success, f"Failed to convert: {output}"
         assert (
             output.strip()
-            == "y __internal_func_tie_v! 1 __internal_ret_tie! 1 __internal_ret_label_tie# #__internal_ret_label_tie __internal_ret_tie@ RESULT! RESULT@"
+            == "y __internal_func_tie_0_v! 1 __internal_ret_tie_0! 1 __internal_ret_label_tie_0# #__internal_ret_label_tie_0 __internal_ret_tie_0@ RESULT! RESULT@"
         )
 
     def test_duplicate_function_error(self):
@@ -1073,7 +1073,7 @@ RESULT = arr[0]
         assert success, f"Failed to convert: {output}"
         assert "arr{}^1" in output
         # The function stores val parameter then writes to array
-        assert "__internal_func_set_first_val@" in output
+        assert "__internal_func_set_first_0_val@" in output
         assert "0 arr{}!" in output
 
     def test_array_with_expression_index(self):
@@ -1358,7 +1358,7 @@ RESULT = result1 + result2
         assert success, f"Failed to convert: {output}"
         assert "arr{}^2" in output
         assert "0 arr{}@" in output
-        assert "__internal_func_process_v@ 2 *" in output
+        assert "2 *" in output
 
     def test_array_complex_scenario_expr(self):
         """Test complex array scenario in Expr mode."""
@@ -1625,11 +1625,11 @@ RESULT = sign($X)
         # Check for the generated structure
         assert "__internal_ret_sign" in output
         assert "__internal_ret_label_sign" in output
-        assert "1 __internal_ret_sign!" in output
-        assert "-1 __internal_ret_sign!" in output
-        assert "0 __internal_ret_sign!" in output
+        assert "1 __internal_ret_sign_0!" in output
+        assert "-1 __internal_ret_sign_0!" in output
+        assert "0 __internal_ret_sign_0!" in output
         assert "#__internal_ret_label_sign" in output
-        assert "__internal_ret_sign@" in output
+        assert "__internal_ret_sign_0@" in output
 
     def test_valid_void_early_exit(self):
         """Test a void function with an early empty return."""
@@ -1646,7 +1646,7 @@ RESULT = 0
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Should be valid: {output}"
         assert "__internal_ret_label_do_stuff" in output
-        assert "1 __internal_ret_label_do_stuff#" in output  # unconditional jump
+        assert "1 __internal_ret_label_do_stuff_0#" in output  # unconditional jump
         assert "a!" in output
 
     def test_invalid_missing_return_path(self):

@@ -476,8 +476,9 @@ PostfixBuilder CodeGenerator::handle(const ReturnStmt& stmt) {
         }
         auto result = generate(stmt.value.get());
         b.append(result.postfix);
+        const int call_id = call_site_id_stack.back();
         std::string ret_var_name =
-            std::format("__internal_ret_{}", current_function->name);
+            std::format("__internal_ret_{}_{}", current_function->name, call_id);
         b.add_variable_store(ret_var_name);
     } else {
         if (current_function->returns_value) {
@@ -487,8 +488,9 @@ PostfixBuilder CodeGenerator::handle(const ReturnStmt& stmt) {
         }
     }
 
+    const int call_id = call_site_id_stack.back();
     std::string ret_label =
-        std::format("__internal_ret_label_{}", current_function->name);
+        std::format("__internal_ret_label_{}_{}", current_function->name, call_id);
     b.add_unconditional_jump(ret_label);
 
     return b;
@@ -551,6 +553,8 @@ PostfixBuilder CodeGenerator::inline_function_call(
     const std::vector<std::unique_ptr<Expr>>& args, int call_line) {
 
     const auto& func_name = sig.name;
+    const int call_id = call_site_counter++;
+    call_site_id_stack.push_back(call_id);
 
     // Save current state
     auto saved_param_substitutions = param_substitutions;
@@ -585,8 +589,8 @@ PostfixBuilder CodeGenerator::inline_function_call(
                 }
             }
         } else {
-            std::string renamed_param =
-                std::format("__internal_func_{}_{}", func_name, param_name);
+            std::string renamed_param = std::format(
+                "__internal_func_{}_{}_{}", func_name, call_id, param_name);
 
             PostfixBuilder arg_value = generate(args[i].get()).postfix;
             param_assignments.append(arg_value);
@@ -602,8 +606,8 @@ PostfixBuilder CodeGenerator::inline_function_call(
         if (auto* assign = get_if<AssignStmt>(stmt)) {
             std::string var_name = assign->name.value;
             if (!param_map.count(var_name)) {
-                std::string renamed_var =
-                    std::format("__internal_func_{}_{}", func_name, var_name);
+                std::string renamed_var = std::format(
+                    "__internal_func_{}_{}_{}", func_name, call_id, var_name);
                 param_map[var_name] = renamed_var;
             }
         } else if (auto* block = get_if<BlockStmt>(stmt)) {
@@ -628,16 +632,19 @@ PostfixBuilder CodeGenerator::inline_function_call(
     var_rename_map = param_map;
     current_function = &sig;
 
-    std::string label_prefix = std::format("__internal_{}_", func_name);
+    std::string label_prefix =
+        std::format("__internal_{}_{}_", func_name, call_id);
 
     PostfixBuilder body_builder = handle(*func_def->body);
     body_builder.prefix_labels(label_prefix);
 
-    std::string ret_label = std::format("__internal_ret_label_{}", func_name);
+    std::string ret_label =
+        std::format("__internal_ret_label_{}_{}", func_name, call_id);
     body_builder.add_label(ret_label);
 
     if (sig.returns_value) {
-        std::string ret_var = std::format("__internal_ret_{}", func_name);
+        std::string ret_var =
+            std::format("__internal_ret_{}_{}", func_name, call_id);
         body_builder.add_variable_load(ret_var);
     }
 
@@ -645,6 +652,7 @@ PostfixBuilder CodeGenerator::inline_function_call(
     param_substitutions = saved_param_substitutions;
     var_rename_map = saved_var_rename_map;
     current_function = saved_current_function;
+    call_site_id_stack.pop_back();
 
     PostfixBuilder inlined_builder;
     inlined_builder.append(param_assignments);
