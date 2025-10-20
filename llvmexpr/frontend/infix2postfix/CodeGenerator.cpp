@@ -35,41 +35,15 @@ bool is_convertible_internal(Type from, Type to) {
 }
 } // namespace
 
-CodeGenerator::CodeGenerator(Mode mode, int num_inputs)
-    : mode(mode), num_inputs(num_inputs) {}
+CodeGenerator::CodeGenerator(
+    Mode mode, int num_inputs,
+    const std::map<std::string, std::vector<FunctionSignature>>&
+        function_signatures,
+    const std::map<std::string, std::vector<FunctionDef*>>& function_defs)
+    : mode(mode), num_inputs(num_inputs), functions(function_signatures),
+      function_defs(function_defs) {}
 
 std::string CodeGenerator::generate(Program* program) {
-    // Collect global labels
-    for (const auto& stmt : program->statements) {
-        if (auto* label_def = get_if<LabelStmt>(stmt.get())) {
-            global_labels.insert(label_def->name.value);
-        }
-    }
-
-    for (const auto& stmt : program->statements) {
-        if (auto* func_def = get_if<FunctionDef>(stmt.get())) {
-            FunctionSignature sig;
-            sig.name = func_def->name.value;
-            for (const auto& p : func_def->params) {
-                sig.params.push_back({p.name.value, p.type});
-            }
-            sig.line = func_def->line;
-            sig.has_return = false;
-            for (const auto& s : func_def->body->statements) {
-                if (get_if<ReturnStmt>(s.get()))
-                    sig.has_return = true;
-            }
-            if (func_def->global_decl) {
-                sig.global_mode = func_def->global_decl->mode;
-                for (const auto& g : func_def->global_decl->globals) {
-                    sig.specific_globals.insert(g.value);
-                }
-            }
-            functions[sig.name].push_back(sig);
-            function_defs[sig.name].push_back(func_def);
-        }
-    }
-
     PostfixBuilder builder;
     for (const auto& stmt : program->statements) {
         builder.append(generate(stmt.get()));
@@ -84,7 +58,7 @@ std::string CodeGenerator::generate(Program* program) {
 
 CodeGenerator::ExprResult CodeGenerator::generate(Expr* expr) {
     if (!expr)
-        return {{}, Type::VALUE}; // Should not happen with valid AST
+        return {{}, Type::VALUE};
     return std::visit([this](auto& e) { return this->handle(e); }, expr->value);
 }
 
@@ -118,11 +92,16 @@ CodeGenerator::ExprResult CodeGenerator::handle(const VariableExpr& expr) {
         return {b, Type::VALUE};
     }
 
-    std::string renamed = rename_variable(name);
-    b.add_variable_load(renamed);
+    std::string var_name = name;
+    if (var_rename_map.count(name)) {
+        var_name = var_rename_map.at(name);
+    } else if (expr.symbol) {
+        var_name = expr.symbol->mangled_name;
+    }
 
-    auto type_it = variable_types.find(renamed);
-    if (type_it != variable_types.end() && type_it->second == Type::ARRAY) {
+    b.add_variable_load(var_name);
+
+    if (expr.symbol && expr.symbol->type == Type::ARRAY) {
         return {b, Type::ARRAY};
     }
 
@@ -174,86 +153,37 @@ CodeGenerator::ExprResult CodeGenerator::handle(const TernaryExpr& expr) {
 
 CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
     // User-defined functions are inlined
-    if (functions.count(expr.callee)) {
-        const auto& overloads = functions.at(expr.callee);
-        const auto& def_overloads = function_defs.at(expr.callee);
+    if (expr.resolved_signature != nullptr) {
+        const auto& sig = *expr.resolved_signature;
+        FunctionDef* func_def = nullptr;
 
-        std::vector<ExprResult> arg_results;
-        arg_results.reserve(expr.args.size());
-        for (const auto& arg : expr.args) {
-            if (auto* var_expr = get_if<VariableExpr>(arg.get())) {
-                std::string var_name = var_expr->name.value;
-                if (!var_name.starts_with("$")) {
-                    std::string renamed_var = rename_variable(var_name);
-                    auto type_it = variable_types.find(renamed_var);
-                    if (type_it != variable_types.end() &&
-                        type_it->second == Type::ARRAY) {
-                        arg_results.push_back({{}, Type::ARRAY});
-                        continue;
-                    }
-                }
-            }
-            arg_results.push_back(generate(arg.get()));
-        }
-
-        struct Candidate {
-            const FunctionSignature* sig;
-            FunctionDef* def;
-            int conversion_count;
-            int first_conversion_index;
-        };
-        std::vector<Candidate> candidates;
-
-        for (size_t i = 0; i < overloads.size(); ++i) {
-            const auto& sig = overloads[i];
-            if (sig.params.size() != arg_results.size())
-                continue;
-
-            int conversion_count = 0;
-            int first_conversion_index = -1;
-            bool possible = true;
-            for (size_t j = 0; j < arg_results.size(); ++j) {
-                Type arg_type = arg_results[j].type;
-                Type param_type = sig.params[j].type;
-                if (arg_type != param_type) {
-                    if (is_convertible(arg_type, param_type)) {
-                        conversion_count++;
-                        if (first_conversion_index == -1) {
-                            first_conversion_index = static_cast<int>(j);
+        if (function_defs.count(expr.callee)) {
+            const auto& defs = function_defs.at(expr.callee);
+            for (auto* def : defs) {
+                if (def->params.size() == expr.args.size()) {
+                    bool match = true;
+                    for (size_t i = 0; i < def->params.size(); ++i) {
+                        if (def->params[i].type != sig.params[i].type) {
+                            match = false;
+                            break;
                         }
-                    } else {
-                        possible = false;
+                    }
+                    if (match) {
+                        func_def = def;
                         break;
                     }
                 }
             }
-
-            if (possible) {
-                candidates.push_back({&sig, def_overloads[i], conversion_count,
-                                      first_conversion_index});
-            }
         }
 
-        Candidate* best_candidate = &candidates[0];
-        for (size_t i = 1; i < candidates.size(); ++i) {
-            if (candidates[i].conversion_count <
-                best_candidate->conversion_count) {
-                best_candidate = &candidates[i];
-            } else if (candidates[i].conversion_count ==
-                       best_candidate->conversion_count) {
-                if (candidates[i].first_conversion_index >
-                    best_candidate->first_conversion_index) {
-                    best_candidate = &candidates[i];
-                }
-            }
+        if (func_def) {
+            PostfixBuilder b =
+                inline_function_call(sig, func_def, expr.args, expr.line);
+            return {b, Type::VALUE};
         }
-
-        PostfixBuilder b = inline_function_call(
-            *best_candidate->sig, best_candidate->def, expr.args, expr.line);
-        // FIXME: Assume functions return a single value for now.
-        return {b, Type::VALUE};
     }
 
+    // Built-in functions
     const auto& builtins = get_builtin_functions();
 
     if (builtins.count(expr.callee)) {
@@ -314,38 +244,39 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
             }
         }
 
-        Candidate* best_candidate = &candidates[0];
-        for (size_t i = 1; i < candidates.size(); ++i) {
-            if (candidates[i].conversion_count <
-                best_candidate->conversion_count) {
-                best_candidate = &candidates[i];
-            } else if (candidates[i].conversion_count ==
-                       best_candidate->conversion_count) {
-                if (candidates[i].first_conversion_index >
-                    best_candidate->first_conversion_index) {
+        if (!candidates.empty()) {
+            Candidate* best_candidate = &candidates[0];
+            for (size_t i = 1; i < candidates.size(); ++i) {
+                if (candidates[i].conversion_count <
+                    best_candidate->conversion_count) {
                     best_candidate = &candidates[i];
+                } else if (candidates[i].conversion_count ==
+                           best_candidate->conversion_count) {
+                    if (candidates[i].first_conversion_index >
+                        best_candidate->first_conversion_index) {
+                        best_candidate = &candidates[i];
+                    }
                 }
             }
-        }
 
-        if (best_candidate->builtin->special_handler) {
-            return {best_candidate->builtin->special_handler(this, expr),
-                    Type::VALUE};
-        }
-
-        PostfixBuilder b;
-        for (size_t i = 0; i < expr.args.size(); ++i) {
-            if (best_candidate->builtin->param_types[i] !=
-                Type::LITERAL_STRING) {
-                if (!arg_results[i].has_value()) {
-                    arg_results[i] = generate(expr.args[i].get());
-                }
-                b.append(arg_results[i]->postfix);
+            if (best_candidate->builtin->special_handler) {
+                return {best_candidate->builtin->special_handler(this, expr),
+                        Type::VALUE};
             }
-        }
-        b.add_function_call(expr.callee);
-        return {b, Type::VALUE};
 
+            PostfixBuilder b;
+            for (size_t i = 0; i < expr.args.size(); ++i) {
+                if (best_candidate->builtin->param_types[i] !=
+                    Type::LITERAL_STRING) {
+                    if (!arg_results[i].has_value()) {
+                        arg_results[i] = generate(expr.args[i].get());
+                    }
+                    b.append(arg_results[i]->postfix);
+                }
+            }
+            b.add_function_call(expr.callee);
+            return {b, Type::VALUE};
+        }
     } else if (expr.callee.starts_with("nth_")) {
         std::string n_str = expr.callee.substr(4);
         int n = std::stoi(n_str);
@@ -361,9 +292,9 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
         b.add_dropN(arg_count - n);
 
         return {b, Type::VALUE};
-    } else {
-        std::unreachable();
     }
+
+    std::unreachable();
 }
 
 CodeGenerator::ExprResult CodeGenerator::handle(const PropAccessExpr& expr) {
@@ -409,15 +340,26 @@ CodeGenerator::handle(const FrameDimensionExpr& expr) {
 }
 
 CodeGenerator::ExprResult CodeGenerator::handle(const ArrayAccessExpr& expr) {
+    // Get the array variable name
+    std::string array_name;
     auto* var_expr = get_if<VariableExpr>(expr.array.get());
-    std::string array_name = var_expr->name.value;
-    std::string renamed_array = rename_variable(array_name);
+    if (var_expr) {
+        array_name = var_expr->name.value;
+
+        if (var_rename_map.count(array_name)) {
+            array_name = var_rename_map.at(array_name);
+        } else if (expr.array_symbol) {
+            array_name = expr.array_symbol->mangled_name;
+        }
+    } else if (expr.array_symbol) {
+        array_name = expr.array_symbol->mangled_name;
+    }
 
     auto index_result = generate(expr.index.get());
 
     PostfixBuilder b;
     b.append(index_result.postfix);
-    b.add_array_load(renamed_array);
+    b.add_array_load(array_name);
 
     return {b, Type::VALUE};
 }
@@ -429,76 +371,60 @@ PostfixBuilder CodeGenerator::handle(const ExprStmt& stmt) {
 }
 
 PostfixBuilder CodeGenerator::handle(const AssignStmt& stmt) {
-    if (stmt.name.value == "RESULT") {
-        has_result = true;
-        if (mode == Mode::Expr) {
-            if (current_function == nullptr && scope_stack.empty()) {
-                result_defined_in_global_scope = true;
-            }
-        }
-    }
+    std::string name = stmt.name.value;
 
+    std::string var_name = name;
+    if (var_rename_map.count(name)) {
+        var_name = var_rename_map.at(name);
+    } else if (stmt.symbol) {
+        var_name = stmt.symbol->mangled_name;
+    }
     // Check if this is a new() or resize() call for array allocation
     if (auto* call_expr = get_if<CallExpr>(stmt.value.get())) {
         if (call_expr->callee == "new" || call_expr->callee == "resize") {
-            std::string var_name = stmt.name.value;
-            std::string renamed_var = rename_variable(var_name);
-
             PostfixBuilder b;
 
             if (mode == Mode::Expr) {
                 auto* num_expr = get_if<NumberExpr>(call_expr->args[0].get());
-                b.add_array_alloc_static(renamed_var, num_expr->value.value);
+                b.add_array_alloc_static(var_name, num_expr->value.value);
             } else {
                 auto size_result = generate(call_expr->args[0].get());
                 b.append(size_result.postfix);
-                b.add_array_alloc_dynamic(renamed_var);
+                b.add_array_alloc_dynamic(var_name);
             }
 
             check_stack_effect(b.get_expression(), 0, stmt.line);
-
-            define_variable_in_current_scope(renamed_var, Type::ARRAY);
-
-            if (current_function == nullptr) {
-                if (scope_stack.empty()) {
-                    defined_globals.insert(var_name);
-                }
-            } else {
-                local_scope_vars.insert(var_name);
-            }
             return b;
         }
     }
 
     auto value_code = generate(stmt.value.get());
 
-    std::string var_name = stmt.name.value;
-    std::string renamed_var = rename_variable(var_name);
-
     PostfixBuilder b;
     b.append(value_code.postfix);
-    b.add_variable_store(renamed_var);
+    b.add_variable_store(var_name);
 
     check_stack_effect(b.get_expression(), 0, stmt.line);
 
-    define_variable_in_current_scope(renamed_var, Type::VALUE);
-
-    if (current_function == nullptr) {
-        if (scope_stack.empty()) {
-            defined_globals.insert(var_name);
-        }
-    } else {
-        local_scope_vars.insert(var_name);
-    }
     return b;
 }
 
 PostfixBuilder CodeGenerator::handle(const ArrayAssignStmt& stmt) {
     auto* array_access = get_if<ArrayAccessExpr>(stmt.target.get());
-    auto* var_expr = get_if<VariableExpr>(array_access->array.get());
 
-    std::string array_name = var_expr->name.value;
-    std::string renamed_array = rename_variable(array_name);
+    std::string array_name;
+    auto* var_expr = get_if<VariableExpr>(array_access->array.get());
+    if (var_expr) {
+        array_name = var_expr->name.value;
+
+        if (var_rename_map.count(array_name)) {
+            array_name = var_rename_map.at(array_name);
+        } else if (array_access->array_symbol) {
+            array_name = array_access->array_symbol->mangled_name;
+        }
+    } else if (array_access->array_symbol) {
+        array_name = array_access->array_symbol->mangled_name;
+    }
 
     PostfixBuilder b;
 
@@ -508,7 +434,7 @@ PostfixBuilder CodeGenerator::handle(const ArrayAssignStmt& stmt) {
     auto index_result = generate(array_access->index.get());
     b.append(index_result.postfix);
 
-    b.add_array_store(renamed_array);
+    b.add_array_store(array_name);
 
     check_stack_effect(b.get_expression(), 0, stmt.line);
 
@@ -516,15 +442,10 @@ PostfixBuilder CodeGenerator::handle(const ArrayAssignStmt& stmt) {
 }
 
 PostfixBuilder CodeGenerator::handle(const BlockStmt& stmt) {
-    enter_scope();
-
     PostfixBuilder b;
     for (const auto& s : stmt.statements) {
         b.append(generate(s.get()));
     }
-
-    exit_scope();
-
     return b;
 }
 
@@ -579,27 +500,33 @@ PostfixBuilder CodeGenerator::handle(const ReturnStmt& stmt) {
 
 PostfixBuilder CodeGenerator::handle(const LabelStmt& stmt) {
     PostfixBuilder b;
-    b.add_label(stmt.name.value);
+    std::string label_name =
+        stmt.symbol ? stmt.symbol->mangled_name : stmt.name.value;
+    b.add_label(label_name);
     return b;
 }
 
 PostfixBuilder CodeGenerator::handle(const GotoStmt& stmt) {
     PostfixBuilder b;
+    std::string label_name = stmt.target_label_symbol
+                                 ? stmt.target_label_symbol->mangled_name
+                                 : stmt.label.value;
     if (stmt.condition) {
         b.append(generate(stmt.condition.get()).postfix);
-        b.add_conditional_jump(stmt.label.value);
+        b.add_conditional_jump(label_name);
     } else {
-        b.add_unconditional_jump(stmt.label.value);
+        b.add_unconditional_jump(label_name);
     }
     return b;
 }
 
 PostfixBuilder CodeGenerator::handle([[maybe_unused]] const FunctionDef& stmt) {
-    // Handled in first pass
+    // Inlined at call sites
     return {};
 }
+
 PostfixBuilder CodeGenerator::handle([[maybe_unused]] const GlobalDecl& stmt) {
-    // Handled by parser
+    // Global declarations don't generate code
     return {};
 }
 
@@ -624,80 +551,19 @@ int CodeGenerator::compute_stack_effect(const std::string& s, int line) {
     }
 }
 
-std::string CodeGenerator::rename_variable(const std::string& var_name) {
-    if (var_rename_map.count(var_name)) {
-        return var_rename_map[var_name];
-    }
-    return var_name;
-}
-
-bool CodeGenerator::is_constant_infix(const std::string& name) {
-    return is_constant_infix_internal(name);
-}
-
-bool CodeGenerator::is_clip_name(const std::string& s) {
-    return is_clip_postfix_internal(s);
-}
-
-bool CodeGenerator::is_convertible(Type from, Type to) {
-    return is_convertible_internal(from, to);
-}
-
 PostfixBuilder CodeGenerator::inline_function_call(
     const FunctionSignature& sig, FunctionDef* func_def,
     const std::vector<std::unique_ptr<Expr>>& args, int call_line) {
 
     const auto& func_name = sig.name;
 
-    auto saved_current_function_labels = current_function_labels;
-    current_function_labels.clear();
-    std::function<void(Stmt*)> collect_labels = [&](Stmt* s) {
-        if (!s)
-            return;
-        if (auto* label = get_if<LabelStmt>(s)) {
-            current_function_labels.insert(label->name.value);
-        } else if (auto* block = get_if<BlockStmt>(s)) {
-            for (auto& inner_s : block->statements) {
-                collect_labels(inner_s.get());
-            }
-        } else if (auto* if_s = get_if<IfStmt>(s)) {
-            collect_labels(if_s->then_branch.get());
-            if (if_s->else_branch) {
-                collect_labels(if_s->else_branch.get());
-            }
-        } else if (auto* while_s = get_if<WhileStmt>(s)) {
-            collect_labels(while_s->body.get());
-        }
-    };
-    for (const auto& s : func_def->body->statements) {
-        collect_labels(s.get());
-    }
-
-    auto saved_rename_map = var_rename_map;
-    auto saved_local_vars = local_scope_vars;
-    auto saved_all_defined = all_defined_vars_in_scope;
-    auto saved_scope_stack = scope_stack;
+    // Save current state
     auto saved_param_substitutions = param_substitutions;
+    auto saved_var_rename_map = var_rename_map;
     auto saved_current_function = current_function;
 
     param_substitutions.clear();
     std::map<std::string, std::string> param_map;
-    std::set<std::string> effective_globals;
-    std::set<std::string> new_local_vars;
-
-    if (sig.global_mode == GlobalMode::ALL) {
-        effective_globals = defined_globals;
-    } else if (sig.global_mode == GlobalMode::SPECIFIC) {
-        effective_globals = sig.specific_globals;
-    }
-
-    // Function has its own scope
-    scope_stack.clear();
-    all_defined_vars_in_scope.clear();
-
-    for (const auto& g : effective_globals) {
-        all_defined_vars_in_scope.insert(g);
-    }
 
     PostfixBuilder param_assignments;
 
@@ -705,73 +571,45 @@ PostfixBuilder CodeGenerator::inline_function_call(
         const auto& param_info = sig.params[i];
         const std::string& param_name = param_info.name;
         const Type param_type = param_info.type;
-        std::string renamed_param =
-            std::format("__internal_func_{}_{}", func_name, param_name);
 
-        if (!effective_globals.count(param_name)) {
-            auto* arg_expr = args[i].get();
+        auto* arg_expr = args[i].get();
 
-            if (param_type == Type::LITERAL || param_type == Type::CLIP) {
-                param_substitutions[param_name] = arg_expr;
-                param_map[param_name] = param_name;
-                new_local_vars.insert(param_name);
-                all_defined_vars_in_scope.insert(param_name);
-            } else if (param_type == Type::ARRAY) {
-                auto* var_expr = get_if<VariableExpr>(arg_expr);
+        if (param_type == Type::LITERAL || param_type == Type::CLIP) {
+            param_substitutions[param_name] = arg_expr;
+        } else if (param_type == Type::ARRAY) {
+            auto* var_expr = get_if<VariableExpr>(arg_expr);
+            if (var_expr) {
                 std::string arg_var_name = var_expr->name.value;
-
-                auto temp_all_defined = all_defined_vars_in_scope;
-                auto temp_scope_stack = scope_stack;
-                all_defined_vars_in_scope = saved_all_defined;
-                scope_stack = saved_scope_stack;
-
-                std::string renamed_arg = rename_variable(arg_var_name);
-
-                // Restore function scope
-                all_defined_vars_in_scope = temp_all_defined;
-                scope_stack = temp_scope_stack;
-
-                // Map parameter name to the renamed argument variable
-                param_map[param_name] = renamed_arg;
-                new_local_vars.insert(param_name);
-                all_defined_vars_in_scope.insert(renamed_arg);
-                variable_types[renamed_arg] = Type::ARRAY;
-            } else { // Type::VALUE
-                // Restore scope temporarily to generate argument value
-                auto temp_all_defined = all_defined_vars_in_scope;
-                auto temp_scope_stack = scope_stack;
-                all_defined_vars_in_scope = saved_all_defined;
-                scope_stack = saved_scope_stack;
-
-                // Generate argument value
-                PostfixBuilder arg_value = generate(args[i].get()).postfix;
-
-                // Restore function scope
-                all_defined_vars_in_scope = temp_all_defined;
-                scope_stack = temp_scope_stack;
-
-                param_assignments.append(arg_value);
-                param_assignments.add_variable_store(renamed_param);
-                param_map[param_name] = renamed_param;
-                new_local_vars.insert(param_name);
-                // Define parameter in function scope
-                all_defined_vars_in_scope.insert(renamed_param);
+                if (saved_var_rename_map.count(arg_var_name)) {
+                    param_map[param_name] =
+                        saved_var_rename_map.at(arg_var_name);
+                } else if (var_expr->symbol) {
+                    param_map[param_name] = var_expr->symbol->mangled_name;
+                } else {
+                    param_map[param_name] = arg_var_name;
+                }
             }
         } else {
-            param_map[param_name] = param_name;
+            std::string renamed_param =
+                std::format("__internal_func_{}_{}", func_name, param_name);
+
+            PostfixBuilder arg_value = generate(args[i].get()).postfix;
+            param_assignments.append(arg_value);
+            param_assignments.add_variable_store(renamed_param);
+            param_map[param_name] = renamed_param;
         }
     }
 
     // Collect local variables from function body
     std::function<void(Stmt*)> collect_locals = [&](Stmt* stmt) {
+        if (!stmt)
+            return;
         if (auto* assign = get_if<AssignStmt>(stmt)) {
             std::string var_name = assign->name.value;
-            if (!effective_globals.count(var_name) &&
-                var_name.find("__internal_func_") != 0) {
+            if (!param_map.count(var_name)) {
                 std::string renamed_var =
                     std::format("__internal_func_{}_{}", func_name, var_name);
                 param_map[var_name] = renamed_var;
-                new_local_vars.insert(var_name);
             }
         } else if (auto* block = get_if<BlockStmt>(stmt)) {
             for (const auto& s : block->statements) {
@@ -787,37 +625,12 @@ PostfixBuilder CodeGenerator::inline_function_call(
         }
     };
 
-    std::function<void(BlockStmt*)> collect_locals_block =
-        [&](BlockStmt* block) {
-            for (const auto& s : block->statements) {
-                if (auto* assign = get_if<AssignStmt>(s.get())) {
-                    std::string var_name = assign->name.value;
-                    if (!effective_globals.count(var_name) &&
-                        var_name.find("__internal_func_") != 0) {
-                        std::string renamed_var = std::format(
-                            "__internal_func_{}_{}", func_name, var_name);
-                        param_map[var_name] = renamed_var;
-                        new_local_vars.insert(var_name);
-                    }
-                } else if (auto* block_s = get_if<BlockStmt>(s.get())) {
-                    collect_locals_block(block_s);
-                } else if (auto* if_stmt = get_if<IfStmt>(s.get())) {
-                    collect_locals(if_stmt->then_branch.get());
-                    if (if_stmt->else_branch) {
-                        collect_locals(if_stmt->else_branch.get());
-                    }
-                } else if (auto* while_stmt = get_if<WhileStmt>(s.get())) {
-                    collect_locals(while_stmt->body.get());
-                }
-            }
-        };
-
-    collect_locals_block(func_def->body.get());
+    for (const auto& s : func_def->body->statements) {
+        collect_locals(s.get());
+    }
 
     // Update context for function body generation
     var_rename_map = param_map;
-    local_scope_vars = new_local_vars;
-    local_scope_vars.insert(effective_globals.begin(), effective_globals.end());
     current_function = &sig;
 
     std::string label_prefix = std::format("__internal_{}_", func_name);
@@ -825,13 +638,10 @@ PostfixBuilder CodeGenerator::inline_function_call(
     PostfixBuilder body_builder = handle(*func_def->body);
     body_builder.prefix_labels(label_prefix);
 
-    var_rename_map = saved_rename_map;
-    local_scope_vars = saved_local_vars;
-    all_defined_vars_in_scope = saved_all_defined;
-    scope_stack = saved_scope_stack;
+    // Restore state
     param_substitutions = saved_param_substitutions;
+    var_rename_map = saved_var_rename_map;
     current_function = saved_current_function;
-    current_function_labels = saved_current_function_labels;
 
     PostfixBuilder inlined_builder;
     inlined_builder.append(param_assignments);
@@ -856,49 +666,16 @@ PostfixBuilder CodeGenerator::inline_function_call(
     return inlined_builder;
 }
 
-void CodeGenerator::check_variable_defined(const std::string& var_name,
-                                           [[maybe_unused]] int line) {
-    // Semantic analysis has already validated variable usage
-    // This function is kept for compatibility but doesn't throw errors
-    (void)var_name;
+bool CodeGenerator::is_constant_infix(const std::string& name) {
+    return is_constant_infix_internal(name);
 }
 
-void CodeGenerator::enter_scope() {
-    scope_stack.push_back(std::set<std::string>());
+bool CodeGenerator::is_clip_name(const std::string& s) {
+    return is_clip_postfix_internal(s);
 }
 
-void CodeGenerator::exit_scope() {
-    if (!scope_stack.empty()) {
-        const auto& scope_vars = scope_stack.back();
-        for (const auto& var : scope_vars) {
-            all_defined_vars_in_scope.erase(var);
-            variable_types.erase(var);
-        }
-        scope_stack.pop_back();
-    }
-}
-
-void CodeGenerator::define_variable_in_current_scope(
-    const std::string& var_name, Type type) {
-    if (all_defined_vars_in_scope.find(var_name) ==
-        all_defined_vars_in_scope.end()) {
-        if (!scope_stack.empty()) {
-            scope_stack.back().insert(var_name);
-        }
-    }
-    all_defined_vars_in_scope.insert(var_name);
-    variable_types[var_name] = type;
-}
-
-bool CodeGenerator::builtin_param_type_is_evaluatable(
-    const std::vector<BuiltinFunction>& overloads, size_t param_idx) {
-    for (const auto& o : overloads) {
-        if (o.param_types.size() > param_idx &&
-            o.param_types[param_idx] == Type::LITERAL_STRING) {
-            return false;
-        }
-    }
-    return true;
+bool CodeGenerator::is_convertible(Type from, Type to) {
+    return is_convertible_internal(from, to);
 }
 
 } // namespace infix2postfix

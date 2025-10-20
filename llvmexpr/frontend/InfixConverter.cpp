@@ -22,7 +22,6 @@
 #include <stdexcept>
 
 #include "infix2postfix/AnalysisEngine.hpp"
-#include "infix2postfix/CodeGenerator.hpp"
 #include "infix2postfix/Tokenizer.hpp"
 
 std::string convertInfixToPostfix(const std::string& infix_expr, int num_inputs,
@@ -39,8 +38,8 @@ std::string convertInfixToPostfix(const std::string& infix_expr, int num_inputs,
             throw std::runtime_error(diagnostics);
         }
 
-        infix2postfix::CodeGenerator generator(mode, num_inputs);
-        return generator.generate(engine.getAST());
+        // Use the new interface: generateCode() instead of direct CodeGenerator
+        return engine.generateCode();
     } catch (const std::exception& e) {
         throw std::runtime_error(
             std::format("Infix to postfix conversion error: {}", e.what()));

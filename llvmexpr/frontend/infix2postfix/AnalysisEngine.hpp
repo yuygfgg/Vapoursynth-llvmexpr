@@ -28,8 +28,11 @@ class SemanticAnalyzer; // Forward declaration
 class AnalysisEngine {
   public:
     AnalysisEngine(const std::vector<Token>& tokens, Mode mode, int num_inputs);
+    ~AnalysisEngine();
 
     bool runAnalysis();
+
+    std::string generateCode();
 
     const Program* getAST() const { return ast.get(); }
     Program* getAST() { return ast.get(); }
@@ -48,6 +51,7 @@ class AnalysisEngine {
     int num_inputs;
 
     std::unique_ptr<Program> ast;
+    std::unique_ptr<SemanticAnalyzer> semantic_analyzer;
     std::vector<Diagnostic> diagnostics;
 };
 

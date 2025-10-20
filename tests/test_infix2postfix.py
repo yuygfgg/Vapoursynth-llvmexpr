@@ -566,6 +566,82 @@ RESULT = test_function(10)
         assert "__internal_func_test_function_x@ global_var@ +" in output
         assert "RESULT!" in output
 
+    def test_global_var_undefined_before_call(self):
+        """Test that calling a function before its required global is defined fails."""
+        infix = """
+<global<undef>>
+function test(a) {
+    return a + undef
+}
+RESULT = test($x)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail when global is undefined before call"
+        assert "not defined in global scope before this call" in output
+        assert "undef" in output
+
+    def test_global_var_defined_after_call(self):
+        """Test that calling a function before its required global is defined fails."""
+        infix = """
+<global<late_global>>
+function test(a) {
+    return a + late_global
+}
+RESULT = test($x)
+late_global = 10
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail when global is defined after call"
+        assert "not defined in global scope before this call" in output
+        assert "late_global" in output
+
+    def test_global_var_defined_before_call(self):
+        """Test that calling a function after its required global is defined succeeds."""
+        infix = """
+<global<early_global>>
+function test(a) {
+    return a + early_global
+}
+early_global = 10
+RESULT = test($x)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Should succeed when global is defined before call: {output}"
+        assert "10 early_global!" in output
+        assert "early_global@" in output
+
+    def test_global_all_undefined_variable(self):
+        """Test that <global.all> functions cannot use undefined variables."""
+        infix = """
+<global.all>
+function test(a) {
+    return a + undefined_var + 1
+}
+RESULT = test(4)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail when using undefined variable with <global.all>"
+        assert "undefined_var" in output
+        assert "not defined in global scope before this call" in output
+
+    def test_global_all_with_defined_variables(self):
+        """Test that <global.all> functions work when all used globals are defined."""
+        infix = """
+<global.all>
+function test(a) {
+    return a + c + d
+}
+c = 5
+d = 10
+RESULT = test(4)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Should succeed when all used globals are defined: {output}"
+        assert "5 c!" in output
+        assert "10 d!" in output
+        assert "c@" in output
+        assert "d@" in output
+
     def test_typed_function_param_substitution(self):
         """Test typed function parameter substitution."""
         infix = """

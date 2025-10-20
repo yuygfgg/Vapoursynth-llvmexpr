@@ -1,4 +1,5 @@
 #include "AnalysisEngine.hpp"
+#include "CodeGenerator.hpp"
 #include "Parser.hpp"
 #include "SemanticAnalyzer.hpp"
 #include <format>
@@ -8,6 +9,8 @@ namespace infix2postfix {
 AnalysisEngine::AnalysisEngine(const std::vector<Token>& tokens, Mode mode,
                                int num_inputs)
     : tokens(tokens), mode(mode), num_inputs(num_inputs) {}
+
+AnalysisEngine::~AnalysisEngine() = default;
 
 bool AnalysisEngine::runAnalysis() {
     diagnostics.clear();
@@ -25,14 +28,32 @@ bool AnalysisEngine::runAnalysis() {
         return false;
     }
 
-    SemanticAnalyzer semantic_analyzer(mode, num_inputs);
-    semantic_analyzer.analyze(ast.get());
+    semantic_analyzer = std::make_unique<SemanticAnalyzer>(mode, num_inputs);
+    semantic_analyzer->analyze(ast.get());
 
-    const auto& semantic_diagnostics = semantic_analyzer.getDiagnostics();
+    const auto& semantic_diagnostics = semantic_analyzer->getDiagnostics();
     diagnostics.insert(diagnostics.end(), semantic_diagnostics.begin(),
                        semantic_diagnostics.end());
 
     return !hasErrors();
+}
+
+std::string AnalysisEngine::generateCode() {
+    if (!ast || !semantic_analyzer) {
+        throw std::runtime_error(
+            "Cannot generate code: analysis not run or failed");
+    }
+
+    if (hasErrors()) {
+        throw std::runtime_error(
+            "Cannot generate code: semantic analysis had errors");
+    }
+
+    CodeGenerator code_generator(mode, num_inputs,
+                                 semantic_analyzer->getFunctionSignatures(),
+                                 semantic_analyzer->getFunctionDefs());
+
+    return code_generator.generate(ast.get());
 }
 
 bool AnalysisEngine::hasErrors() const {

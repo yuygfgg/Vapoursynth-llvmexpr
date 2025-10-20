@@ -1,6 +1,7 @@
 #ifndef LLVMEXPR_INFIX2POSTFIX_AST_HPP
 #define LLVMEXPR_INFIX2POSTFIX_AST_HPP
 
+#include "Symbol.hpp"
 #include "types.hpp"
 #include <memory>
 #include <string>
@@ -28,6 +29,7 @@ struct NumberExpr {
 struct VariableExpr {
     Token name;
     int line = 0;
+    std::shared_ptr<Symbol> symbol;
 
     explicit VariableExpr(Token n) : name(std::move(n)) { line = name.line; }
 };
@@ -64,6 +66,7 @@ struct CallExpr {
     std::vector<std::unique_ptr<Expr>> args;
     std::string boundary_suffix;
     int line = 0;
+    const FunctionSignature* resolved_signature = nullptr;
 
     CallExpr(Token callee_token, std::vector<std::unique_ptr<Expr>> a,
              std::string suffix = "");
@@ -105,6 +108,7 @@ struct ArrayAccessExpr {
     std::unique_ptr<Expr> array;
     std::unique_ptr<Expr> index;
     int line = 0;
+    std::shared_ptr<Symbol> array_symbol;
 
     ArrayAccessExpr(std::unique_ptr<Expr> arr, std::unique_ptr<Expr> idx);
 };
@@ -121,13 +125,13 @@ struct AssignStmt {
     Token name;
     std::unique_ptr<Expr> value;
     int line = 0;
+    std::shared_ptr<Symbol> symbol;
 
     AssignStmt(Token n, std::unique_ptr<Expr> v);
 };
 
 struct ArrayAssignStmt {
-    std::unique_ptr<Expr>
-        target; // Should be an ArrayAccessExpr
+    std::unique_ptr<Expr> target; // Should be an ArrayAccessExpr
     std::unique_ptr<Expr> value;
     int line = 0;
 
@@ -170,6 +174,7 @@ struct ReturnStmt {
 struct LabelStmt {
     Token name;
     int line = 0;
+    std::shared_ptr<Symbol> symbol;
 
     explicit LabelStmt(Token n) : name(std::move(n)) { line = name.line; }
 };
@@ -179,6 +184,7 @@ struct GotoStmt {
     Token label;
     std::unique_ptr<Expr> condition;
     int line = 0;
+    std::shared_ptr<Symbol> target_label_symbol;
 
     GotoStmt(Token kw, Token l, std::unique_ptr<Expr> c);
 };
@@ -207,6 +213,7 @@ struct FunctionDef {
     std::unique_ptr<BlockStmt> body;
     std::unique_ptr<GlobalDecl> global_decl;
     int line = 0;
+    std::shared_ptr<Symbol> symbol;
 
     FunctionDef(Token n, std::vector<Parameter> p, std::unique_ptr<BlockStmt> b,
                 std::unique_ptr<GlobalDecl> g);

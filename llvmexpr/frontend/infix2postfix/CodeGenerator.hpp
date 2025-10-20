@@ -29,7 +29,10 @@ class CodeGenerator {
         Type type;
     };
 
-    CodeGenerator(Mode mode, int num_inputs);
+    CodeGenerator(Mode mode, int num_inputs,
+                  const std::map<std::string, std::vector<FunctionSignature>>& function_signatures,
+                  const std::map<std::string, std::vector<FunctionDef*>>& function_defs);
+
     std::string generate(Program* program);
 
     Mode get_mode() const { return mode; }
@@ -73,43 +76,22 @@ class CodeGenerator {
                          const std::vector<std::unique_ptr<Expr>>& args,
                          int call_line);
 
-    // Variable scoping
-    void check_variable_defined(const std::string& var_name, int line);
-    void enter_scope();
-    void exit_scope();
-    void define_variable_in_current_scope(const std::string& var_name, Type type = Type::VALUE);
-    std::string rename_variable(const std::string& var_name);
-
     bool is_clip_name(const std::string& s);
     bool is_convertible(Type from, Type to);
-    bool builtin_param_type_is_evaluatable(
-        const std::vector<BuiltinFunction>& overloads, size_t param_idx);
 
     Mode mode;
     int num_inputs;
-    bool has_result = false;
-    bool result_defined_in_global_scope = false;
     int label_counter = 0;
 
     std::map<std::string, std::vector<FunctionSignature>> functions;
     std::map<std::string, std::vector<FunctionDef*>> function_defs;
 
-    // Scope management
-    std::set<std::string> defined_globals;
-    std::set<std::string> local_scope_vars;
-    std::vector<std::set<std::string>> scope_stack;
-    std::set<std::string> all_defined_vars_in_scope;
-    
-    // Variable type tracking
-    std::map<std::string, Type> variable_types;
-
-    // Function inlining context
-    std::map<std::string, std::string> var_rename_map;
+    // Context for function inlining
     std::map<std::string, Expr*> param_substitutions;
+    std::map<std::string, std::string> var_rename_map;
     const FunctionSignature* current_function = nullptr;
 
-    // Label checking
-    std::set<std::string> global_labels;
+    // Label tracking for inlining
     std::set<std::string> current_function_labels;
 };
 

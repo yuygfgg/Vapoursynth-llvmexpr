@@ -1,6 +1,5 @@
 #include "SemanticAnalyzer.hpp"
 #include "Builtins.hpp"
-#include "PostfixHelper.hpp"
 #include <algorithm>
 #include <format>
 #include <functional>
@@ -27,7 +26,9 @@ bool is_convertible_internal(Type from, Type to) {
 } // namespace
 
 SemanticAnalyzer::SemanticAnalyzer(Mode mode, int num_inputs)
-    : mode(mode), num_inputs(num_inputs) {}
+    : mode(mode), num_inputs(num_inputs),
+      global_scope(std::make_unique<SymbolTable>()),
+      current_scope(global_scope.get()) {}
 
 bool SemanticAnalyzer::analyze(Program* program) {
     if (!program) {
@@ -47,12 +48,12 @@ bool SemanticAnalyzer::analyze(Program* program) {
         }
     }
 
-    // Collect function signatures
+    // Collect function signatures and build function symbols
     for (const auto& stmt : program->statements) {
         if (auto* func_def = get_if<FunctionDef>(stmt.get())) {
-            if (functions.count(func_def->name.value)) {
+            if (function_signatures.count(func_def->name.value)) {
                 for (const auto& existing_sig :
-                     functions.at(func_def->name.value)) {
+                     function_signatures.at(func_def->name.value)) {
                     if (existing_sig.params.size() == func_def->params.size()) {
                         bool same = true;
                         for (size_t i = 0; i < func_def->params.size(); ++i) {
@@ -90,7 +91,43 @@ bool SemanticAnalyzer::analyze(Program* program) {
                     sig.specific_globals.insert(g.value);
                 }
             }
-            functions[sig.name].push_back(sig);
+
+            std::set<std::string> local_vars;
+            for (const auto& p : func_def->params) {
+                local_vars.insert(p.name.value);
+            }
+
+            std::function<void(Stmt*)> collect_local_defs = [&](Stmt* s) {
+                if (!s)
+                    return;
+                if (auto* assign = get_if<AssignStmt>(s)) {
+                    local_vars.insert(assign->name.value);
+                } else if (auto* block = get_if<BlockStmt>(s)) {
+                    for (const auto& stmt : block->statements) {
+                        collect_local_defs(stmt.get());
+                    }
+                } else if (auto* if_stmt = get_if<IfStmt>(s)) {
+                    collect_local_defs(if_stmt->then_branch.get());
+                    if (if_stmt->else_branch) {
+                        collect_local_defs(if_stmt->else_branch.get());
+                    }
+                } else if (auto* while_stmt = get_if<WhileStmt>(s)) {
+                    collect_local_defs(while_stmt->body.get());
+                }
+            };
+            for (const auto& s : func_def->body->statements) {
+                collect_local_defs(s.get());
+            }
+
+            for (const auto& s : func_def->body->statements) {
+                collectUsedGlobalsInStmt(s.get(), sig.used_globals);
+            }
+
+            for (const auto& local_var : local_vars) {
+                sig.used_globals.erase(local_var);
+            }
+
+            function_signatures[sig.name].push_back(sig);
             function_defs[sig.name].push_back(func_def);
         }
     }
@@ -98,6 +135,14 @@ bool SemanticAnalyzer::analyze(Program* program) {
     // Analyze all statements
     for (const auto& stmt : program->statements) {
         analyzeStmt(stmt.get());
+
+        validateGlobalDependencies(stmt.get());
+
+        if (auto* assign = get_if<AssignStmt>(stmt.get())) {
+            if (current_scope == global_scope.get()) {
+                defined_global_vars.insert(assign->name.value);
+            }
+        }
     }
 
     // Check if RESULT is defined in Expr mode
@@ -130,10 +175,58 @@ void SemanticAnalyzer::reportWarning(const std::string& message, int line) {
     diagnostics.emplace_back(DiagnosticSeverity::WARNING, message, line);
 }
 
+// Symbol table management
+void SemanticAnalyzer::enterScope() {
+    auto new_scope = std::make_unique<SymbolTable>(current_scope);
+    current_scope = new_scope.get();
+    scope_stack.push_back(std::move(new_scope));
+}
+
+void SemanticAnalyzer::exitScope() {
+    if (!scope_stack.empty()) {
+        current_scope = current_scope->get_parent();
+        scope_stack.pop_back();
+    }
+}
+
+std::shared_ptr<Symbol> SemanticAnalyzer::defineSymbol(SymbolKind kind,
+                                                       const std::string& name,
+                                                       Type type, int line) {
+    auto symbol = std::make_shared<Symbol>();
+    symbol->kind = kind;
+    symbol->name = name;
+    symbol->type = type;
+    symbol->definition_line = line;
+    // Keep mangled_name same as name initially; CodeGenerator will handle function inlining renaming
+    symbol->mangled_name = name;
+
+    if (!current_scope->define(symbol)) {
+        return current_scope->resolve(name);
+    }
+
+    return symbol;
+}
+
+std::shared_ptr<Symbol> SemanticAnalyzer::resolveSymbol(const std::string& name,
+                                                        int line) {
+    auto symbol = current_scope->resolve(name);
+    if (!symbol) {
+        reportError(
+            std::format("Variable '{}' is used before being defined", name),
+            line);
+    }
+    return symbol;
+}
+
+std::string SemanticAnalyzer::generateMangledName(const std::string& name) {
+    return std::format("{}_{}", name, mangle_counter++);
+}
+
+// Expression analysis
 Type SemanticAnalyzer::analyzeExpr(Expr* expr) {
     if (!expr)
         return Type::VALUE;
-    return std::visit([this](auto& e) { return this->analyze(e); },
+    return std::visit([this](auto& e) -> Type { return this->analyze(e); },
                       expr->value);
 }
 
@@ -147,12 +240,8 @@ Type SemanticAnalyzer::analyze([[maybe_unused]] const NumberExpr& expr) {
     return Type::LITERAL;
 }
 
-Type SemanticAnalyzer::analyze(const VariableExpr& expr) {
+Type SemanticAnalyzer::analyze(VariableExpr& expr) {
     std::string name = expr.name.value;
-
-    if (param_substitutions.count(name)) {
-        return analyzeExpr(param_substitutions.at(name));
-    }
 
     if (name.starts_with("$")) {
         std::string base_name = name.substr(1);
@@ -170,18 +259,48 @@ Type SemanticAnalyzer::analyze(const VariableExpr& expr) {
         return Type::VALUE;
     }
 
-    checkVariableDefined(name, expr.line);
+    auto symbol = current_scope->resolve(name);
 
-    std::string renamed = renameVariable(name);
-    auto type_it = variable_types.find(renamed);
-    if (type_it != variable_types.end()) {
-        return type_it->second;
+    if (!symbol && current_function) {
+        if (current_function->global_mode == GlobalMode::ALL) {
+            symbol = global_scope->resolve(name);
+            // Global declaration is forward declared
+            if (!symbol) {
+                symbol = std::make_shared<Symbol>();
+                symbol->kind = SymbolKind::VARIABLE;
+                symbol->name = name;
+                symbol->type = Type::VALUE;
+                symbol->definition_line = expr.line;
+                symbol->mangled_name = name;
+            }
+        } else if (current_function->global_mode == GlobalMode::SPECIFIC) {
+            // Global declaration is forward declared
+            if (current_function->specific_globals.count(name)) {
+                symbol = global_scope->resolve(name);
+                if (!symbol) {
+                    symbol = std::make_shared<Symbol>();
+                    symbol->kind = SymbolKind::VARIABLE;
+                    symbol->name = name;
+                    symbol->type = Type::VALUE;
+                    symbol->definition_line = expr.line;
+                    symbol->mangled_name = name;
+                }
+            }
+        }
     }
 
-    return Type::VALUE;
+    if (!symbol) {
+        reportError(
+            std::format("Variable '{}' is used before being defined", name),
+            expr.line);
+        return Type::VALUE;
+    }
+
+    expr.symbol = symbol;
+    return symbol->type;
 }
 
-Type SemanticAnalyzer::analyze(const UnaryExpr& expr) {
+Type SemanticAnalyzer::analyze(UnaryExpr& expr) {
     if (expr.op.type == TokenType::Minus) {
         if (get_if<NumberExpr>(expr.right.get())) {
             return Type::LITERAL;
@@ -200,7 +319,7 @@ Type SemanticAnalyzer::analyze(const UnaryExpr& expr) {
     return Type::VALUE;
 }
 
-Type SemanticAnalyzer::analyze(const BinaryExpr& expr) {
+Type SemanticAnalyzer::analyze(BinaryExpr& expr) {
     auto left_type = analyzeExpr(expr.left.get());
     auto right_type = analyzeExpr(expr.right.get());
 
@@ -223,7 +342,7 @@ Type SemanticAnalyzer::analyze(const BinaryExpr& expr) {
     return Type::VALUE;
 }
 
-Type SemanticAnalyzer::analyze(const TernaryExpr& expr) {
+Type SemanticAnalyzer::analyze(TernaryExpr& expr) {
     auto cond_type = analyzeExpr(expr.cond.get());
     if (!isConvertible(cond_type, Type::VALUE)) {
         reportError(std::format("Ternary condition has type '{}' which is not "
@@ -245,24 +364,29 @@ Type SemanticAnalyzer::analyze(const TernaryExpr& expr) {
     return Type::VALUE;
 }
 
-Type SemanticAnalyzer::analyze(const CallExpr& expr) {
+Type SemanticAnalyzer::analyze(CallExpr& expr) {
+    auto signature = resolveOverload(expr.callee, expr.args,
+                                     expr.boundary_suffix, expr.line);
+    expr.resolved_signature = signature;
+
+    return Type::VALUE;
+}
+
+const FunctionSignature* SemanticAnalyzer::resolveOverload(
+    const std::string& name, const std::vector<std::unique_ptr<Expr>>& args,
+    [[maybe_unused]] const std::string& boundary_suffix, int line) {
     // User-defined functions
-    if (functions.count(expr.callee)) {
-        const auto& overloads = functions.at(expr.callee);
+    if (function_signatures.count(name)) {
+        const auto& overloads = function_signatures.at(name);
 
         std::vector<Type> arg_types;
-        arg_types.reserve(expr.args.size());
-        for (const auto& arg : expr.args) {
+        arg_types.reserve(args.size());
+        for (const auto& arg : args) {
             if (auto* var_expr = get_if<VariableExpr>(arg.get())) {
-                std::string var_name = var_expr->name.value;
-                if (!var_name.starts_with("$")) {
-                    std::string renamed_var = renameVariable(var_name);
-                    auto type_it = variable_types.find(renamed_var);
-                    if (type_it != variable_types.end() &&
-                        type_it->second == Type::ARRAY) {
-                        arg_types.push_back(Type::ARRAY);
-                        continue;
-                    }
+                auto symbol = current_scope->resolve(var_expr->name.value);
+                if (symbol && symbol->type == Type::ARRAY) {
+                    arg_types.push_back(Type::ARRAY);
+                    continue;
                 }
             }
             arg_types.push_back(analyzeExpr(arg.get()));
@@ -314,12 +438,12 @@ Type SemanticAnalyzer::analyze(const CallExpr& expr) {
             reportError(
                 std::format(
                     "No matching user-defined function for call to '{}({})'",
-                    expr.callee, arg_types_str),
-                expr.line);
-            return Type::VALUE;
+                    name, arg_types_str),
+                line);
+            return nullptr;
         }
 
-        // Check for ambiguous calls
+        // Select best candidate
         Candidate* best_candidate = &candidates[0];
         for (size_t i = 1; i < candidates.size(); ++i) {
             if (candidates[i].conversion_count <
@@ -347,20 +471,19 @@ Type SemanticAnalyzer::analyze(const CallExpr& expr) {
 
         if (num_best > 1) {
             reportError(
-                std::format("Ambiguous call to overloaded function '{}'",
-                            expr.callee),
-                expr.line);
+                std::format("Ambiguous call to overloaded function '{}'", name),
+                line);
         }
 
-        return Type::VALUE;
+        return best_candidate->sig;
     }
 
     const auto& builtins = get_builtin_functions();
 
-    if (builtins.count(expr.callee)) {
-        const auto& overloads = builtins.at(expr.callee);
+    if (builtins.count(name)) {
+        const auto& overloads = builtins.at(name);
 
-        std::vector<std::optional<Type>> arg_types(expr.args.size());
+        std::vector<std::optional<Type>> arg_types(args.size());
 
         struct Candidate {
             const BuiltinFunction* builtin;
@@ -370,7 +493,7 @@ Type SemanticAnalyzer::analyze(const CallExpr& expr) {
         std::vector<Candidate> candidates;
 
         for (const auto& builtin : overloads) {
-            if (builtin.arity != (int)expr.args.size())
+            if (builtin.arity != (int)args.size())
                 continue;
             if (builtin.mode_restriction.has_value() &&
                 builtin.mode_restriction.value() != mode)
@@ -379,11 +502,11 @@ Type SemanticAnalyzer::analyze(const CallExpr& expr) {
             int conversion_count = 0;
             int first_conversion_index = -1;
             bool possible = true;
-            for (size_t j = 0; j < expr.args.size(); ++j) {
+            for (size_t j = 0; j < args.size(); ++j) {
                 Type param_type = builtin.param_types[j];
 
                 if (param_type == Type::LITERAL_STRING) {
-                    auto* var_expr = get_if<VariableExpr>(expr.args[j].get());
+                    auto* var_expr = get_if<VariableExpr>(args[j].get());
                     if (!var_expr || var_expr->name.value.starts_with("$")) {
                         possible = false;
                         break;
@@ -392,7 +515,7 @@ Type SemanticAnalyzer::analyze(const CallExpr& expr) {
                 }
 
                 if (!arg_types[j].has_value()) {
-                    arg_types[j] = analyzeExpr(expr.args[j].get());
+                    arg_types[j] = analyzeExpr(args[j].get());
                 }
                 Type arg_type = arg_types[j].value();
 
@@ -417,29 +540,29 @@ Type SemanticAnalyzer::analyze(const CallExpr& expr) {
 
         if (candidates.empty()) {
             std::string arg_types_str;
-            for (size_t i = 0; i < expr.args.size(); ++i) {
+            for (size_t i = 0; i < args.size(); ++i) {
                 if (builtinParamTypeIsEvaluatable(overloads, i)) {
                     if (!arg_types[i].has_value()) {
-                        arg_types[i] = analyzeExpr(expr.args[i].get());
+                        arg_types[i] = analyzeExpr(args[i].get());
                     }
                     arg_types_str += to_string(arg_types[i].value());
                 } else {
                     arg_types_str += "LiteralString";
                 }
 
-                if (i < expr.args.size() - 1)
+                if (i < args.size() - 1)
                     arg_types_str += ", ";
             }
             reportError(
                 std::format(
                     "No matching overload for function '{}({})' in {} mode.",
-                    expr.callee, arg_types_str,
+                    name, arg_types_str,
                     mode == Mode::Expr ? "Expr" : "SingleExpr"),
-                expr.line);
-            return Type::VALUE;
+                line);
+            return nullptr;
         }
 
-        // Check for ambiguous calls
+        // Select best candidate
         Candidate* best_candidate = &candidates[0];
         for (size_t i = 1; i < candidates.size(); ++i) {
             if (candidates[i].conversion_count <
@@ -469,66 +592,56 @@ Type SemanticAnalyzer::analyze(const CallExpr& expr) {
             reportError(
                 std::format(
                     "Ambiguous call to overloaded built-in function '{}'",
-                    expr.callee),
-                expr.line);
+                    name),
+                line);
         }
 
-        return Type::VALUE;
+        // Built-in functions don't have FunctionSignature, return nullptr
+        // CodeGenerator will check for built-ins separately
+        return nullptr;
 
-    } else if (expr.callee.starts_with("nth_")) {
-        std::string n_str = expr.callee.substr(4);
+    } else if (name.starts_with("nth_")) {
+        std::string n_str = name.substr(4);
         if (n_str.empty() ||
             !std::all_of(n_str.begin(), n_str.end(), ::isdigit)) {
-            reportError(
-                std::format("Invalid nth_N function name '{}'", expr.callee),
-                expr.line);
-            return Type::VALUE;
+            reportError(std::format("Invalid nth_N function name '{}'", name),
+                        line);
+            return nullptr;
         }
         int n = std::stoi(n_str);
-        int arg_count = expr.args.size();
+        int arg_count = args.size();
         if (arg_count < n) {
             reportError(std::format("Function '{}' requires at least {} "
                                     "arguments, but {} were provided.",
-                                    expr.callee, n, arg_count),
-                        expr.line);
+                                    name, n, arg_count),
+                        line);
         }
         if (n < 1) {
-            reportError(
-                std::format("Invalid nth_N function name '{}'", expr.callee),
-                expr.line);
+            reportError(std::format("Invalid nth_N function name '{}'", name),
+                        line);
         }
-        for (const auto& arg : expr.args) {
+        for (const auto& arg : args) {
             auto arg_type = analyzeExpr(arg.get());
             if (!isConvertible(arg_type, Type::VALUE)) {
                 reportError(
                     std::format("Argument to function '{}' has type '{}' which "
                                 "is not convertible to Value.",
-                                expr.callee, to_string(arg_type)),
+                                name, to_string(arg_type)),
                     arg->line());
             }
         }
 
-        return Type::VALUE;
+        return nullptr;
     } else {
-        reportError(std::format("Unknown function '{}'", expr.callee),
-                    expr.line);
-        return Type::VALUE;
+        reportError(std::format("Unknown function '{}'", name), line);
+        return nullptr;
     }
 }
 
 Type SemanticAnalyzer::analyze(const PropAccessExpr& expr) {
     std::string clip_name = expr.clip.value;
-    if (param_substitutions.count(clip_name)) {
-        auto* subst_expr = param_substitutions.at(clip_name);
-        auto res_type = analyzeExpr(subst_expr);
-        if (res_type != Type::CLIP) {
-            reportError(
-                std::format("Parameter '{}' is used as a clip for property "
-                            "access but was not a clip constant.",
-                            expr.clip.value),
-                expr.line);
-        }
-    } else if (clip_name.starts_with("$")) {
+
+    if (clip_name.starts_with("$")) {
         clip_name = clip_name.substr(1);
         if (!isClipName(clip_name)) {
             reportError(
@@ -538,9 +651,8 @@ Type SemanticAnalyzer::analyze(const PropAccessExpr& expr) {
         }
     } else {
         // Check if it's a function parameter of Clip type
-        std::string renamed = renameVariable(clip_name);
-        auto type_it = variable_types.find(renamed);
-        if (type_it == variable_types.end() || type_it->second != Type::CLIP) {
+        auto symbol = current_scope->resolve(clip_name);
+        if (!symbol || symbol->type != Type::CLIP) {
             reportError(
                 std::format("Clip '{}' is used as a property access target but "
                             "was not a clip constant or Clip parameter.",
@@ -562,17 +674,8 @@ Type SemanticAnalyzer::analyze(const StaticRelPixelAccessExpr& expr) {
     }
 
     std::string clip_name = expr.clip.value;
-    if (param_substitutions.count(clip_name)) {
-        auto* subst_expr = param_substitutions.at(clip_name);
-        auto res_type = analyzeExpr(subst_expr);
-        if (res_type != Type::CLIP) {
-            reportError(
-                std::format("Parameter '{}' is used as a clip for pixel "
-                            "access but was not a clip constant.",
-                            expr.clip.value),
-                expr.line);
-        }
-    } else if (clip_name.starts_with("$")) {
+
+    if (clip_name.starts_with("$")) {
         clip_name = clip_name.substr(1);
         if (!isClipName(clip_name)) {
             reportError(
@@ -582,9 +685,8 @@ Type SemanticAnalyzer::analyze(const StaticRelPixelAccessExpr& expr) {
         }
     } else {
         // Check if it's a function parameter of Clip type
-        std::string renamed = renameVariable(clip_name);
-        auto type_it = variable_types.find(renamed);
-        if (type_it == variable_types.end() || type_it->second != Type::CLIP) {
+        auto symbol = current_scope->resolve(clip_name);
+        if (!symbol || symbol->type != Type::CLIP) {
             reportError(
                 std::format("Clip '{}' is used for pixel access but "
                             "was not a clip constant or Clip parameter.",
@@ -596,7 +698,7 @@ Type SemanticAnalyzer::analyze(const StaticRelPixelAccessExpr& expr) {
     return Type::VALUE;
 }
 
-Type SemanticAnalyzer::analyze(const FrameDimensionExpr& expr) {
+Type SemanticAnalyzer::analyze(FrameDimensionExpr& expr) {
     if (mode == Mode::Expr) {
         reportError("frame.width[N] and frame.height[N] are only "
                     "available in SingleExpr mode. "
@@ -613,7 +715,7 @@ Type SemanticAnalyzer::analyze(const FrameDimensionExpr& expr) {
     return Type::VALUE;
 }
 
-Type SemanticAnalyzer::analyze(const ArrayAccessExpr& expr) {
+Type SemanticAnalyzer::analyze(ArrayAccessExpr& expr) {
     auto* var_expr = get_if<VariableExpr>(expr.array.get());
     if (!var_expr) {
         reportError("Array access requires a variable as the array.",
@@ -622,15 +724,14 @@ Type SemanticAnalyzer::analyze(const ArrayAccessExpr& expr) {
     }
 
     std::string array_name = var_expr->name.value;
-    std::string renamed_array = renameVariable(array_name);
+    auto symbol = resolveSymbol(array_name, expr.line);
 
-    checkVariableDefined(array_name, expr.line);
-
-    auto type_it = variable_types.find(renamed_array);
-    if (type_it == variable_types.end() || type_it->second != Type::ARRAY) {
+    if (!symbol || symbol->type != Type::ARRAY) {
         reportError(std::format("Variable '{}' is not an array.", array_name),
                     expr.line);
     }
+
+    expr.array_symbol = symbol;
 
     auto index_type = analyzeExpr(expr.index.get());
     if (!isConvertible(index_type, Type::VALUE)) {
@@ -641,11 +742,12 @@ Type SemanticAnalyzer::analyze(const ArrayAccessExpr& expr) {
     return Type::VALUE;
 }
 
+// Statement analysis
 void SemanticAnalyzer::analyze(const ExprStmt& stmt) {
     analyzeExpr(stmt.expr.get());
 }
 
-void SemanticAnalyzer::analyze(const AssignStmt& stmt) {
+void SemanticAnalyzer::analyze(AssignStmt& stmt) {
     if (stmt.name.value == "RESULT") {
         has_result = true;
         if (mode == Mode::Expr) {
@@ -666,11 +768,9 @@ void SemanticAnalyzer::analyze(const AssignStmt& stmt) {
             }
 
             std::string var_name = stmt.name.value;
-            std::string renamed_var = renameVariable(var_name);
-
-            auto type_it = variable_types.find(renamed_var);
-            bool is_already_array = (type_it != variable_types.end() &&
-                                     type_it->second == Type::ARRAY);
+            auto existing_symbol = current_scope->resolve(var_name);
+            bool is_already_array =
+                (existing_symbol && existing_symbol->type == Type::ARRAY);
 
             if (call_expr->callee == "resize") {
                 if (mode == Mode::Expr) {
@@ -708,15 +808,10 @@ void SemanticAnalyzer::analyze(const AssignStmt& stmt) {
                 }
             }
 
-            defineVariableInCurrentScope(renamed_var, Type::ARRAY);
+            auto symbol = defineSymbol(SymbolKind::VARIABLE, var_name,
+                                       Type::ARRAY, stmt.line);
+            stmt.symbol = symbol;
 
-            if (current_function == nullptr) {
-                if (scope_stack.empty()) {
-                    defined_globals.insert(var_name);
-                }
-            } else {
-                local_scope_vars.insert(var_name);
-            }
             return;
         }
     }
@@ -727,14 +822,13 @@ void SemanticAnalyzer::analyze(const AssignStmt& stmt) {
         reportError(std::format("Cannot assign array to variable '{}'.",
                                 stmt.name.value),
                     stmt.line);
-        return; // Don't continue after error
+        return;
     }
 
     std::string var_name = stmt.name.value;
-    std::string renamed_var = renameVariable(var_name);
+    auto existing_symbol = current_scope->resolve(var_name);
 
-    auto type_it = variable_types.find(renamed_var);
-    if (type_it != variable_types.end() && type_it->second == Type::ARRAY) {
+    if (existing_symbol && existing_symbol->type == Type::ARRAY) {
         reportError(
             std::format(
                 "Variable '{}' is an array and cannot be reassigned to a "
@@ -743,18 +837,12 @@ void SemanticAnalyzer::analyze(const AssignStmt& stmt) {
             stmt.line);
     }
 
-    defineVariableInCurrentScope(renamed_var, Type::VALUE);
-
-    if (current_function == nullptr) {
-        if (scope_stack.empty()) {
-            defined_globals.insert(var_name);
-        }
-    } else {
-        local_scope_vars.insert(var_name);
-    }
+    auto symbol =
+        defineSymbol(SymbolKind::VARIABLE, var_name, Type::VALUE, stmt.line);
+    stmt.symbol = symbol;
 }
 
-void SemanticAnalyzer::analyze(const ArrayAssignStmt& stmt) {
+void SemanticAnalyzer::analyze(ArrayAssignStmt& stmt) {
     auto* array_access = get_if<ArrayAccessExpr>(stmt.target.get());
     if (!array_access) {
         reportError("Array assignment target must be an array access.",
@@ -762,38 +850,16 @@ void SemanticAnalyzer::analyze(const ArrayAssignStmt& stmt) {
         return;
     }
 
-    auto* var_expr = get_if<VariableExpr>(array_access->array.get());
-    if (!var_expr) {
-        reportError("Array access requires a variable as the array.",
-                    stmt.line);
-        return;
-    }
-
-    std::string array_name = var_expr->name.value;
-    std::string renamed_array = renameVariable(array_name);
-
-    checkVariableDefined(array_name, stmt.line);
-
-    auto type_it = variable_types.find(renamed_array);
-    if (type_it == variable_types.end() || type_it->second != Type::ARRAY) {
-        reportError(std::format("Variable '{}' is not an array.", array_name),
-                    stmt.line);
-    }
+    analyzeExpr(stmt.target.get());
 
     auto value_type = analyzeExpr(stmt.value.get());
     if (!isConvertible(value_type, Type::VALUE)) {
         reportError("Array assignment value must be convertible to a value.",
                     stmt.value->line());
     }
-
-    auto index_type = analyzeExpr(array_access->index.get());
-    if (!isConvertible(index_type, Type::VALUE)) {
-        reportError("Array index must be convertible to a value.",
-                    array_access->index->line());
-    }
 }
 
-void SemanticAnalyzer::analyze(const BlockStmt& stmt) {
+void SemanticAnalyzer::analyze(BlockStmt& stmt) {
     enterScope();
 
     for (const auto& s : stmt.statements) {
@@ -803,7 +869,7 @@ void SemanticAnalyzer::analyze(const BlockStmt& stmt) {
     exitScope();
 }
 
-void SemanticAnalyzer::analyze(const IfStmt& stmt) {
+void SemanticAnalyzer::analyze(IfStmt& stmt) {
     auto cond_type = analyzeExpr(stmt.condition.get());
     if (!isConvertible(cond_type, Type::VALUE)) {
         reportError(std::format("If condition has type '{}' which is not "
@@ -819,7 +885,7 @@ void SemanticAnalyzer::analyze(const IfStmt& stmt) {
     }
 }
 
-void SemanticAnalyzer::analyze(const WhileStmt& stmt) {
+void SemanticAnalyzer::analyze(WhileStmt& stmt) {
     auto cond_type = analyzeExpr(stmt.condition.get());
     if (!isConvertible(cond_type, Type::VALUE)) {
         reportError(std::format("While condition has type '{}' which is not "
@@ -844,11 +910,13 @@ void SemanticAnalyzer::analyze(const ReturnStmt& stmt) {
     }
 }
 
-void SemanticAnalyzer::analyze([[maybe_unused]] const LabelStmt& stmt) {
-    // Labels are collected in the first pass
+void SemanticAnalyzer::analyze(LabelStmt& stmt) {
+    auto symbol = defineSymbol(SymbolKind::LABEL, stmt.name.value, Type::VALUE,
+                               stmt.line);
+    stmt.symbol = symbol;
 }
 
-void SemanticAnalyzer::analyze(const GotoStmt& stmt) {
+void SemanticAnalyzer::analyze(GotoStmt& stmt) {
     if (current_function != nullptr) {
         // Inside a function
         if (global_labels.count(stmt.label.value)) {
@@ -874,49 +942,27 @@ void SemanticAnalyzer::analyze(const GotoStmt& stmt) {
         }
     }
 
+    auto symbol = current_scope->resolve(stmt.label.value);
+    stmt.target_label_symbol = symbol;
+
     if (stmt.condition) {
         analyzeExpr(stmt.condition.get());
     }
 }
 
-void SemanticAnalyzer::analyze(const FunctionDef& stmt) {
-    // Function definitions are handled in the first pass
-    // Here we validate the function body structure
-
+void SemanticAnalyzer::analyze(FunctionDef& stmt) {
     // Collect labels in function
     auto saved_current_function_labels = current_function_labels;
     current_function_labels.clear();
-    std::function<void(Stmt*)> collect_labels = [&](Stmt* s) {
-        if (!s)
-            return;
-        if (auto* label = get_if<LabelStmt>(s)) {
-            if (current_function_labels.count(label->name.value)) {
-                reportError(std::format("Duplicate label '{}' in function '{}'",
-                                        label->name.value, stmt.name.value),
-                            label->line);
-            }
-            current_function_labels.insert(label->name.value);
-        } else if (auto* block = get_if<BlockStmt>(s)) {
-            for (auto& inner_s : block->statements) {
-                collect_labels(inner_s.get());
-            }
-        } else if (auto* if_s = get_if<IfStmt>(s)) {
-            collect_labels(if_s->then_branch.get());
-            if (if_s->else_branch) {
-                collect_labels(if_s->else_branch.get());
-            }
-        } else if (auto* while_s = get_if<WhileStmt>(s)) {
-            collect_labels(while_s->body.get());
-        }
-    };
     for (const auto& s : stmt.body->statements) {
-        collect_labels(s.get());
+        collectLabels(s.get(), current_function_labels, stmt.name.value,
+                      stmt.line);
     }
 
     // Find the function signature
     const FunctionSignature* sig = nullptr;
-    if (functions.count(stmt.name.value)) {
-        for (const auto& s : functions.at(stmt.name.value)) {
+    if (function_signatures.count(stmt.name.value)) {
+        for (const auto& s : function_signatures.at(stmt.name.value)) {
             if (s.params.size() == stmt.params.size()) {
                 bool match = true;
                 for (size_t i = 0; i < s.params.size(); ++i) {
@@ -979,49 +1025,32 @@ void SemanticAnalyzer::analyze(const FunctionDef& stmt) {
         }
     }
 
+    auto func_symbol = defineSymbol(SymbolKind::FUNCTION, stmt.name.value,
+                                    Type::VALUE, stmt.line);
+    func_symbol->signature = sig;
+    stmt.symbol = func_symbol;
+
     // Analyze function body with proper scope
     auto saved_current_function = current_function;
     current_function = sig;
 
-    auto saved_local_vars = local_scope_vars;
-    auto saved_all_defined = all_defined_vars_in_scope;
-    auto saved_scope_stack = scope_stack;
-    auto saved_defined_globals = defined_globals;
-
-    // Set up function scope
-    local_scope_vars.clear();
-    all_defined_vars_in_scope.clear();
-    scope_stack.clear();
-
-    // Add globals accessible in this function
-    std::set<std::string> effective_globals;
-    if (sig->global_mode == GlobalMode::ALL) {
-        effective_globals = saved_defined_globals;
-    } else if (sig->global_mode == GlobalMode::SPECIFIC) {
-        effective_globals = sig->specific_globals;
-    }
-
-    for (const auto& g : effective_globals) {
-        all_defined_vars_in_scope.insert(g);
-    }
+    // Enter function scope
+    enterScope();
 
     // Add parameters
     for (const auto& param : stmt.params) {
-        std::string param_name = param.name.value;
-        all_defined_vars_in_scope.insert(param_name);
-        local_scope_vars.insert(param_name);
-        variable_types[param_name] = param.type;
+        auto param_symbol = defineSymbol(
+            SymbolKind::PARAMETER, param.name.value, param.type, stmt.line);
     }
 
     // Analyze function body
     analyze(*stmt.body);
 
-    // Restore scope
+    // Exit function scope
+    exitScope();
+
+    // Restore context
     current_function = saved_current_function;
-    local_scope_vars = saved_local_vars;
-    all_defined_vars_in_scope = saved_all_defined;
-    scope_stack = saved_scope_stack;
-    defined_globals = saved_defined_globals;
     current_function_labels = saved_current_function_labels;
 }
 
@@ -1029,82 +1058,31 @@ void SemanticAnalyzer::analyze([[maybe_unused]] const GlobalDecl& stmt) {
     // Global declarations are handled by the parser
 }
 
-void SemanticAnalyzer::checkVariableDefined(const std::string& var_name,
-                                            int line) {
-    if (var_name == "frame") {
+void SemanticAnalyzer::collectLabels(Stmt* stmt, std::set<std::string>& labels,
+                                     const std::string& context,
+                                     int context_line) {
+    if (!stmt)
         return;
-    }
-
-    std::string actual_name = renameVariable(var_name);
-
-    if (all_defined_vars_in_scope.count(actual_name) ||
-        all_defined_vars_in_scope.count(var_name)) {
-        return;
-    }
-
-    if (local_scope_vars.count(var_name) ||
-        local_scope_vars.count(actual_name)) {
-        return;
-    }
-
-    if (defined_globals.count(var_name)) {
-        if (current_function != nullptr) {
-            if (current_function->global_mode == GlobalMode::ALL) {
-                return;
-            } else if (current_function->global_mode == GlobalMode::SPECIFIC) {
-                if (current_function->specific_globals.count(var_name)) {
-                    return;
-                }
-            }
-            reportError(
-                std::format(
-                    "Variable '{}' is a global variable but is not accessible "
-                    "in function '{}'. Use <global<{}>> or <global.all> before "
-                    "the function definition to grant access.",
-                    var_name, current_function->name, var_name),
-                line);
-            return;
+    if (auto* label = get_if<LabelStmt>(stmt)) {
+        if (labels.count(label->name.value)) {
+            reportError(std::format("Duplicate label '{}' in function '{}'",
+                                    label->name.value, context),
+                        label->line);
         }
-        return;
-    }
-
-    reportError(
-        std::format("Variable '{}' is used before being defined", var_name),
-        line);
-}
-
-void SemanticAnalyzer::enterScope() {
-    scope_stack.push_back(std::set<std::string>());
-}
-
-void SemanticAnalyzer::exitScope() {
-    if (!scope_stack.empty()) {
-        const auto& scope_vars = scope_stack.back();
-        for (const auto& var : scope_vars) {
-            all_defined_vars_in_scope.erase(var);
-            variable_types.erase(var);
+        labels.insert(label->name.value);
+    } else if (auto* block = get_if<BlockStmt>(stmt)) {
+        for (auto& inner_s : block->statements) {
+            collectLabels(inner_s.get(), labels, context, context_line);
         }
-        scope_stack.pop_back();
-    }
-}
-
-void SemanticAnalyzer::defineVariableInCurrentScope(const std::string& var_name,
-                                                    Type type) {
-    if (all_defined_vars_in_scope.find(var_name) ==
-        all_defined_vars_in_scope.end()) {
-        if (!scope_stack.empty()) {
-            scope_stack.back().insert(var_name);
+    } else if (auto* if_s = get_if<IfStmt>(stmt)) {
+        collectLabels(if_s->then_branch.get(), labels, context, context_line);
+        if (if_s->else_branch) {
+            collectLabels(if_s->else_branch.get(), labels, context,
+                          context_line);
         }
+    } else if (auto* while_s = get_if<WhileStmt>(stmt)) {
+        collectLabels(while_s->body.get(), labels, context, context_line);
     }
-    all_defined_vars_in_scope.insert(var_name);
-    variable_types[var_name] = type;
-}
-
-std::string SemanticAnalyzer::renameVariable(const std::string& var_name) {
-    if (var_rename_map.count(var_name)) {
-        return var_rename_map[var_name];
-    }
-    return var_name;
 }
 
 bool SemanticAnalyzer::isClipName(const std::string& s) {
@@ -1124,6 +1102,164 @@ bool SemanticAnalyzer::builtinParamTypeIsEvaluatable(
         }
     }
     return true;
+}
+
+void SemanticAnalyzer::validateGlobalDependencies(Stmt* stmt) {
+    if (!stmt)
+        return;
+
+    std::function<void(Expr*)> check_expr = [&](Expr* expr) {
+        if (!expr)
+            return;
+        if (auto* call = get_if<CallExpr>(expr)) {
+            validateFunctionCall(*call);
+        } else if (auto* binary = get_if<BinaryExpr>(expr)) {
+            check_expr(binary->left.get());
+            check_expr(binary->right.get());
+        } else if (auto* unary = get_if<UnaryExpr>(expr)) {
+            check_expr(unary->right.get());
+        } else if (auto* ternary = get_if<TernaryExpr>(expr)) {
+            check_expr(ternary->cond.get());
+            check_expr(ternary->true_expr.get());
+            check_expr(ternary->false_expr.get());
+        }
+    };
+
+    if (auto* expr_stmt = get_if<ExprStmt>(stmt)) {
+        check_expr(expr_stmt->expr.get());
+    } else if (auto* assign_stmt = get_if<AssignStmt>(stmt)) {
+        check_expr(assign_stmt->value.get());
+    } else if (auto* if_stmt = get_if<IfStmt>(stmt)) {
+        check_expr(if_stmt->condition.get());
+        validateGlobalDependencies(if_stmt->then_branch.get());
+        if (if_stmt->else_branch) {
+            validateGlobalDependencies(if_stmt->else_branch.get());
+        }
+    } else if (auto* while_stmt = get_if<WhileStmt>(stmt)) {
+        check_expr(while_stmt->condition.get());
+        validateGlobalDependencies(while_stmt->body.get());
+    } else if (auto* block = get_if<BlockStmt>(stmt)) {
+        for (const auto& s : block->statements) {
+            validateGlobalDependencies(s.get());
+        }
+    }
+}
+
+void SemanticAnalyzer::validateFunctionCall(const CallExpr& expr) {
+    if (!function_signatures.count(expr.callee)) {
+        return;
+    }
+
+    const FunctionSignature* sig = expr.resolved_signature;
+    if (!sig) {
+        for (const auto& s : function_signatures.at(expr.callee)) {
+            if (s.params.size() == expr.args.size()) {
+                sig = &s;
+                break;
+            }
+        }
+    }
+
+    if (!sig) {
+        return;
+    }
+
+    if (sig->global_mode == GlobalMode::ALL) {
+        for (const auto& global_name : sig->used_globals) {
+            if (global_name.starts_with("$")) {
+                reportError(
+                    std::format("Invalid global variable name {}", global_name),
+                    expr.line);
+            }
+
+            if (!defined_global_vars.count(global_name)) {
+                reportError(
+                    std::format(
+                        "Function '{}' uses global variable '{}' which is "
+                        "not defined in global scope before this call",
+                        expr.callee, global_name),
+                    expr.line);
+            }
+        }
+    } else if (sig->global_mode == GlobalMode::SPECIFIC) {
+        for (const auto& global_name : sig->specific_globals) {
+            if (!defined_global_vars.count(global_name)) {
+                reportError(
+                    std::format(
+                        "Function '{}' requires global variable '{}' which is "
+                        "not defined in global scope before this call",
+                        expr.callee, global_name),
+                    expr.line);
+            }
+        }
+    }
+}
+
+void SemanticAnalyzer::collectUsedGlobals(Expr* expr,
+                                          std::set<std::string>& used_globals) {
+    if (!expr)
+        return;
+
+    if (auto* var_expr = get_if<VariableExpr>(expr)) {
+        std::string name = var_expr->name.value;
+        if (!name.starts_with("$") && name != "frame") {
+            used_globals.insert(name);
+        }
+    } else if (auto* binary = get_if<BinaryExpr>(expr)) {
+        collectUsedGlobals(binary->left.get(), used_globals);
+        collectUsedGlobals(binary->right.get(), used_globals);
+    } else if (auto* unary = get_if<UnaryExpr>(expr)) {
+        collectUsedGlobals(unary->right.get(), used_globals);
+    } else if (auto* ternary = get_if<TernaryExpr>(expr)) {
+        collectUsedGlobals(ternary->cond.get(), used_globals);
+        collectUsedGlobals(ternary->true_expr.get(), used_globals);
+        collectUsedGlobals(ternary->false_expr.get(), used_globals);
+    } else if (auto* call = get_if<CallExpr>(expr)) {
+        for (const auto& arg : call->args) {
+            collectUsedGlobals(arg.get(), used_globals);
+        }
+    } else if (auto* array_access = get_if<ArrayAccessExpr>(expr)) {
+        collectUsedGlobals(array_access->array.get(), used_globals);
+        collectUsedGlobals(array_access->index.get(), used_globals);
+    } else if (auto* frame_dim = get_if<FrameDimensionExpr>(expr)) {
+        collectUsedGlobals(frame_dim->plane_index_expr.get(), used_globals);
+    }
+}
+
+void SemanticAnalyzer::collectUsedGlobalsInStmt(
+    Stmt* stmt, std::set<std::string>& used_globals) {
+    if (!stmt)
+        return;
+
+    if (auto* expr_stmt = get_if<ExprStmt>(stmt)) {
+        collectUsedGlobals(expr_stmt->expr.get(), used_globals);
+    } else if (auto* assign_stmt = get_if<AssignStmt>(stmt)) {
+        collectUsedGlobals(assign_stmt->value.get(), used_globals);
+    } else if (auto* array_assign = get_if<ArrayAssignStmt>(stmt)) {
+        collectUsedGlobals(array_assign->target.get(), used_globals);
+        collectUsedGlobals(array_assign->value.get(), used_globals);
+    } else if (auto* if_stmt = get_if<IfStmt>(stmt)) {
+        collectUsedGlobals(if_stmt->condition.get(), used_globals);
+        collectUsedGlobalsInStmt(if_stmt->then_branch.get(), used_globals);
+        if (if_stmt->else_branch) {
+            collectUsedGlobalsInStmt(if_stmt->else_branch.get(), used_globals);
+        }
+    } else if (auto* while_stmt = get_if<WhileStmt>(stmt)) {
+        collectUsedGlobals(while_stmt->condition.get(), used_globals);
+        collectUsedGlobalsInStmt(while_stmt->body.get(), used_globals);
+    } else if (auto* return_stmt = get_if<ReturnStmt>(stmt)) {
+        if (return_stmt->value) {
+            collectUsedGlobals(return_stmt->value.get(), used_globals);
+        }
+    } else if (auto* goto_stmt = get_if<GotoStmt>(stmt)) {
+        if (goto_stmt->condition) {
+            collectUsedGlobals(goto_stmt->condition.get(), used_globals);
+        }
+    } else if (auto* block = get_if<BlockStmt>(stmt)) {
+        for (const auto& s : block->statements) {
+            collectUsedGlobalsInStmt(s.get(), used_globals);
+        }
+    }
 }
 
 } // namespace infix2postfix

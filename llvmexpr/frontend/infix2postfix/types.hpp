@@ -186,6 +186,9 @@ struct FunctionSignature {
     int line;
     GlobalMode global_mode = GlobalMode::NONE;
     std::set<std::string> specific_globals;
+
+    // For <global.all>, track which global variables are actually used in the function body
+    std::set<std::string> used_globals;
 };
 
 } // namespace infix2postfix

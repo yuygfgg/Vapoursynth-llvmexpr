@@ -3,8 +3,10 @@
 
 #include "AST.hpp"
 #include "AnalysisEngine.hpp"
+#include "SymbolTable.hpp"
 #include "types.hpp"
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -23,72 +25,97 @@ class SemanticAnalyzer {
 
     bool hasErrors() const;
 
+    const std::map<std::string, std::vector<FunctionSignature>>&
+    getFunctionSignatures() const {
+        return function_signatures;
+    }
+
+    const std::map<std::string, std::vector<FunctionDef*>>&
+    getFunctionDefs() const {
+        return function_defs;
+    }
+
   private:
     // Expression analysis
     Type analyzeExpr(Expr* expr);
+    Type analyze(VariableExpr& expr);
     Type analyze(const NumberExpr& expr);
-    Type analyze(const VariableExpr& expr);
-    Type analyze(const UnaryExpr& expr);
-    Type analyze(const BinaryExpr& expr);
-    Type analyze(const TernaryExpr& expr);
-    Type analyze(const CallExpr& expr);
+    Type analyze(UnaryExpr& expr);
+    Type analyze(BinaryExpr& expr);
+    Type analyze(TernaryExpr& expr);
+    Type analyze(CallExpr& expr);
     Type analyze(const PropAccessExpr& expr);
     Type analyze(const StaticRelPixelAccessExpr& expr);
-    Type analyze(const FrameDimensionExpr& expr);
-    Type analyze(const ArrayAccessExpr& expr);
+    Type analyze(FrameDimensionExpr& expr);
+    Type analyze(ArrayAccessExpr& expr);
 
     // Statement analysis
     void analyzeStmt(Stmt* stmt);
     void analyze(const ExprStmt& stmt);
-    void analyze(const AssignStmt& stmt);
-    void analyze(const BlockStmt& stmt);
-    void analyze(const IfStmt& stmt);
-    void analyze(const WhileStmt& stmt);
+    void analyze(AssignStmt& stmt);
+    void analyze(BlockStmt& stmt);
+    void analyze(IfStmt& stmt);
+    void analyze(WhileStmt& stmt);
     void analyze(const ReturnStmt& stmt);
-    void analyze(const LabelStmt& stmt);
-    void analyze(const GotoStmt& stmt);
-    void analyze(const FunctionDef& stmt);
+    void analyze(LabelStmt& stmt);
+    void analyze(GotoStmt& stmt);
+    void analyze(FunctionDef& stmt);
     void analyze(const GlobalDecl& stmt);
-    void analyze(const ArrayAssignStmt& stmt);
+    void analyze(ArrayAssignStmt& stmt);
+
+    void enterScope();
+    void exitScope();
+    std::shared_ptr<Symbol>
+    defineSymbol(SymbolKind kind, const std::string& name, Type type, int line);
+    std::shared_ptr<Symbol> resolveSymbol(const std::string& name, int line);
 
     void reportError(const std::string& message, int line);
     void reportWarning(const std::string& message, int line);
-
-    void checkVariableDefined(const std::string& var_name, int line);
-    void enterScope();
-    void exitScope();
-    void defineVariableInCurrentScope(const std::string& var_name,
-                                      Type type = Type::VALUE);
-    std::string renameVariable(const std::string& var_name);
-
     bool isClipName(const std::string& s);
     bool isConvertible(Type from, Type to);
     bool builtinParamTypeIsEvaluatable(
         const std::vector<struct BuiltinFunction>& overloads, size_t param_idx);
+
+    const FunctionSignature*
+    resolveOverload(const std::string& name,
+                    const std::vector<std::unique_ptr<Expr>>& args,
+                    const std::string& boundary_suffix, int line);
+
+    void collectLabels(Stmt* stmt, std::set<std::string>& labels,
+                       const std::string& context, int context_line);
+
+    std::string generateMangledName(const std::string& name);
+
+    void validateGlobalDependencies(Stmt* stmt);
+    void validateFunctionCall(const CallExpr& expr);
+
+    void collectUsedGlobals(Expr* expr, std::set<std::string>& used_globals);
+    void collectUsedGlobalsInStmt(Stmt* stmt,
+                                  std::set<std::string>& used_globals);
 
     Mode mode;
     [[maybe_unused]] int num_inputs;
     bool has_result = false;
     bool result_defined_in_global_scope = false;
 
-    std::map<std::string, std::vector<FunctionSignature>> functions;
+    std::unique_ptr<SymbolTable> global_scope;
+    SymbolTable* current_scope;
+
+    std::vector<std::unique_ptr<SymbolTable>> scope_stack;
+
+    std::set<std::string> defined_global_vars;
+
+    std::map<std::string, std::vector<FunctionSignature>> function_signatures;
     std::map<std::string, std::vector<FunctionDef*>> function_defs;
-
-    std::set<std::string> defined_globals;
-    std::set<std::string> local_scope_vars;
-    std::vector<std::set<std::string>> scope_stack;
-    std::set<std::string> all_defined_vars_in_scope;
-
-    std::map<std::string, Type> variable_types;
-
-    std::map<std::string, std::string> var_rename_map;
-    std::map<std::string, Expr*> param_substitutions;
-    const FunctionSignature* current_function = nullptr;
 
     std::set<std::string> global_labels;
     std::set<std::string> current_function_labels;
 
     std::vector<Diagnostic> diagnostics;
+
+    int mangle_counter = 0;
+
+    const FunctionSignature* current_function = nullptr;
 };
 
 } // namespace infix2postfix
