@@ -15,6 +15,7 @@ struct Expr;
 struct Stmt;
 struct BlockStmt;
 struct GlobalDecl;
+struct FunctionDef;
 
 // Expression node types
 struct NumberExpr {
@@ -67,6 +68,7 @@ struct CallExpr {
     std::string boundary_suffix;
     int line = 0;
     const FunctionSignature* resolved_signature = nullptr;
+    FunctionDef* resolved_def = nullptr;
 
     CallExpr(Token callee_token, std::vector<std::unique_ptr<Expr>> a,
              std::string suffix = "");

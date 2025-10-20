@@ -17,6 +17,19 @@ class SemanticAnalyzer {
   public:
     SemanticAnalyzer(Mode mode, int num_inputs);
 
+    class ScopeGuard {
+      public:
+        explicit ScopeGuard(SemanticAnalyzer* analyzer) : analyzer(analyzer) {
+            analyzer->enterScope();
+        }
+        ~ScopeGuard() { analyzer->exitScope(); }
+        ScopeGuard(const ScopeGuard&) = delete;
+        ScopeGuard& operator=(const ScopeGuard&) = delete;
+
+      private:
+        SemanticAnalyzer* analyzer;
+    };
+
     bool analyze(Program* program);
 
     const std::vector<Diagnostic>& getDiagnostics() const {
@@ -79,12 +92,11 @@ class SemanticAnalyzer {
     const FunctionSignature*
     resolveOverload(const std::string& name,
                     const std::vector<std::unique_ptr<Expr>>& args,
-                    const std::string& boundary_suffix, int line);
+                    const std::string& boundary_suffix, int line,
+                    CallExpr* call_expr = nullptr);
 
     void collectLabels(Stmt* stmt, std::set<std::string>& labels,
                        const std::string& context, int context_line);
-
-    std::string generateMangledName(const std::string& name);
 
     void validateGlobalDependencies(Stmt* stmt);
     void validateFunctionCall(const CallExpr& expr);
@@ -112,8 +124,6 @@ class SemanticAnalyzer {
     std::set<std::string> current_function_labels;
 
     std::vector<Diagnostic> diagnostics;
-
-    int mangle_counter = 0;
 
     const FunctionSignature* current_function = nullptr;
 };

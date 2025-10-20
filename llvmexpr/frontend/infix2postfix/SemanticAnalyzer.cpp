@@ -216,10 +216,6 @@ std::shared_ptr<Symbol> SemanticAnalyzer::resolveSymbol(const std::string& name,
     return symbol;
 }
 
-std::string SemanticAnalyzer::generateMangledName(const std::string& name) {
-    return std::format("{}_{}", name, mangle_counter++);
-}
-
 // Expression analysis
 Type SemanticAnalyzer::analyzeExpr(Expr* expr) {
     if (!expr)
@@ -362,7 +358,7 @@ Type SemanticAnalyzer::analyze(TernaryExpr& expr) {
 
 Type SemanticAnalyzer::analyze(CallExpr& expr) {
     auto signature = resolveOverload(expr.callee, expr.args,
-                                     expr.boundary_suffix, expr.line);
+                                     expr.boundary_suffix, expr.line, &expr);
     expr.resolved_signature = signature;
 
     return Type::VALUE;
@@ -370,7 +366,8 @@ Type SemanticAnalyzer::analyze(CallExpr& expr) {
 
 const FunctionSignature* SemanticAnalyzer::resolveOverload(
     const std::string& name, const std::vector<std::unique_ptr<Expr>>& args,
-    [[maybe_unused]] const std::string& boundary_suffix, int line) {
+    [[maybe_unused]] const std::string& boundary_suffix, int line,
+    CallExpr* call_expr) {
     // User-defined functions
     if (function_signatures.count(name)) {
         const auto& overloads = function_signatures.at(name);
@@ -469,6 +466,27 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
             reportError(
                 std::format("Ambiguous call to overloaded function '{}'", name),
                 line);
+        }
+
+        // Find and set the resolved FunctionDef
+        if (call_expr && function_defs.count(name)) {
+            const auto& defs = function_defs.at(name);
+            for (auto* def : defs) {
+                if (def->params.size() == best_candidate->sig->params.size()) {
+                    bool match = true;
+                    for (size_t i = 0; i < def->params.size(); ++i) {
+                        if (def->params[i].type !=
+                            best_candidate->sig->params[i].type) {
+                            match = false;
+                            break;
+                        }
+                    }
+                    if (match) {
+                        call_expr->resolved_def = def;
+                        break;
+                    }
+                }
+            }
         }
 
         return best_candidate->sig;
@@ -856,13 +874,11 @@ void SemanticAnalyzer::analyze(ArrayAssignStmt& stmt) {
 }
 
 void SemanticAnalyzer::analyze(BlockStmt& stmt) {
-    enterScope();
+    ScopeGuard scope_guard(this);
 
     for (const auto& s : stmt.statements) {
         analyzeStmt(s.get());
     }
-
-    exitScope();
 }
 
 void SemanticAnalyzer::analyze(IfStmt& stmt) {
@@ -1030,20 +1046,19 @@ void SemanticAnalyzer::analyze(FunctionDef& stmt) {
     auto saved_current_function = current_function;
     current_function = sig;
 
-    // Enter function scope
-    enterScope();
+    {
+        // Enter function scope with RAII guard
+        ScopeGuard scope_guard(this);
 
-    // Add parameters
-    for (const auto& param : stmt.params) {
-        auto param_symbol = defineSymbol(
-            SymbolKind::PARAMETER, param.name.value, param.type, stmt.line);
-    }
+        // Add parameters
+        for (const auto& param : stmt.params) {
+            auto param_symbol = defineSymbol(
+                SymbolKind::PARAMETER, param.name.value, param.type, stmt.line);
+        }
 
-    // Analyze function body
-    analyze(*stmt.body);
-
-    // Exit function scope
-    exitScope();
+        // Analyze function body
+        analyze(*stmt.body);
+    } // Scope automatically exits here
 
     // Restore context
     current_function = saved_current_function;

@@ -29,9 +29,7 @@ class CodeGenerator {
         Type type;
     };
 
-    CodeGenerator(Mode mode, int num_inputs,
-                  const std::map<std::string, std::vector<FunctionSignature>>& function_signatures,
-                  const std::map<std::string, std::vector<FunctionDef*>>& function_defs);
+    CodeGenerator(Mode mode, int num_inputs);
 
     std::string generate(Program* program);
 
@@ -82,9 +80,6 @@ class CodeGenerator {
     Mode mode;
     int num_inputs;
     int label_counter = 0;
-
-    std::map<std::string, std::vector<FunctionSignature>> functions;
-    std::map<std::string, std::vector<FunctionDef*>> function_defs;
 
     // Context for function inlining
     std::map<std::string, Expr*> param_substitutions;

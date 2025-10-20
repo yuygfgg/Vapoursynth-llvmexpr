@@ -35,13 +35,8 @@ bool is_convertible_internal(Type from, Type to) {
 }
 } // namespace
 
-CodeGenerator::CodeGenerator(
-    Mode mode, int num_inputs,
-    const std::map<std::string, std::vector<FunctionSignature>>&
-        function_signatures,
-    const std::map<std::string, std::vector<FunctionDef*>>& function_defs)
-    : mode(mode), num_inputs(num_inputs), functions(function_signatures),
-      function_defs(function_defs) {}
+CodeGenerator::CodeGenerator(Mode mode, int num_inputs)
+    : mode(mode), num_inputs(num_inputs) {}
 
 std::string CodeGenerator::generate(Program* program) {
     PostfixBuilder builder;
@@ -153,34 +148,13 @@ CodeGenerator::ExprResult CodeGenerator::handle(const TernaryExpr& expr) {
 
 CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
     // User-defined functions are inlined
-    if (expr.resolved_signature != nullptr) {
+    if (expr.resolved_signature != nullptr && expr.resolved_def != nullptr) {
         const auto& sig = *expr.resolved_signature;
-        FunctionDef* func_def = nullptr;
+        FunctionDef* func_def = expr.resolved_def;
 
-        if (function_defs.count(expr.callee)) {
-            const auto& defs = function_defs.at(expr.callee);
-            for (auto* def : defs) {
-                if (def->params.size() == expr.args.size()) {
-                    bool match = true;
-                    for (size_t i = 0; i < def->params.size(); ++i) {
-                        if (def->params[i].type != sig.params[i].type) {
-                            match = false;
-                            break;
-                        }
-                    }
-                    if (match) {
-                        func_def = def;
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (func_def) {
-            PostfixBuilder b =
-                inline_function_call(sig, func_def, expr.args, expr.line);
-            return {b, Type::VALUE};
-        }
+        PostfixBuilder b =
+            inline_function_call(sig, func_def, expr.args, expr.line);
+        return {b, Type::VALUE};
     }
 
     // Built-in functions
@@ -500,8 +474,7 @@ PostfixBuilder CodeGenerator::handle(const ReturnStmt& stmt) {
 
 PostfixBuilder CodeGenerator::handle(const LabelStmt& stmt) {
     PostfixBuilder b;
-    std::string label_name =
-        stmt.symbol ? stmt.symbol->name : stmt.name.value;
+    std::string label_name = stmt.symbol ? stmt.symbol->name : stmt.name.value;
     b.add_label(label_name);
     return b;
 }
