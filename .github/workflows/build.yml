@@ -1,9 +1,9 @@
 name: Build and Release
 
-on: 
+on:
   push:
-    branches: [ main ]
-    tags: [ 'R*' ]
+    branches: [main]
+    tags: ["R*"]
   pull_request:
   workflow_dispatch:
 
@@ -21,7 +21,7 @@ jobs:
         include:
           - name: Windows x64
             os: windows-latest
-            libc: ''
+            libc: ""
             artifact_name: llvmexpr-windows-x64-static-llvm21
             library_name: libllvmexpr.dll
 
@@ -52,7 +52,7 @@ jobs:
 
       - name: Force static zstd linkage (Windows)
         shell: msys2 {0}
-        run: | 
+        run: |
           pacman -S --noconfirm libzstd-devel
           ls -la /mingw64/lib/libzstd.a || echo "Warning: libzstd.a not found"
           pkg-config --libs --static libzstd || echo "Warning: pkg-config libzstd failed"
@@ -81,7 +81,7 @@ jobs:
       - name: Configure (Meson) (Windows)
         shell: msys2 {0}
         run: |
-          meson setup builddir \
+          CC=clang CXX=clang++ meson setup builddir \
             -Dstatic-llvm=true \
             --buildtype=release
 
@@ -150,12 +150,12 @@ jobs:
 
           - name: macOS arm64
             os: macos-latest
-            libc: ''
+            libc: ""
             artifact_name: llvmexpr-macos-arm64-static-llvm21
             library_name: libllvmexpr.dylib
           - name: Windows x64
             os: windows-latest
-            libc: ''
+            libc: ""
             artifact_name: llvmexpr-windows-x64-static-llvm21
             library_name: libllvmexpr.dll
 
@@ -179,7 +179,6 @@ jobs:
             zstd \
             liblzma-dev
           pip install meson ninja
-
 
       # macOS specific setup
       - name: Setup dependencies (macOS)
@@ -212,7 +211,7 @@ jobs:
       - name: Force static zstd linkage (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
-        run: | 
+        run: |
           pacman -S --noconfirm libzstd-devel
           ls -la /mingw64/lib/libzstd.a || echo "Warning: libzstd.a not found"
           pkg-config --libs --static libzstd || echo "Warning: pkg-config libzstd failed"
@@ -225,7 +224,7 @@ jobs:
         run: |
           git clone https://github.com/vapoursynth/vapoursynth --depth=1
           cp vapoursynth/include/*.h llvmexpr
-          
+
           find llvmexpr -type f \( -name "*.cpp" -o -name "*.hpp" \) | while read -r file; do
             dir=$(dirname "$file")
             
@@ -243,7 +242,7 @@ jobs:
             
             sed -i "s|#include [<\"].*VapourSynth4\.h[>\"]|#include \"${prefix}VapourSynth4.h\"|g" "$file"
           done
-          
+
       - name: Create fake VapourSynth pkg-config file (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -253,7 +252,7 @@ jobs:
           exec_prefix=${prefix}
           libdir=${exec_prefix}/lib
           includedir=${prefix}/include
-          
+
           Name: VapourSynth
           Description: A video processing framework
           Version: 72.0
@@ -287,7 +286,6 @@ jobs:
             fi
           done
           echo "PKG_CONFIG_PATH=${PKG_CONFIG_PATHS}$PKG_CONFIG_PATH" >> $GITHUB_ENV
-
 
       - name: Show tool versions (Windows)
         if: runner.os == 'Windows'
@@ -335,7 +333,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          meson setup builddir \
+          CC=clang CXX=clang++ meson setup builddir \
             -Dstatic-llvm=true \
             -Denable-sanitizers=true \
             --buildtype=debug
@@ -343,7 +341,7 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          meson setup builddir \
+          CC=clang CXX=clang++ meson setup builddir \
             -Dstatic-llvm=true \
             -Denable-sanitizers=true \
             --buildtype=debug

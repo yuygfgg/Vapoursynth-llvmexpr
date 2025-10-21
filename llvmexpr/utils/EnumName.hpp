@@ -51,7 +51,6 @@
 
 template <auto value> constexpr std::string_view enum_name() {
     constexpr std::string_view name = __PRETTY_FUNCTION__;
-    static_assert(false, __PRETTY_FUNCTION__);
     constexpr auto start = name.find('=') + 2;
     constexpr auto end = name.size() - 1;
     constexpr auto full = std::string_view{name.data() + start, end - start};
