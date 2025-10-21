@@ -20,25 +20,25 @@ struct FunctionDef;
 // Expression node types
 struct NumberExpr {
     Token value;
-    int line = 0;
+    Range range;
 
     explicit NumberExpr(Token val) : value(std::move(val)) {
-        line = value.line;
+        range = value.range;
     }
 };
 
 struct VariableExpr {
     Token name;
-    int line = 0;
+    Range range;
     std::shared_ptr<Symbol> symbol;
 
-    explicit VariableExpr(Token n) : name(std::move(n)) { line = name.line; }
+    explicit VariableExpr(Token n) : name(std::move(n)) { range = name.range; }
 };
 
 struct UnaryExpr {
     Token op;
     std::unique_ptr<Expr> right;
-    int line = 0;
+    Range range;
 
     UnaryExpr(Token o, std::unique_ptr<Expr> r);
 };
@@ -47,7 +47,7 @@ struct BinaryExpr {
     std::unique_ptr<Expr> left;
     Token op;
     std::unique_ptr<Expr> right;
-    int line = 0;
+    Range range;
 
     BinaryExpr(std::unique_ptr<Expr> l, Token o, std::unique_ptr<Expr> r);
 };
@@ -56,7 +56,7 @@ struct TernaryExpr {
     std::unique_ptr<Expr> cond;
     std::unique_ptr<Expr> true_expr;
     std::unique_ptr<Expr> false_expr;
-    int line = 0;
+    Range range;
 
     TernaryExpr(std::unique_ptr<Expr> c, std::unique_ptr<Expr> t,
                 std::unique_ptr<Expr> f);
@@ -65,7 +65,7 @@ struct TernaryExpr {
 struct CallExpr {
     std::string callee;
     std::vector<std::unique_ptr<Expr>> args;
-    int line = 0;
+    Range range;
     const FunctionSignature* resolved_signature = nullptr;
     FunctionDef* resolved_def = nullptr;
 
@@ -75,10 +75,10 @@ struct CallExpr {
 struct PropAccessExpr {
     Token clip;
     Token prop;
-    int line = 0;
+    Range range;
 
     PropAccessExpr(Token c, Token p) : clip(std::move(c)), prop(std::move(p)) {
-        line = clip.line;
+        range = clip.range;
     }
 };
 
@@ -87,19 +87,19 @@ struct StaticRelPixelAccessExpr {
     Token offsetX;
     Token offsetY;
     std::string boundary_suffix;
-    int line = 0;
+    Range range;
 
     StaticRelPixelAccessExpr(Token c, Token x, Token y, std::string suffix)
         : clip(std::move(c)), offsetX(std::move(x)), offsetY(std::move(y)),
           boundary_suffix(std::move(suffix)) {
-        line = clip.line;
+        range = clip.range;
     }
 };
 
 struct FrameDimensionExpr {
     std::string dimension_name; // "width" or "height"
     std::unique_ptr<Expr> plane_index_expr;
-    int line = 0;
+    Range range;
 
     FrameDimensionExpr(Token keyword, std::unique_ptr<Expr> plane);
 };
@@ -107,7 +107,7 @@ struct FrameDimensionExpr {
 struct ArrayAccessExpr {
     std::unique_ptr<Expr> array;
     std::unique_ptr<Expr> index;
-    int line = 0;
+    Range range;
     std::shared_ptr<Symbol> array_symbol;
 
     ArrayAccessExpr(std::unique_ptr<Expr> arr, std::unique_ptr<Expr> idx);
@@ -116,7 +116,7 @@ struct ArrayAccessExpr {
 // Statement node types
 struct ExprStmt {
     std::unique_ptr<Expr> expr;
-    int line = 0;
+    Range range;
 
     explicit ExprStmt(std::unique_ptr<Expr> e);
 };
@@ -124,7 +124,7 @@ struct ExprStmt {
 struct AssignStmt {
     Token name;
     std::unique_ptr<Expr> value;
-    int line = 0;
+    Range range;
     std::shared_ptr<Symbol> symbol;
 
     AssignStmt(Token n, std::unique_ptr<Expr> v);
@@ -133,14 +133,14 @@ struct AssignStmt {
 struct ArrayAssignStmt {
     std::unique_ptr<Expr> target; // Should be an ArrayAccessExpr
     std::unique_ptr<Expr> value;
-    int line = 0;
+    Range range;
 
     ArrayAssignStmt(std::unique_ptr<Expr> t, std::unique_ptr<Expr> v);
 };
 
 struct BlockStmt {
     std::vector<std::unique_ptr<Stmt>> statements;
-    int line = 0;
+    Range range;
 
     explicit BlockStmt(std::vector<std::unique_ptr<Stmt>> s);
 };
@@ -149,7 +149,7 @@ struct IfStmt {
     std::unique_ptr<Expr> condition;
     std::unique_ptr<Stmt> then_branch;
     std::unique_ptr<Stmt> else_branch;
-    int line = 0;
+    Range range;
 
     IfStmt(std::unique_ptr<Expr> c, std::unique_ptr<Stmt> t,
            std::unique_ptr<Stmt> e);
@@ -158,7 +158,7 @@ struct IfStmt {
 struct WhileStmt {
     std::unique_ptr<Expr> condition;
     std::unique_ptr<Stmt> body;
-    int line = 0;
+    Range range;
 
     WhileStmt(std::unique_ptr<Expr> c, std::unique_ptr<Stmt> b);
 };
@@ -166,24 +166,24 @@ struct WhileStmt {
 struct ReturnStmt {
     Token keyword;
     std::unique_ptr<Expr> value;
-    int line = 0;
+    Range range;
 
     ReturnStmt(Token kw, std::unique_ptr<Expr> v);
 };
 
 struct LabelStmt {
     Token name;
-    int line = 0;
+    Range range;
     std::shared_ptr<Symbol> symbol;
 
-    explicit LabelStmt(Token n) : name(std::move(n)) { line = name.line; }
+    explicit LabelStmt(Token n) : name(std::move(n)) { range = name.range; }
 };
 
 struct GotoStmt {
     Token keyword;
     Token label;
     std::unique_ptr<Expr> condition;
-    int line = 0;
+    Range range;
     std::shared_ptr<Symbol> target_label_symbol;
 
     GotoStmt(Token kw, Token l, std::unique_ptr<Expr> c);
@@ -193,11 +193,11 @@ struct GlobalDecl {
     Token keyword;
     GlobalMode mode;
     std::vector<Token> globals;
-    int line = 0;
+    Range range;
 
     GlobalDecl(Token t, GlobalMode m, std::vector<Token> g = {})
         : keyword(std::move(t)), mode(m), globals(std::move(g)) {
-        line = keyword.line;
+        range = keyword.range;
     }
 };
 
@@ -212,7 +212,7 @@ struct FunctionDef {
     std::vector<Parameter> params;
     std::unique_ptr<BlockStmt> body;
     std::unique_ptr<GlobalDecl> global_decl;
-    int line = 0;
+    Range range;
     std::shared_ptr<Symbol> symbol;
 
     FunctionDef(Token n, std::vector<Parameter> p, std::unique_ptr<BlockStmt> b,
@@ -234,8 +234,8 @@ struct Expr {
     Expr(Expr&&) = default;
     Expr& operator=(Expr&&) = default;
 
-    int line() const {
-        return std::visit([](const auto& e) { return e.line; }, value);
+    Range range() const {
+        return std::visit([](const auto& e) { return e.range; }, value);
     }
 };
 
@@ -253,8 +253,8 @@ struct Stmt {
     Stmt(Stmt&&) = default;
     Stmt& operator=(Stmt&&) = default;
 
-    int line() const {
-        return std::visit([](const auto& s) { return s.line; }, value);
+    Range range() const {
+        return std::visit([](const auto& s) { return s.range; }, value);
     }
 };
 
@@ -262,18 +262,20 @@ inline FrameDimensionExpr::FrameDimensionExpr(Token keyword,
                                               std::unique_ptr<Expr> plane)
     : dimension_name(std::move(keyword.value)),
       plane_index_expr(std::move(plane)) {
-    line = keyword.line;
+    range = keyword.range;
 }
 
 inline UnaryExpr::UnaryExpr(Token o, std::unique_ptr<Expr> r)
     : op(std::move(o)), right(std::move(r)) {
-    line = op.line;
+    range.start = op.range.start;
+    range.end = right ? right->range().end : op.range.end;
 }
 
 inline BinaryExpr::BinaryExpr(std::unique_ptr<Expr> l, Token o,
                               std::unique_ptr<Expr> r)
     : left(std::move(l)), op(std::move(o)), right(std::move(r)) {
-    line = op.line;
+    range.start = left ? left->range().start : op.range.start;
+    range.end = right ? right->range().end : op.range.end;
 }
 
 inline TernaryExpr::TernaryExpr(std::unique_ptr<Expr> c,
@@ -281,29 +283,38 @@ inline TernaryExpr::TernaryExpr(std::unique_ptr<Expr> c,
                                 std::unique_ptr<Expr> f)
     : cond(std::move(c)), true_expr(std::move(t)), false_expr(std::move(f)) {
     if (cond)
-        line = cond->line();
+        range.start = cond->range().start;
+    if (false_expr)
+        range.end = false_expr->range().end;
+    else if (true_expr)
+        range.end = true_expr->range().end;
+    else if (cond)
+        range.end = cond->range().end;
 }
 
 inline CallExpr::CallExpr(Token callee_token,
                           std::vector<std::unique_ptr<Expr>> a)
     : callee(std::move(callee_token.value)), args(std::move(a)) {
-    line = callee_token.line;
+    range = callee_token.range;
 }
 
 inline ExprStmt::ExprStmt(std::unique_ptr<Expr> e) : expr(std::move(e)) {
     if (expr)
-        line = expr->line();
+        range = expr->range();
 }
 
 inline AssignStmt::AssignStmt(Token n, std::unique_ptr<Expr> v)
     : name(std::move(n)), value(std::move(v)) {
-    line = name.line;
+    range.start = name.range.start;
+    range.end = value ? value->range().end : name.range.end;
 }
 
 inline BlockStmt::BlockStmt(std::vector<std::unique_ptr<Stmt>> s)
     : statements(std::move(s)) {
-    if (!statements.empty())
-        line = statements.front()->line();
+    if (!statements.empty()) {
+        range.start = statements.front()->range().start;
+        range.end = statements.back()->range().end;
+    }
 }
 
 inline IfStmt::IfStmt(std::unique_ptr<Expr> c, std::unique_ptr<Stmt> t,
@@ -311,23 +322,35 @@ inline IfStmt::IfStmt(std::unique_ptr<Expr> c, std::unique_ptr<Stmt> t,
     : condition(std::move(c)), then_branch(std::move(t)),
       else_branch(std::move(e)) {
     if (condition)
-        line = condition->line();
+        range.start = condition->range().start;
+    if (else_branch)
+        range.end = else_branch->range().end;
+    else if (then_branch)
+        range.end = then_branch->range().end;
+    else if (condition)
+        range.end = condition->range().end;
 }
 
 inline WhileStmt::WhileStmt(std::unique_ptr<Expr> c, std::unique_ptr<Stmt> b)
     : condition(std::move(c)), body(std::move(b)) {
     if (condition)
-        line = condition->line();
+        range.start = condition->range().start;
+    if (body)
+        range.end = body->range().end;
+    else if (condition)
+        range.end = condition->range().end;
 }
 
 inline ReturnStmt::ReturnStmt(Token kw, std::unique_ptr<Expr> v)
     : keyword(std::move(kw)), value(std::move(v)) {
-    line = keyword.line;
+    range.start = keyword.range.start;
+    range.end = value ? value->range().end : keyword.range.end;
 }
 
 inline GotoStmt::GotoStmt(Token kw, Token l, std::unique_ptr<Expr> c)
     : keyword(std::move(kw)), label(std::move(l)), condition(std::move(c)) {
-    line = keyword.line;
+    range.start = keyword.range.start;
+    range.end = condition ? condition->range().end : label.range.end;
 }
 
 inline FunctionDef::FunctionDef(Token n, std::vector<Parameter> p,
@@ -335,21 +358,30 @@ inline FunctionDef::FunctionDef(Token n, std::vector<Parameter> p,
                                 std::unique_ptr<GlobalDecl> g)
     : name(std::move(n)), params(std::move(p)), body(std::move(b)),
       global_decl(std::move(g)) {
-    line = name.line;
+    range.start = name.range.start;
+    range.end = body ? body->range.end : name.range.end;
 }
 
 inline ArrayAccessExpr::ArrayAccessExpr(std::unique_ptr<Expr> arr,
                                         std::unique_ptr<Expr> idx)
     : array(std::move(arr)), index(std::move(idx)) {
     if (array)
-        line = array->line();
+        range.start = array->range().start;
+    if (index)
+        range.end = index->range().end;
+    else if (array)
+        range.end = array->range().end;
 }
 
 inline ArrayAssignStmt::ArrayAssignStmt(std::unique_ptr<Expr> t,
                                         std::unique_ptr<Expr> v)
     : target(std::move(t)), value(std::move(v)) {
     if (target)
-        line = target->line();
+        range.start = target->range().start;
+    if (value)
+        range.end = value->range().end;
+    else if (target)
+        range.end = target->range().end;
 }
 
 struct Program {

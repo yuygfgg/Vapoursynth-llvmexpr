@@ -9,7 +9,7 @@ namespace infix2postfix {
 
 struct ErrorInfo {
     std::string message;
-    int line;
+    Range range;
 };
 
 struct ParseResult {

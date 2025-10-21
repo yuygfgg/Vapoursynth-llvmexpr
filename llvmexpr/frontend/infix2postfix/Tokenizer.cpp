@@ -56,13 +56,14 @@ std::vector<Token> Tokenizer::tokenize() {
 Token Tokenizer::nextToken() {
     skipWhitespaceAndComments();
     start = current;
+    start_line = line;
+    start_column = column;
     if (peek() == '\0')
         return makeToken(TokenType::EndOfFile);
 
     char c = peek();
 
     if (c == '\n') {
-        line++;
         advance();
         return makeToken(TokenType::Newline);
     }
@@ -127,14 +128,28 @@ char Tokenizer::peek(int offset) const {
 }
 
 char Tokenizer::advance() {
-    if (current < source.length())
+    if (current < source.length()) {
+        if (source[current] == '\n') {
+            line++;
+            column = 1;
+        } else {
+            column++;
+        }
         current++;
+    }
     return source[current - 1];
 }
 
 Token Tokenizer::makeToken(TokenType type, const std::string& value) const {
+    Range range;
+    range.start.line = start_line;
+    range.start.column = start_column;
+    range.end.line = line;
+    range.end.column =
+        column - 1; // column is already advanced past the last character
+
     return {type, value.empty() ? source.substr(start, current - start) : value,
-            line};
+            range};
 }
 
 Token Tokenizer::identifier() {

@@ -153,7 +153,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
         FunctionDef* func_def = expr.resolved_def;
 
         PostfixBuilder b =
-            inline_function_call(sig, func_def, expr.args, expr.line);
+            inline_function_call(sig, func_def, expr.args, expr.range);
         return {b, Type::VALUE};
     }
 
@@ -340,7 +340,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const ArrayAccessExpr& expr) {
 
 PostfixBuilder CodeGenerator::handle(const ExprStmt& stmt) {
     PostfixBuilder b = generate(stmt.expr.get()).postfix;
-    check_stack_effect(b.get_expression(), 0, stmt.line);
+    check_stack_effect(b.get_expression(), 0, stmt.range);
     return b;
 }
 
@@ -367,7 +367,7 @@ PostfixBuilder CodeGenerator::handle(const AssignStmt& stmt) {
                 b.add_array_alloc_dynamic(var_name);
             }
 
-            check_stack_effect(b.get_expression(), 0, stmt.line);
+            check_stack_effect(b.get_expression(), 0, stmt.range);
             return b;
         }
     }
@@ -378,7 +378,7 @@ PostfixBuilder CodeGenerator::handle(const AssignStmt& stmt) {
     b.append(value_code.postfix);
     b.add_variable_store(var_name);
 
-    check_stack_effect(b.get_expression(), 0, stmt.line);
+    check_stack_effect(b.get_expression(), 0, stmt.range);
 
     return b;
 }
@@ -410,7 +410,7 @@ PostfixBuilder CodeGenerator::handle(const ArrayAssignStmt& stmt) {
 
     b.add_array_store(array_name);
 
-    check_stack_effect(b.get_expression(), 0, stmt.line);
+    check_stack_effect(b.get_expression(), 0, stmt.range);
 
     return b;
 }
@@ -472,25 +472,25 @@ PostfixBuilder CodeGenerator::handle(const ReturnStmt& stmt) {
             throw CodeGenError(
                 std::format("Function '{}' should not return a value.",
                             current_function->name),
-                stmt.line);
+                stmt.range);
         }
         auto result = generate(stmt.value.get());
         b.append(result.postfix);
         const int call_id = call_site_id_stack.back();
-        std::string ret_var_name =
-            std::format("__internal_ret_{}_{}", current_function->name, call_id);
+        std::string ret_var_name = std::format("__internal_ret_{}_{}",
+                                               current_function->name, call_id);
         b.add_variable_store(ret_var_name);
     } else {
         if (current_function->returns_value) {
             throw CodeGenError(std::format("Function '{}' must return a value.",
                                            current_function->name),
-                               stmt.line);
+                               stmt.range);
         }
     }
 
     const int call_id = call_site_id_stack.back();
-    std::string ret_label =
-        std::format("__internal_ret_label_{}_{}", current_function->name, call_id);
+    std::string ret_label = std::format("__internal_ret_label_{}_{}",
+                                        current_function->name, call_id);
     b.add_unconditional_jump(ret_label);
 
     return b;
@@ -528,29 +528,31 @@ PostfixBuilder CodeGenerator::handle([[maybe_unused]] const GlobalDecl& stmt) {
 }
 
 void CodeGenerator::check_stack_effect(const std::string& s, int expected,
-                                       int line) {
-    int effect = compute_stack_effect(s, line);
+                                       const Range& range) {
+    int effect = compute_stack_effect(s, range);
     if (effect != expected) {
         throw CodeGenError(std::format("Unbalanced stack. Expected {}, got {}",
                                        expected, effect),
-                           line);
+                           range);
     }
 }
 
-int CodeGenerator::compute_stack_effect(const std::string& s, int line) {
+int CodeGenerator::compute_stack_effect(const std::string& s,
+                                        const Range& range) {
     PostfixMode postfix_mode =
         (mode == Mode::Expr) ? PostfixMode::EXPR : PostfixMode::SINGLE_EXPR;
 
     try {
-        return compute_postfix_stack_effect(s, postfix_mode, line, num_inputs);
+        return compute_postfix_stack_effect(s, postfix_mode, range.start.line,
+                                            num_inputs);
     } catch (const std::exception& e) {
-        throw CodeGenError(e.what(), line);
+        throw CodeGenError(e.what(), range);
     }
 }
 
 PostfixBuilder CodeGenerator::inline_function_call(
     const FunctionSignature& sig, FunctionDef* func_def,
-    const std::vector<std::unique_ptr<Expr>>& args, int call_line) {
+    const std::vector<std::unique_ptr<Expr>>& args, const Range& call_range) {
 
     const auto& func_name = sig.name;
     const int call_id = call_site_counter++;
@@ -661,17 +663,18 @@ PostfixBuilder CodeGenerator::inline_function_call(
     int expected_effect = sig.returns_value ? 1 : 0;
     try {
         int actual_effect =
-            compute_stack_effect(inlined_builder.get_expression(), call_line);
+            compute_stack_effect(inlined_builder.get_expression(), call_range);
         if (actual_effect != expected_effect) {
             throw CodeGenError(
                 std::format("Function '{}' has unbalanced stack. Expected "
                             "effect: {}, actual: {}",
                             func_name, expected_effect, actual_effect),
-                sig.line);
+                sig.range);
         }
     } catch (const CodeGenError& e) {
         throw CodeGenError(
-            std::format("In function '{}': {}", func_name, e.what()), sig.line);
+            std::format("In function '{}': {}", func_name, e.what()),
+            sig.range);
     }
 
     return inlined_builder;

@@ -20,7 +20,7 @@ PostfixBuilder handle_dyn_expr_3args(CodeGenerator* codegen,
     auto clip_res = codegen->generate_expr(expr.args[0].get());
     if (clip_res.type != Type::CLIP) {
         throw CodeGenError("The first argument to dyn() must be a clip.",
-                           expr.line);
+                           expr.range);
     }
     std::string clip_name = clip_res.postfix.get_expression();
 
@@ -38,7 +38,7 @@ PostfixBuilder handle_dyn_expr_4args(CodeGenerator* codegen,
     auto clip_res = codegen->generate_expr(expr.args[0].get());
     if (clip_res.type != Type::CLIP) {
         throw CodeGenError("The first argument to dyn() must be a clip.",
-                           expr.line);
+                           expr.range);
     }
     std::string clip_name = clip_res.postfix.get_expression();
 
@@ -58,7 +58,7 @@ PostfixBuilder handle_dyn_expr_4args(CodeGenerator* codegen,
     default:
         throw CodeGenError(
             std::format("Invalid boundary mode '{}' for dyn()", boundary_mode),
-            expr.line);
+            expr.range);
     }
     b.add_dyn_pixel_access_expr(clip_name, suffix);
     return b;
@@ -69,7 +69,7 @@ PostfixBuilder handle_dyn_single(CodeGenerator* codegen, const CallExpr& expr) {
     auto clip_res = codegen->generate_expr(expr.args[0].get());
     if (clip_res.type != Type::CLIP) {
         throw CodeGenError("The first argument to dyn() must be a clip.",
-                           expr.line);
+                           expr.range);
     }
     std::string clip_name = clip_res.postfix.get_expression();
 
@@ -113,12 +113,12 @@ PostfixBuilder handle_set_prop(CodeGenerator* codegen, const CallExpr& expr) {
     if (!prop_name_expr) {
         throw CodeGenError("set_prop() requires a property name identifier as "
                            "the first argument.",
-                           expr.line);
+                           expr.range);
     }
     if (prop_name_expr->name.value.starts_with('$')) {
         throw CodeGenError("Property names in set_prop() cannot be $-prefixed "
                            "constants.",
-                           expr.line);
+                           expr.range);
     }
 
     PostfixBuilder b;

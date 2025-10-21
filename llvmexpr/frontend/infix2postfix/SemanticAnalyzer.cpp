@@ -31,7 +31,7 @@ SemanticAnalyzer::SemanticAnalyzer(Mode mode, int num_inputs)
 
 bool SemanticAnalyzer::analyze(Program* program) {
     if (!program) {
-        reportError("Program AST is null", 0);
+        reportError("Program AST is null", Range{});
         return false;
     }
 
@@ -41,7 +41,7 @@ bool SemanticAnalyzer::analyze(Program* program) {
             if (global_labels.count(label_def->name.value)) {
                 reportError(std::format("Duplicate label '{}' in global scope",
                                         label_def->name.value),
-                            label_def->line);
+                            label_def->range);
             }
             global_labels.insert(label_def->name.value);
         }
@@ -67,7 +67,7 @@ bool SemanticAnalyzer::analyze(Program* program) {
                                 std::format(
                                     "Duplicate function signature for '{}'",
                                     func_def->name.value),
-                                func_def->line);
+                                func_def->range);
                         }
                     }
                 }
@@ -78,7 +78,7 @@ bool SemanticAnalyzer::analyze(Program* program) {
             for (const auto& p : func_def->params) {
                 sig.params.push_back({p.name.value, p.type});
             }
-            sig.line = func_def->line;
+            sig.range = func_def->range;
 
             sig.has_return = false;
             std::optional<bool> returns_value_opt;
@@ -98,7 +98,7 @@ bool SemanticAnalyzer::analyze(Program* program) {
                                 "Function '{}' has inconsistent return "
                                 "statements (some with values, some without).",
                                 func_def->name.value),
-                            ret->line);
+                            ret->range);
                     }
                 } else if (auto* block = get_if<BlockStmt>(s)) {
                     for (const auto& inner_s : block->statements)
@@ -178,12 +178,14 @@ bool SemanticAnalyzer::analyze(Program* program) {
 
     // Check if RESULT is defined in Expr mode
     if (mode == Mode::Expr && !has_result) {
-        reportError("Final result must be assigned to variable 'RESULT'!", 0);
+        reportError("Final result must be assigned to variable 'RESULT'!",
+                    Range{});
     }
 
     if (mode == Mode::Expr && !result_defined_in_global_scope) {
         reportError(
-            "'RESULT' must be defined in the global scope in Expr mode.", 0);
+            "'RESULT' must be defined in the global scope in Expr mode.",
+            Range{});
     }
 
     return !hasErrors();
@@ -198,12 +200,14 @@ bool SemanticAnalyzer::hasErrors() const {
     return false;
 }
 
-void SemanticAnalyzer::reportError(const std::string& message, int line) {
-    diagnostics.emplace_back(DiagnosticSeverity::ERROR, message, line);
+void SemanticAnalyzer::reportError(const std::string& message,
+                                   const Range& range) {
+    diagnostics.emplace_back(DiagnosticSeverity::ERROR, message, range);
 }
 
-void SemanticAnalyzer::reportWarning(const std::string& message, int line) {
-    diagnostics.emplace_back(DiagnosticSeverity::WARNING, message, line);
+void SemanticAnalyzer::reportWarning(const std::string& message,
+                                     const Range& range) {
+    diagnostics.emplace_back(DiagnosticSeverity::WARNING, message, range);
 }
 
 // Symbol table management
@@ -222,12 +226,13 @@ void SemanticAnalyzer::exitScope() {
 
 std::shared_ptr<Symbol> SemanticAnalyzer::defineSymbol(SymbolKind kind,
                                                        const std::string& name,
-                                                       Type type, int line) {
+                                                       Type type,
+                                                       const Range& range) {
     auto symbol = std::make_shared<Symbol>();
     symbol->kind = kind;
     symbol->name = name;
     symbol->type = type;
-    symbol->definition_line = line;
+    symbol->definition_range = range;
 
     if (!current_scope->define(symbol)) {
         return current_scope->resolve(name);
@@ -237,12 +242,12 @@ std::shared_ptr<Symbol> SemanticAnalyzer::defineSymbol(SymbolKind kind,
 }
 
 std::shared_ptr<Symbol> SemanticAnalyzer::resolveSymbol(const std::string& name,
-                                                        int line) {
+                                                        const Range& range) {
     auto symbol = current_scope->resolve(name);
     if (!symbol) {
         reportError(
             std::format("Variable '{}' is used before being defined", name),
-            line);
+            range);
     }
     return symbol;
 }
@@ -277,14 +282,14 @@ Type SemanticAnalyzer::analyze(VariableExpr& expr) {
                     "X and Y coordinates are only available in Expr mode. "
                     "SingleExpr processes the entire frame at once, not "
                     "pixel-by-pixel.",
-                    expr.line);
+                    expr.range);
             }
             return Type::VALUE;
         } else if (get_clip_index(base_name) != -1) {
             if (get_clip_index(base_name) > num_inputs - 1) {
                 reportError(
                     std::format("Clip index '{}' is out of range", base_name),
-                    expr.line);
+                    expr.range);
             }
             return Type::CLIP;
         } else if (base_name == "width" || base_name == "height" ||
@@ -292,7 +297,7 @@ Type SemanticAnalyzer::analyze(VariableExpr& expr) {
             return Type::VALUE;
         }
         reportError(std::format("Invalid identifier '{}'.", base_name),
-                    expr.line);
+                    expr.range);
         return Type::VALUE;
     }
 
@@ -307,7 +312,7 @@ Type SemanticAnalyzer::analyze(VariableExpr& expr) {
                 symbol->kind = SymbolKind::VARIABLE;
                 symbol->name = name;
                 symbol->type = Type::VALUE;
-                symbol->definition_line = expr.line;
+                symbol->definition_range = expr.range;
             }
         } else if (current_function->global_mode == GlobalMode::SPECIFIC) {
             // Global declaration is forward declared
@@ -318,7 +323,7 @@ Type SemanticAnalyzer::analyze(VariableExpr& expr) {
                     symbol->kind = SymbolKind::VARIABLE;
                     symbol->name = name;
                     symbol->type = Type::VALUE;
-                    symbol->definition_line = expr.line;
+                    symbol->definition_range = expr.range;
                 }
             }
         }
@@ -327,7 +332,7 @@ Type SemanticAnalyzer::analyze(VariableExpr& expr) {
     if (!symbol) {
         reportError(
             std::format("Variable '{}' is used before being defined", name),
-            expr.line);
+            expr.range);
         return Type::VALUE;
     }
 
@@ -348,7 +353,7 @@ Type SemanticAnalyzer::analyze(UnaryExpr& expr) {
                                 "'{}' which is not convertible to a value.",
                                 token_type_to_string(expr.op.type),
                                 to_string(right_type)),
-                    expr.line);
+                    expr.range);
     }
 
     return Type::VALUE;
@@ -363,7 +368,7 @@ Type SemanticAnalyzer::analyze(BinaryExpr& expr) {
                                 "'{}' which is not convertible to a value.",
                                 token_type_to_string(expr.op.type),
                                 to_string(left_type)),
-                    expr.line);
+                    expr.range);
     }
     if (!isConvertible(right_type, Type::VALUE)) {
         reportError(
@@ -371,7 +376,7 @@ Type SemanticAnalyzer::analyze(BinaryExpr& expr) {
                         "'{}' which is not convertible to a value.",
                         token_type_to_string(expr.op.type),
                         to_string(right_type)),
-            expr.line);
+            expr.range);
     }
 
     return Type::VALUE;
@@ -383,7 +388,7 @@ Type SemanticAnalyzer::analyze(TernaryExpr& expr) {
         reportError(std::format("Ternary condition has type '{}' which is not "
                                 "convertible to a value.",
                                 to_string(cond_type)),
-                    expr.line);
+                    expr.range);
     }
 
     auto true_type = analyzeExpr(expr.true_expr.get());
@@ -393,14 +398,14 @@ Type SemanticAnalyzer::analyze(TernaryExpr& expr) {
         !isConvertible(false_type, Type::VALUE)) {
         reportError("Both branches of a ternary expression must be convertible "
                     "to a value.",
-                    expr.line);
+                    expr.range);
     }
 
     return Type::VALUE;
 }
 
 Type SemanticAnalyzer::analyze(CallExpr& expr) {
-    auto signature = resolveOverload(expr.callee, expr.args, expr.line, &expr);
+    auto signature = resolveOverload(expr.callee, expr.args, expr.range, &expr);
     expr.resolved_signature = signature;
 
     return Type::VALUE;
@@ -408,7 +413,7 @@ Type SemanticAnalyzer::analyze(CallExpr& expr) {
 
 const FunctionSignature* SemanticAnalyzer::resolveOverload(
     const std::string& name, const std::vector<std::unique_ptr<Expr>>& args,
-    int line, CallExpr* call_expr) {
+    const Range& range, CallExpr* call_expr) {
     // User-defined functions
     if (function_signatures.count(name)) {
         const auto& overloads = function_signatures.at(name);
@@ -473,7 +478,7 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
                 std::format(
                     "No matching user-defined function for call to '{}({})'",
                     name, arg_types_str),
-                line);
+                range);
             return nullptr;
         }
 
@@ -506,7 +511,7 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
         if (num_best > 1) {
             reportError(
                 std::format("Ambiguous call to overloaded function '{}'", name),
-                line);
+                range);
         }
 
         // Find and set the resolved FunctionDef
@@ -613,7 +618,7 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
                     "No matching overload for function '{}({})' in {} mode.",
                     name, arg_types_str,
                     mode == Mode::Expr ? "Expr" : "SingleExpr"),
-                line);
+                range);
             return nullptr;
         }
 
@@ -648,7 +653,7 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
                 std::format(
                     "Ambiguous call to overloaded built-in function '{}'",
                     name),
-                line);
+                range);
         }
 
         // Built-in functions don't have FunctionSignature, return nullptr
@@ -660,7 +665,7 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
         if (n_str.empty() ||
             !std::all_of(n_str.begin(), n_str.end(), ::isdigit)) {
             reportError(std::format("Invalid nth_N function name '{}'", name),
-                        line);
+                        range);
             return nullptr;
         }
         int n = std::stoi(n_str);
@@ -669,11 +674,11 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
             reportError(std::format("Function '{}' requires at least {} "
                                     "arguments, but {} were provided.",
                                     name, n, arg_count),
-                        line);
+                        range);
         }
         if (n < 1) {
             reportError(std::format("Invalid nth_N function name '{}'", name),
-                        line);
+                        range);
         }
         for (const auto& arg : args) {
             auto arg_type = analyzeExpr(arg.get());
@@ -682,30 +687,30 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
                     std::format("Argument to function '{}' has type '{}' which "
                                 "is not convertible to Value.",
                                 name, to_string(arg_type)),
-                    arg->line());
+                    arg->range());
             }
         }
 
         return nullptr;
     } else {
-        reportError(std::format("Unknown function '{}'", name), line);
+        reportError(std::format("Unknown function '{}'", name), range);
         return nullptr;
     }
 }
 
 void SemanticAnalyzer::validateClipReference(const std::string& clip_name,
-                                             int line) {
+                                             const Range& range) {
     std::string name = clip_name;
 
     if (name.starts_with("$")) {
         name = name.substr(1);
         if (get_clip_index(name) == -1) {
             reportError(std::format("Invalid clip identifier '{}'.", clip_name),
-                        line);
+                        range);
         }
         if (get_clip_index(name) > num_inputs - 1) {
             reportError(std::format("Clip index '{}' is out of range", name),
-                        line);
+                        range);
         }
     } else {
         // Check if it's a function parameter of Clip type
@@ -715,13 +720,13 @@ void SemanticAnalyzer::validateClipReference(const std::string& clip_name,
                 std::format(
                     "Clip '{}' is not a clip constant or Clip parameter.",
                     clip_name),
-                line);
+                range);
         }
     }
 }
 
 Type SemanticAnalyzer::analyze(const PropAccessExpr& expr) {
-    validateClipReference(expr.clip.value, expr.line);
+    validateClipReference(expr.clip.value, expr.range);
     return Type::VALUE;
 }
 
@@ -731,10 +736,10 @@ Type SemanticAnalyzer::analyze(const StaticRelPixelAccessExpr& expr) {
                     "available in Expr mode. "
                     "Use dyn(clip, x, y, plane) for absolute access in "
                     "SingleExpr mode.",
-                    expr.line);
+                    expr.range);
     }
 
-    validateClipReference(expr.clip.value, expr.line);
+    validateClipReference(expr.clip.value, expr.range);
     return Type::VALUE;
 }
 
@@ -743,13 +748,13 @@ Type SemanticAnalyzer::analyze(FrameDimensionExpr& expr) {
         reportError("frame.width[N] and frame.height[N] are only "
                     "available in SingleExpr mode. "
                     "Use width and height directly in Expr mode.",
-                    expr.line);
+                    expr.range);
     }
 
     auto plane_type = analyzeExpr(expr.plane_index_expr.get());
     if (plane_type != Type::LITERAL) {
         reportError("Plane index must be a literal constant.",
-                    expr.plane_index_expr->line());
+                    expr.plane_index_expr->range());
     }
 
     return Type::VALUE;
@@ -759,16 +764,16 @@ Type SemanticAnalyzer::analyze(ArrayAccessExpr& expr) {
     auto* var_expr = get_if<VariableExpr>(expr.array.get());
     if (!var_expr) {
         reportError("Array access requires a variable as the array.",
-                    expr.line);
+                    expr.range);
         return Type::VALUE;
     }
 
     std::string array_name = var_expr->name.value;
-    auto symbol = resolveSymbol(array_name, expr.line);
+    auto symbol = resolveSymbol(array_name, expr.range);
 
     if (!symbol || symbol->type != Type::ARRAY) {
         reportError(std::format("Variable '{}' is not an array.", array_name),
-                    expr.line);
+                    expr.range);
     }
 
     expr.array_symbol = symbol;
@@ -776,7 +781,7 @@ Type SemanticAnalyzer::analyze(ArrayAccessExpr& expr) {
     auto index_type = analyzeExpr(expr.index.get());
     if (!isConvertible(index_type, Type::VALUE)) {
         reportError("Array index must be convertible to a value.",
-                    expr.index->line());
+                    expr.index->range());
     }
 
     return Type::VALUE;
@@ -804,7 +809,7 @@ void SemanticAnalyzer::analyze(AssignStmt& stmt) {
                 reportError(
                     std::format("{}() requires exactly 1 argument (size).",
                                 call_expr->callee),
-                    stmt.line);
+                    stmt.range);
             }
 
             std::string var_name = stmt.name.value;
@@ -816,20 +821,20 @@ void SemanticAnalyzer::analyze(AssignStmt& stmt) {
                 if (mode == Mode::Expr) {
                     reportError(
                         "resize() is only available in SingleExpr mode.",
-                        stmt.line);
+                        stmt.range);
                 }
                 if (!is_already_array) {
                     reportError(
                         std::format(
                             "Variable '{}' is undefined or not an array. ",
                             var_name),
-                        stmt.line);
+                        stmt.range);
                 }
             } else { // new()
                 if (is_already_array) {
                     reportError(
                         std::format("Cannot reallocate array '{}'.", var_name),
-                        stmt.line);
+                        stmt.range);
                 }
             }
 
@@ -838,18 +843,18 @@ void SemanticAnalyzer::analyze(AssignStmt& stmt) {
                 if (!num_expr) {
                     reportError(
                         "In Expr mode, array size must be a numeric literal.",
-                        stmt.line);
+                        stmt.range);
                 }
             } else {
                 auto size_type = analyzeExpr(call_expr->args[0].get());
                 if (!isConvertible(size_type, Type::VALUE)) {
                     reportError("Array size must be convertible to a value.",
-                                stmt.line);
+                                stmt.range);
                 }
             }
 
             auto symbol = defineSymbol(SymbolKind::VARIABLE, var_name,
-                                       Type::ARRAY, stmt.line);
+                                       Type::ARRAY, stmt.range);
             stmt.symbol = symbol;
 
             return;
@@ -861,7 +866,7 @@ void SemanticAnalyzer::analyze(AssignStmt& stmt) {
     if (value_type == Type::ARRAY) {
         reportError(std::format("Cannot assign array to variable '{}'.",
                                 stmt.name.value),
-                    stmt.line);
+                    stmt.range);
         return;
     }
 
@@ -874,11 +879,11 @@ void SemanticAnalyzer::analyze(AssignStmt& stmt) {
                 "Variable '{}' is an array and cannot be reassigned to a "
                 "non-array value.",
                 var_name),
-            stmt.line);
+            stmt.range);
     }
 
     auto symbol =
-        defineSymbol(SymbolKind::VARIABLE, var_name, Type::VALUE, stmt.line);
+        defineSymbol(SymbolKind::VARIABLE, var_name, Type::VALUE, stmt.range);
     stmt.symbol = symbol;
 }
 
@@ -886,7 +891,7 @@ void SemanticAnalyzer::analyze(ArrayAssignStmt& stmt) {
     auto* array_access = get_if<ArrayAccessExpr>(stmt.target.get());
     if (!array_access) {
         reportError("Array assignment target must be an array access.",
-                    stmt.line);
+                    stmt.range);
         return;
     }
 
@@ -895,7 +900,7 @@ void SemanticAnalyzer::analyze(ArrayAssignStmt& stmt) {
     auto value_type = analyzeExpr(stmt.value.get());
     if (!isConvertible(value_type, Type::VALUE)) {
         reportError("Array assignment value must be convertible to a value.",
-                    stmt.value->line());
+                    stmt.value->range());
     }
 }
 
@@ -913,7 +918,7 @@ void SemanticAnalyzer::analyze(IfStmt& stmt) {
         reportError(std::format("If condition has type '{}' which is not "
                                 "convertible to a value.",
                                 to_string(cond_type)),
-                    stmt.condition->line());
+                    stmt.condition->range());
     }
 
     analyzeStmt(stmt.then_branch.get());
@@ -929,7 +934,7 @@ void SemanticAnalyzer::analyze(WhileStmt& stmt) {
         reportError(std::format("While condition has type '{}' which is not "
                                 "convertible to a value.",
                                 to_string(cond_type)),
-                    stmt.condition->line());
+                    stmt.condition->range());
     }
 
     analyzeStmt(stmt.body.get());
@@ -938,19 +943,19 @@ void SemanticAnalyzer::analyze(WhileStmt& stmt) {
 void SemanticAnalyzer::analyze(const ReturnStmt& stmt) {
     if (current_function == nullptr) {
         reportError("'return' statements are not allowed in the global scope.",
-                    stmt.line);
+                    stmt.range);
     }
     if (stmt.value) {
         auto result_type = analyzeExpr(stmt.value.get());
         if (result_type == Type::ARRAY) {
-            reportError("Functions cannot return arrays.", stmt.line);
+            reportError("Functions cannot return arrays.", stmt.range);
         }
     }
 }
 
 void SemanticAnalyzer::analyze(LabelStmt& stmt) {
     auto symbol = defineSymbol(SymbolKind::LABEL, stmt.name.value, Type::VALUE,
-                               stmt.line);
+                               stmt.range);
     stmt.symbol = symbol;
 }
 
@@ -961,14 +966,14 @@ void SemanticAnalyzer::analyze(GotoStmt& stmt) {
             reportError(std::format("goto from function '{}' to global "
                                     "label '{}' is not allowed",
                                     current_function->name, stmt.label.value),
-                        stmt.line);
+                        stmt.range);
         }
         if (current_function_labels.find(stmt.label.value) ==
             current_function_labels.end()) {
             reportError(
                 std::format("goto target '{}' not found in function '{}'",
                             stmt.label.value, current_function->name),
-                stmt.line);
+                stmt.range);
         }
     } else {
         // Global scope
@@ -976,7 +981,7 @@ void SemanticAnalyzer::analyze(GotoStmt& stmt) {
             reportError(
                 std::format("goto target '{}' not found in global scope",
                             stmt.label.value),
-                stmt.line);
+                stmt.range);
         }
     }
 
@@ -994,7 +999,7 @@ void SemanticAnalyzer::analyze(FunctionDef& stmt) {
     current_function_labels.clear();
     for (const auto& s : stmt.body->statements) {
         collectLabels(s.get(), current_function_labels, stmt.name.value,
-                      stmt.line);
+                      stmt.range);
     }
 
     // Find the function signature
@@ -1020,7 +1025,7 @@ void SemanticAnalyzer::analyze(FunctionDef& stmt) {
     if (!sig) {
         reportError(std::format("Could not find signature for function '{}'",
                                 stmt.name.value),
-                    stmt.line);
+                    stmt.range);
         current_function_labels = saved_current_function_labels;
         return;
     }
@@ -1038,12 +1043,12 @@ void SemanticAnalyzer::analyze(FunctionDef& stmt) {
                 std::format(
                     "Not all control paths in function '{}' return a value.",
                     stmt.name.value),
-                stmt.line);
+                stmt.range);
         }
     }
 
     auto func_symbol = defineSymbol(SymbolKind::FUNCTION, stmt.name.value,
-                                    Type::VALUE, stmt.line);
+                                    Type::VALUE, stmt.range);
     func_symbol->signature = sig;
     stmt.symbol = func_symbol;
 
@@ -1057,8 +1062,9 @@ void SemanticAnalyzer::analyze(FunctionDef& stmt) {
 
         // Add parameters
         for (const auto& param : stmt.params) {
-            auto param_symbol = defineSymbol(
-                SymbolKind::PARAMETER, param.name.value, param.type, stmt.line);
+            auto param_symbol =
+                defineSymbol(SymbolKind::PARAMETER, param.name.value,
+                             param.type, stmt.range);
         }
 
         // Analyze function body
@@ -1076,28 +1082,28 @@ void SemanticAnalyzer::analyze([[maybe_unused]] const GlobalDecl& stmt) {
 
 void SemanticAnalyzer::collectLabels(Stmt* stmt, std::set<std::string>& labels,
                                      const std::string& context,
-                                     int context_line) {
+                                     const Range& context_range) {
     if (!stmt)
         return;
     if (auto* label = get_if<LabelStmt>(stmt)) {
         if (labels.count(label->name.value)) {
             reportError(std::format("Duplicate label '{}' in function '{}'",
                                     label->name.value, context),
-                        label->line);
+                        label->range);
         }
         labels.insert(label->name.value);
     } else if (auto* block = get_if<BlockStmt>(stmt)) {
         for (auto& inner_s : block->statements) {
-            collectLabels(inner_s.get(), labels, context, context_line);
+            collectLabels(inner_s.get(), labels, context, context_range);
         }
     } else if (auto* if_s = get_if<IfStmt>(stmt)) {
-        collectLabels(if_s->then_branch.get(), labels, context, context_line);
+        collectLabels(if_s->then_branch.get(), labels, context, context_range);
         if (if_s->else_branch) {
             collectLabels(if_s->else_branch.get(), labels, context,
-                          context_line);
+                          context_range);
         }
     } else if (auto* while_s = get_if<WhileStmt>(stmt)) {
-        collectLabels(while_s->body.get(), labels, context, context_line);
+        collectLabels(while_s->body.get(), labels, context, context_range);
     }
 }
 
@@ -1204,7 +1210,7 @@ void SemanticAnalyzer::validateFunctionCall(const CallExpr& expr) {
             if (global_name.starts_with("$")) {
                 reportError(
                     std::format("Invalid global variable name {}", global_name),
-                    expr.line);
+                    expr.range);
             }
 
             if (!defined_global_vars.count(global_name)) {
@@ -1213,7 +1219,7 @@ void SemanticAnalyzer::validateFunctionCall(const CallExpr& expr) {
                         "Function '{}' uses global variable '{}' which is "
                         "not defined in global scope before this call",
                         expr.callee, global_name),
-                    expr.line);
+                    expr.range);
             }
         }
     } else if (sig->global_mode == GlobalMode::SPECIFIC) {
@@ -1224,7 +1230,7 @@ void SemanticAnalyzer::validateFunctionCall(const CallExpr& expr) {
                         "Function '{}' requires global variable '{}' which is "
                         "not defined in global scope before this call",
                         expr.callee, global_name),
-                    expr.line);
+                    expr.range);
             }
         }
     }

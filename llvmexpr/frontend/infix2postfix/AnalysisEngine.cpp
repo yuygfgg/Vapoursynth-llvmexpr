@@ -21,7 +21,7 @@ bool AnalysisEngine::runAnalysis() {
 
     for (const auto& error : parse_result.errors) {
         diagnostics.emplace_back(DiagnosticSeverity::ERROR, error.message,
-                                 error.line);
+                                 error.range);
     }
 
     if (!ast || hasErrors()) {
@@ -85,8 +85,8 @@ std::string AnalysisEngine::formatDiagnostics() const {
         if (!result.empty()) {
             result += "\n";
         }
-        result += std::format("Line {}: {} - {}", diag.line, severity_str,
-                              diag.message);
+        result += std::format("{} - {}: {}", diag.range.to_string(),
+                              severity_str, diag.message);
     }
 
     std::string summary;

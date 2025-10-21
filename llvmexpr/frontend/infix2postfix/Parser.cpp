@@ -290,7 +290,7 @@ std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
                 // Untyped parameter, default to Value
                 name_token =
                     consume(TokenType::Identifier, "Expect parameter name.");
-                type_token = {TokenType::Identifier, "Value", name_token.line};
+                type_token = {TokenType::Identifier, "Value", name_token.range};
                 param_type = Type::VALUE;
             } else {
                 error(peek(), "Expect a parameter declaration.");
@@ -373,7 +373,7 @@ std::unique_ptr<GlobalDecl> Parser::parseGlobalDecl() {
                 }
             }
 
-            globals.push_back({TokenType::Identifier, var_name, keyword.line});
+            globals.push_back({TokenType::Identifier, var_name, keyword.range});
             pos++; // '>'
         }
 
@@ -553,7 +553,7 @@ std::unique_ptr<Expr> Parser::finishCall(std::unique_ptr<Expr> callee) {
         return make_node<Expr, CallExpr>(var->name, std::move(args));
     }
     error(peek(), "Invalid call target.");
-    Token placeholder{TokenType::Identifier, "error", peek().line};
+    Token placeholder{TokenType::Identifier, "error", peek().range};
     return make_node<Expr, CallExpr>(placeholder,
                                      std::vector<std::unique_ptr<Expr>>{});
 }
@@ -569,7 +569,7 @@ std::unique_ptr<Expr> Parser::parsePrimary() {
         return expr;
     }
     error(peek(), "Expect expression.");
-    Token placeholder{TokenType::Number, "0", peek().line};
+    Token placeholder{TokenType::Number, "0", peek().range};
     return make_node<Expr, NumberExpr>(placeholder);
 }
 
@@ -618,7 +618,7 @@ void Parser::report_error(const Token& token, const std::string& message) {
         error_message = std::format("at '{}': {}", token.value, message);
     }
 
-    errors.push_back({error_message, token.line});
+    errors.push_back({error_message, token.range});
 }
 
 void Parser::error(const Token& token, const std::string& message) {

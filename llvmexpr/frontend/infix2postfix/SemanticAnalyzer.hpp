@@ -78,23 +78,25 @@ class SemanticAnalyzer {
 
     void enterScope();
     void exitScope();
-    std::shared_ptr<Symbol>
-    defineSymbol(SymbolKind kind, const std::string& name, Type type, int line);
-    std::shared_ptr<Symbol> resolveSymbol(const std::string& name, int line);
+    std::shared_ptr<Symbol> defineSymbol(SymbolKind kind,
+                                         const std::string& name, Type type,
+                                         const Range& range);
+    std::shared_ptr<Symbol> resolveSymbol(const std::string& name,
+                                          const Range& range);
 
-    void reportError(const std::string& message, int line);
-    void reportWarning(const std::string& message, int line);
+    void reportError(const std::string& message, const Range& range);
+    void reportWarning(const std::string& message, const Range& range);
     bool isConvertible(Type from, Type to);
     bool builtinParamTypeIsEvaluatable(
         const std::vector<struct BuiltinFunction>& overloads, size_t param_idx);
 
     const FunctionSignature*
     resolveOverload(const std::string& name,
-                    const std::vector<std::unique_ptr<Expr>>& args, int line,
-                    CallExpr* call_expr = nullptr);
+                    const std::vector<std::unique_ptr<Expr>>& args,
+                    const Range& range, CallExpr* call_expr = nullptr);
 
     void collectLabels(Stmt* stmt, std::set<std::string>& labels,
-                       const std::string& context, int context_line);
+                       const std::string& context, const Range& context_range);
 
     void validateGlobalDependencies(Stmt* stmt);
     void validateFunctionCall(const CallExpr& expr);
@@ -105,7 +107,8 @@ class SemanticAnalyzer {
 
     bool path_always_returns(Stmt* stmt);
 
-    void validateClipReference(const std::string& clip_name, int line);
+    void validateClipReference(const std::string& clip_name,
+                               const Range& range);
 
     Mode mode;
     int num_inputs;

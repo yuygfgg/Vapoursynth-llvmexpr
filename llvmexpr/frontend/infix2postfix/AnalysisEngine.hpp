@@ -17,10 +17,10 @@ enum class DiagnosticSeverity {
 struct Diagnostic {
     DiagnosticSeverity severity;
     std::string message;
-    int line;
+    Range range;
 
-    Diagnostic(DiagnosticSeverity sev, std::string msg, int l)
-        : severity(sev), message(std::move(msg)), line(l) {}
+    Diagnostic(DiagnosticSeverity sev, std::string msg, Range r)
+        : severity(sev), message(std::move(msg)), range(r) {}
 };
 
 class SemanticAnalyzer; // Forward declaration

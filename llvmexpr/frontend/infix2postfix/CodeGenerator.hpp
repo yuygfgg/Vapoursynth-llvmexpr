@@ -17,9 +17,10 @@ struct BuiltinFunction; // Forward declaration
 
 class CodeGenError : public std::runtime_error {
   public:
-    int line;
-    CodeGenError(const std::string& message, int l)
-        : std::runtime_error(std::format("Line {}: {}", l, message)), line(l) {}
+    Range range;
+    CodeGenError(const std::string& message, const Range& r)
+        : std::runtime_error(std::format("Line {}: {}", r.start.line, message)),
+          range(r) {}
 };
 
 class CodeGenerator {
@@ -66,13 +67,14 @@ class CodeGenerator {
     PostfixBuilder handle(const GlobalDecl& stmt);
     PostfixBuilder handle(const ArrayAssignStmt& stmt);
 
-    void check_stack_effect(const std::string& s, int expected, int line);
-    int compute_stack_effect(const std::string& s, int line);
+    void check_stack_effect(const std::string& s, int expected,
+                            const Range& range);
+    int compute_stack_effect(const std::string& s, const Range& range);
 
     PostfixBuilder
     inline_function_call(const FunctionSignature& sig, FunctionDef* func_def,
                          const std::vector<std::unique_ptr<Expr>>& args,
-                         int call_line);
+                         const Range& call_range);
 
     bool is_clip_name(const std::string& s);
     bool is_convertible(Type from, Type to);

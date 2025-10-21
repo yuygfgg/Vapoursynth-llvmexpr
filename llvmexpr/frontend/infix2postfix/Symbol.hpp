@@ -15,7 +15,7 @@ struct Symbol {
     SymbolKind kind;
     std::string name;
     Type type;
-    int definition_line;
+    Range definition_range;
 
     const FunctionSignature* signature = nullptr;
 };

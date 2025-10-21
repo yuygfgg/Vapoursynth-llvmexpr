@@ -27,6 +27,9 @@ class Tokenizer {
     size_t current = 0;
     size_t start = 0;
     int line = 1;
+    int column = 1;
+    int start_line = 1;
+    int start_column = 1;
 
     static const std::map<std::string, TokenType> keywords;
 };

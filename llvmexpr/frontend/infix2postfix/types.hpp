@@ -1,6 +1,7 @@
 #ifndef LLVMEXPR_INFIX2POSTFIX_TYPES_HPP
 #define LLVMEXPR_INFIX2POSTFIX_TYPES_HPP
 
+#include <format>
 #include <set>
 #include <string>
 #include <string_view>
@@ -8,6 +9,21 @@
 #include <vector>
 
 namespace infix2postfix {
+
+struct SourceLocation {
+    int line = 0;
+    int column = 0;
+};
+
+struct Range {
+    SourceLocation start;
+    SourceLocation end;
+
+    std::string to_string() const {
+        return std::format("{}:{} - {}:{}", start.line, start.column, end.line,
+                           end.column);
+    }
+};
 
 enum class Type {
     VALUE,
@@ -167,7 +183,7 @@ inline std::string token_type_to_string(TokenType type) {
 struct Token {
     TokenType type;
     std::string value;
-    int line;
+    Range range;
 };
 
 enum class Mode { Expr, Single };
@@ -184,7 +200,7 @@ struct FunctionSignature {
     std::vector<ParameterInfo> params;
     bool has_return;
     bool returns_value;
-    int line;
+    Range range;
     GlobalMode global_mode = GlobalMode::NONE;
     std::set<std::string> specific_globals;
 
