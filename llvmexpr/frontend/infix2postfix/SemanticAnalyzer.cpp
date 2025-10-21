@@ -1160,7 +1160,8 @@ bool SemanticAnalyzer::path_always_returns(Stmt* stmt) {
 }
 
 bool SemanticAnalyzer::isConvertible(Type from, Type to) {
-    return from == to || (to == Type::VALUE && from != Type::LITERAL_STRING);
+    return from == to || (to == Type::VALUE && from != Type::LITERAL_STRING &&
+                          !(mode == Mode::Single && from == Type::CLIP));
 }
 
 bool SemanticAnalyzer::builtinParamTypeIsEvaluatable(

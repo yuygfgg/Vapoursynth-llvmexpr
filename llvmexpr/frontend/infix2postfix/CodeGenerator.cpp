@@ -28,11 +28,6 @@ bool is_clip_postfix_internal(const std::string& s) {
     }
     return false;
 }
-
-bool is_convertible_internal(Type from, Type to) {
-    // LITERAL_STRING is now only used by built-in functions, but we check it anyway
-    return from == to || (to == Type::VALUE && from != Type::LITERAL_STRING);
-}
 } // namespace
 
 CodeGenerator::CodeGenerator(Mode mode, int num_inputs)
@@ -689,7 +684,8 @@ bool CodeGenerator::is_clip_name(const std::string& s) {
 }
 
 bool CodeGenerator::is_convertible(Type from, Type to) {
-    return is_convertible_internal(from, to);
+    return from == to || (to == Type::VALUE && from != Type::LITERAL_STRING &&
+                          !(mode == Mode::Single && from == Type::CLIP));
 }
 
 } // namespace infix2postfix
