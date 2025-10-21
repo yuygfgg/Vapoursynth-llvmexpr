@@ -176,6 +176,18 @@ bool SemanticAnalyzer::analyze(Program* program) {
         }
     }
 
+    // Check for unused global variables and functions
+    for (const auto& [name, symbol] : global_scope->get_symbols()) {
+        if (!symbol->is_used) {
+            if (symbol->name == "RESULT") {
+                continue;
+            }
+
+            reportWarning(std::format("Unused symbol '{}'", name),
+                          symbol->definition_range);
+        }
+    }
+
     // Check if RESULT is defined in Expr mode
     if (mode == Mode::Expr && !has_result) {
         reportError("Final result must be assigned to variable 'RESULT'!",
@@ -248,6 +260,8 @@ std::shared_ptr<Symbol> SemanticAnalyzer::resolveSymbol(const std::string& name,
         reportError(
             std::format("Variable '{}' is used before being defined", name),
             range);
+    } else {
+        symbol->is_used = true;
     }
     return symbol;
 }
@@ -336,6 +350,7 @@ Type SemanticAnalyzer::analyze(VariableExpr& expr) {
         return Type::VALUE;
     }
 
+    symbol->is_used = true;
     expr.symbol = symbol;
     return symbol->type;
 }
@@ -529,6 +544,9 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
                     }
                     if (match) {
                         call_expr->resolved_def = def;
+                        if (def->symbol) {
+                            def->symbol->is_used = true;
+                        }
                         break;
                     }
                 }
@@ -986,6 +1004,9 @@ void SemanticAnalyzer::analyze(GotoStmt& stmt) {
     }
 
     auto symbol = current_scope->resolve(stmt.label.value);
+    if (symbol) {
+        symbol->is_used = true;
+    }
     stmt.target_label_symbol = symbol;
 
     if (stmt.condition) {
@@ -1069,6 +1090,14 @@ void SemanticAnalyzer::analyze(FunctionDef& stmt) {
 
         // Analyze function body
         analyze(*stmt.body);
+
+        // Check for unused local variables and parameters
+        for (const auto& [name, symbol] : current_scope->get_symbols()) {
+            if (!symbol->is_used) {
+                reportWarning(std::format("Unused symbol '{}'", name),
+                              symbol->definition_range);
+            }
+        }
     } // Scope automatically exits here
 
     // Restore context

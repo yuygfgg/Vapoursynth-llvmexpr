@@ -16,6 +16,7 @@ struct Symbol {
     std::string name;
     Type type;
     Range definition_range;
+    bool is_used = false;
 
     const FunctionSignature* signature = nullptr;
 };

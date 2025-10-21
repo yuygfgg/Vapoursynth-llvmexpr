@@ -71,12 +71,15 @@ int main(int argc, char* argv[]) {
         auto tokens = tokenizer.tokenize();
 
         AnalysisEngine engine(tokens, mode, 114514);
-        
+
         bool success = engine.runAnalysis();
+        std::string diagnostics = engine.formatDiagnostics();
 
         if (!success) {
-            std::string diagnostics = engine.formatDiagnostics();
-            std::cerr << std::format("Analysis failed:\n{}\n", diagnostics);
+            std::cerr << std::format("Analysis errors:\n{}\n", diagnostics);
+            return 1;
+        } else if (!diagnostics.empty()) {
+            std::cerr << std::format("Analysis warnings:\n{}\n", diagnostics);
             return 1;
         }
 

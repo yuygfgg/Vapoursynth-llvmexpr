@@ -18,6 +18,10 @@ class SymbolTable {
 
     SymbolTable* get_parent() const { return parent; }
 
+    const std::map<std::string, std::shared_ptr<Symbol>>& get_symbols() const {
+        return symbols;
+    }
+
   private:
     SymbolTable* parent;
     std::map<std::string, std::shared_ptr<Symbol>> symbols;
