@@ -1,6 +1,5 @@
 #include "CodeGenerator.hpp"
 #include "Builtins.hpp"
-#include "OverloadResolution.hpp"
 #include "PostfixBuilder.hpp"
 #include "PostfixHelper.hpp"
 #include "types.hpp"
@@ -133,83 +132,26 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
     }
 
     // Built-in functions
-    const auto& builtins = get_builtin_functions();
+    if (expr.resolved_builtin != nullptr) {
+        const BuiltinFunction* builtin = expr.resolved_builtin;
 
-    if (builtins.count(expr.callee)) {
-        const auto& overloads = builtins.at(expr.callee);
-
-        std::vector<std::optional<ExprResult>> arg_results(expr.args.size());
-
-        std::vector<OverloadCandidate<BuiltinFunction>> candidates;
-
-        for (const auto& builtin : overloads) {
-            if (builtin.arity != (int)expr.args.size())
-                continue;
-            if (builtin.mode_restriction.has_value() &&
-                builtin.mode_restriction.value() != mode)
-                continue;
-
-            int conversion_count = 0;
-            int first_conversion_index = -1;
-            bool possible = true;
-            for (size_t j = 0; j < expr.args.size(); ++j) {
-                Type param_type = builtin.param_types[j];
-
-                if (param_type == Type::LITERAL_STRING) {
-                    auto* var_expr = get_if<VariableExpr>(expr.args[j].get());
-                    if (!var_expr || var_expr->name.value.starts_with("$")) {
-                        possible = false;
-                        break;
-                    }
-                    continue;
-                }
-
-                if (!arg_results[j].has_value()) {
-                    arg_results[j] = generate(expr.args[j].get());
-                }
-                Type arg_type = arg_results[j]->type;
-
-                if (arg_type != param_type) {
-                    if (isConvertible(arg_type, param_type, mode)) {
-                        conversion_count++;
-                        if (first_conversion_index == -1) {
-                            first_conversion_index = static_cast<int>(j);
-                        }
-                    } else {
-                        possible = false;
-                        break;
-                    }
-                }
-            }
-
-            if (possible) {
-                candidates.push_back(
-                    {&builtin, conversion_count, first_conversion_index});
-            }
+        if (builtin->special_handler) {
+            return {builtin->special_handler(this, expr), Type::VALUE};
         }
 
-        if (!candidates.empty()) {
-            auto* best_candidate = selectBestCandidate(candidates);
-
-            if (best_candidate->item->special_handler) {
-                return {best_candidate->item->special_handler(this, expr),
-                        Type::VALUE};
+        PostfixBuilder b;
+        for (size_t i = 0; i < expr.args.size(); ++i) {
+            if (builtin->param_types[i] != Type::LITERAL_STRING) {
+                auto res = generate(expr.args[i].get());
+                b.append(res.postfix);
             }
-
-            PostfixBuilder b;
-            for (size_t i = 0; i < expr.args.size(); ++i) {
-                if (best_candidate->item->param_types[i] !=
-                    Type::LITERAL_STRING) {
-                    if (!arg_results[i].has_value()) {
-                        arg_results[i] = generate(expr.args[i].get());
-                    }
-                    b.append(arg_results[i]->postfix);
-                }
-            }
-            b.add_function_call(expr.callee);
-            return {b, Type::VALUE};
         }
-    } else if (expr.callee.starts_with("nth_")) {
+        b.add_function_call(expr.callee);
+        return {b, Type::VALUE};
+    }
+
+    // nth_N functions
+    if (expr.callee.starts_with("nth_")) {
         std::string n_str = expr.callee.substr(4);
         int n = std::stoi(n_str);
         int arg_count = expr.args.size();
@@ -637,6 +579,5 @@ PostfixBuilder CodeGenerator::inline_function_call(
 
     return inlined_builder;
 }
-
 
 } // namespace infix2postfix

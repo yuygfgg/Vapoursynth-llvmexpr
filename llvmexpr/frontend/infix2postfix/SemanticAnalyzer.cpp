@@ -602,8 +602,11 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
                 range);
         }
 
+        if (call_expr) {
+            call_expr->resolved_builtin = best_candidate->item;
+        }
+
         // Built-in functions don't have FunctionSignature, return nullptr
-        // CodeGenerator will check for built-ins separately
         return nullptr;
 
     } else if (name.starts_with("nth_")) {

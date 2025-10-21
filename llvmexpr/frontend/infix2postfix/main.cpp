@@ -80,7 +80,6 @@ int main(int argc, char* argv[]) {
             return 1;
         } else if (!diagnostics.empty()) {
             std::cerr << std::format("Analysis warnings:\n{}\n", diagnostics);
-            return 1;
         }
 
         std::string postfix_code = engine.generateCode();

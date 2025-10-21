@@ -16,6 +16,7 @@ struct Stmt;
 struct BlockStmt;
 struct GlobalDecl;
 struct FunctionDef;
+struct BuiltinFunction;
 
 // Expression node types
 struct NumberExpr {
@@ -68,6 +69,7 @@ struct CallExpr {
     Range range;
     const FunctionSignature* resolved_signature = nullptr;
     FunctionDef* resolved_def = nullptr;
+    const BuiltinFunction* resolved_builtin = nullptr;
 
     CallExpr(Token callee_token, std::vector<std::unique_ptr<Expr>> a);
 };
