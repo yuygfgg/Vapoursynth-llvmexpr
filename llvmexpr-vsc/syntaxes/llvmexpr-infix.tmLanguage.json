@@ -17,10 +17,10 @@
       "include": "#labels"
     },
     {
-      "include": "#keywords"
+      "include": "#function_definition"
     },
     {
-      "include": "#function_definition"
+      "include": "#keywords"
     },
     {
       "include": "#function_calls"
@@ -30,9 +30,6 @@
     },
     {
       "include": "#static_pixel_access"
-    },
-    {
-      "include": "#storage_types"
     },
     {
       "include": "#constants"
@@ -147,7 +144,7 @@
       ]
     },
     "function_definition": {
-      "begin": "\\b(function)\\s+([a-zA-Z_][\\w]*)(\\()",
+      "begin": "\\b(function)\\s+([a-zA-Z_][\\w]*)\\s*(\\()",
       "beginCaptures": {
         "1": {
           "name": "storage.type.function.llvmexpr-infix"
@@ -167,6 +164,18 @@
       },
       "name": "meta.function.definition.llvmexpr-infix",
       "patterns": [
+        {
+          "name": "meta.parameter.declaration.llvmexpr-infix",
+          "match": "\\b(Value|Clip|Literal|Array)\\b\\s+([a-zA-Z_][\\w]*)\\b",
+          "captures": {
+            "1": {
+              "name": "storage.type.llvmexpr-infix"
+            },
+            "2": {
+              "name": "variable.parameter.llvmexpr-infix"
+            }
+          }
+        },
         {
           "include": "#storage_types"
         },
