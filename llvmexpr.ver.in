@@ -1,6 +1,0 @@
-{
-  global:
-    @symbol@;
-  local:
-    *;
-};

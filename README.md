@@ -122,7 +122,7 @@ See [examples](examples) for examples of infix code.
 
 ## Dependencies
 
-*   A C++23 compliant compiler (e.g., Clang, GCC)
+*   [Clang](https://clang.llvm.org/) (>= 20.0.0)
 *   [VapourSynth](https://www.vapoursynth.com/) SDK (headers)
 *   [LLVM](https://llvm.org/) development libraries (>= 20.0.0)
 *   [Meson](https://mesonbuild.com/) build system

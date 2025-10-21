@@ -25,44 +25,33 @@ project('llvmexpr', 'cpp', 'c',
 cxx = meson.get_compiler('cpp')
 cc = meson.get_compiler('c')
 
-gcc_syntax = cxx.get_argument_syntax() == 'gcc'
+if cxx.get_id() != 'clang'
+  error('This project requires Clang C++ compiler. Current compiler: ' + cxx.get_id())
+endif
+
+if cc.get_id() != 'clang'
+  error('This project requires Clang C compiler. Current compiler: ' + cc.get_id())
+endif
 
 enable_sanitizers = get_option('enable-sanitizers')
 if enable_sanitizers
-  if gcc_syntax
-    sanitizer_args = [
-      '-fno-omit-frame-pointer',
-      '-fno-optimize-sibling-calls',
-      '-O1'
-    ]
-    add_project_arguments(sanitizer_args, language: ['cpp', 'c'])
-  else
-    sanitizer_args = [
-      '/fsanitize=address',
-      '/Zi',
-      '/Od'
-    ]
-    add_project_arguments(sanitizer_args, language: ['cpp', 'c'])
-  endif
+  sanitizer_args = [
+    '-fno-omit-frame-pointer',
+    '-fno-optimize-sibling-calls',
+    '-O1'
+  ]
+  add_project_arguments(sanitizer_args, language: ['cpp', 'c'])
 endif
 
-if gcc_syntax
-  add_project_arguments('-ftemplate-depth=2048', language: 'cpp')
-  vapoursynth_dep = dependency('vapoursynth', version: '>=55').partial_dependency(compile_args: true, includes: true)
-  install_dir = vapoursynth_dep.get_variable(pkgconfig: 'libdir') / 'vapoursynth'
-else
-  vapoursynth_dep = dependency('', required: false)
-  install_dir = get_option('libdir') / 'vapoursynth'
-endif
+vapoursynth_dep = dependency('vapoursynth', version: '>=55').partial_dependency(compile_args: true, includes: true)
+install_dir = vapoursynth_dep.get_variable(pkgconfig: 'libdir') / 'vapoursynth'
 
 static_llvm = get_option('static-llvm')
 llvm_dep = dependency('llvm', version: '>=20.0.0', method: 'config-tool', modules: ['core', 'orcjit', 'native', 'all-targets'], static: static_llvm)
 
-if gcc_syntax
-  llvm_inc_dir = include_directories(llvm_dep.get_variable('includedir'), is_system: true)
-  llvm_link_dep = llvm_dep.partial_dependency(link_args: true)
-  llvm_dep = declare_dependency(include_directories: llvm_inc_dir, dependencies: llvm_link_dep)
-endif
+llvm_inc_dir = include_directories(llvm_dep.get_variable('includedir'), is_system: true)
+llvm_link_dep = llvm_dep.partial_dependency(link_args: true)
+llvm_dep = declare_dependency(include_directories: llvm_inc_dir, dependencies: llvm_link_dep)
 
 dependencies = [vapoursynth_dep, llvm_dep]
 link_args = []
@@ -93,37 +82,6 @@ endif
 
 if static_llvm and host_machine.system() == 'windows'
   link_args += '-static'
-endif
-
-if static_llvm
-  if host_machine.system() == 'darwin'
-    exported_symbols = configure_file(
-      input: 'llvmexpr.exp.in',
-      output: 'llvmexpr.exp',
-      configuration: {
-        'symbol': '_VapourSynthPluginInit2'
-      }
-    )
-    link_args += ['-Wl,-exported_symbols_list,' + exported_symbols.full_path()]
-  elif host_machine.system() == 'windows' and not gcc_syntax
-    def_file = configure_file(
-      input: 'llvmexpr.def.in',
-      output: 'llvmexpr.def',
-      configuration: {
-        'exports': 'EXPORTS\nVapourSynthPluginInit2'
-      }
-    )
-    link_args += ['/DEF:' + def_file.full_path(), '/FORCE:MULTIPLE']
-  else
-    version_script = configure_file(
-      input: 'llvmexpr.ver.in',
-      output: 'llvmexpr.ver',
-      configuration: {
-        'symbol': 'VapourSynthPluginInit2'
-      }
-    )
-    link_args += ['-Wl,--version-script,' + version_script.full_path(), '-Wl,--exclude-libs,ALL']
-  endif
 endif
 
 sources = [

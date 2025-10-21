@@ -49,6 +49,10 @@
 #include <string_view>
 #include <utility>
 
+#ifndef __clang__
+#error "Vapoursynth-llvmexpr is only supported by Clang"
+#endif
+
 template <auto value> constexpr std::string_view enum_name() {
     constexpr std::string_view name = __PRETTY_FUNCTION__;
     constexpr auto start = name.find('=') + 2;
