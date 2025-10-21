@@ -208,6 +208,23 @@ struct FunctionSignature {
     std::set<std::string> used_globals;
 };
 
+inline int get_clip_index(const std::string& s) {
+    if (s.length() == 1 && s[0] >= 'a' && s[0] <= 'z')
+        return s[0] - 'a';
+    if (s.rfind("src", 0) == 0) {
+        for (size_t i = 3; i < s.length(); ++i) {
+            if (!std::isdigit(s[i]))
+                return -1;
+        }
+        return std::stoi(s.substr(3));
+    }
+    return -1;
+}
+
+inline bool is_clip_name(const std::string& s) {
+    return get_clip_index(s) != -1;
+}
+
 } // namespace infix2postfix
 
 #endif

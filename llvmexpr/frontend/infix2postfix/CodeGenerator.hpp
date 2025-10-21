@@ -36,7 +36,6 @@ class CodeGenerator {
 
     Mode get_mode() const { return mode; }
     ExprResult generate_expr(Expr* expr) { return generate(expr); }
-    static bool is_constant_infix(const std::string& name);
 
   private:
     ExprResult generate(Expr* expr);
@@ -75,9 +74,6 @@ class CodeGenerator {
     inline_function_call(const FunctionSignature& sig, FunctionDef* func_def,
                          const std::vector<std::unique_ptr<Expr>>& args,
                          const Range& call_range);
-
-    bool is_clip_name(const std::string& s);
-    bool is_convertible(Type from, Type to);
 
     Mode mode;
     int num_inputs;

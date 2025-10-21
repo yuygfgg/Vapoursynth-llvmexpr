@@ -86,7 +86,6 @@ class SemanticAnalyzer {
 
     void reportError(const std::string& message, const Range& range);
     void reportWarning(const std::string& message, const Range& range);
-    bool isConvertible(Type from, Type to);
     bool builtinParamTypeIsEvaluatable(
         const std::vector<struct BuiltinFunction>& overloads, size_t param_idx);
 

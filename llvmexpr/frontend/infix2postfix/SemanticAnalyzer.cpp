@@ -1,28 +1,12 @@
 #include "SemanticAnalyzer.hpp"
-#include "../Tokenizer.hpp"
 #include "Builtins.hpp"
+#include "OverloadResolution.hpp"
 #include <algorithm>
 #include <cstddef>
 #include <format>
 #include <functional>
 
 namespace infix2postfix {
-
-namespace {
-int get_clip_index(const std::string& s) {
-    if (s.length() == 1 && s[0] >= 'a' && s[0] <= 'z')
-        return parse_std_clip_idx(s[0]);
-    if (s.rfind("src", 0) == 0) {
-        for (size_t i = 3; i < s.length(); ++i) {
-            if (!std::isdigit(s[i]))
-                return -1;
-        }
-        return std::stoi(s.substr(3));
-    }
-    return -1;
-}
-
-} // namespace
 
 SemanticAnalyzer::SemanticAnalyzer(Mode mode, int num_inputs)
     : mode(mode), num_inputs(num_inputs),
@@ -363,7 +347,7 @@ Type SemanticAnalyzer::analyze(UnaryExpr& expr) {
     }
 
     auto right_type = analyzeExpr(expr.right.get());
-    if (!isConvertible(right_type, Type::VALUE)) {
+    if (!isConvertible(right_type, Type::VALUE, mode)) {
         reportError(std::format("Cannot apply unary operator '{}' to type "
                                 "'{}' which is not convertible to a value.",
                                 token_type_to_string(expr.op.type),
@@ -378,14 +362,14 @@ Type SemanticAnalyzer::analyze(BinaryExpr& expr) {
     auto left_type = analyzeExpr(expr.left.get());
     auto right_type = analyzeExpr(expr.right.get());
 
-    if (!isConvertible(left_type, Type::VALUE)) {
+    if (!isConvertible(left_type, Type::VALUE, mode)) {
         reportError(std::format("Left operand of binary operator '{}' has type "
                                 "'{}' which is not convertible to a value.",
                                 token_type_to_string(expr.op.type),
                                 to_string(left_type)),
                     expr.range);
     }
-    if (!isConvertible(right_type, Type::VALUE)) {
+    if (!isConvertible(right_type, Type::VALUE, mode)) {
         reportError(
             std::format("Right operand of binary operator '{}' has type "
                         "'{}' which is not convertible to a value.",
@@ -399,7 +383,7 @@ Type SemanticAnalyzer::analyze(BinaryExpr& expr) {
 
 Type SemanticAnalyzer::analyze(TernaryExpr& expr) {
     auto cond_type = analyzeExpr(expr.cond.get());
-    if (!isConvertible(cond_type, Type::VALUE)) {
+    if (!isConvertible(cond_type, Type::VALUE, mode)) {
         reportError(std::format("Ternary condition has type '{}' which is not "
                                 "convertible to a value.",
                                 to_string(cond_type)),
@@ -409,8 +393,8 @@ Type SemanticAnalyzer::analyze(TernaryExpr& expr) {
     auto true_type = analyzeExpr(expr.true_expr.get());
     auto false_type = analyzeExpr(expr.false_expr.get());
 
-    if (!isConvertible(true_type, Type::VALUE) ||
-        !isConvertible(false_type, Type::VALUE)) {
+    if (!isConvertible(true_type, Type::VALUE, mode) ||
+        !isConvertible(false_type, Type::VALUE, mode)) {
         reportError("Both branches of a ternary expression must be convertible "
                     "to a value.",
                     expr.range);
@@ -446,12 +430,7 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
             arg_types.push_back(analyzeExpr(arg.get()));
         }
 
-        struct Candidate {
-            const FunctionSignature* sig;
-            int conversion_count;
-            int first_conversion_index;
-        };
-        std::vector<Candidate> candidates;
+        std::vector<OverloadCandidate<FunctionSignature>> candidates;
 
         for (const auto& sig : overloads) {
             if (sig.params.size() != arg_types.size())
@@ -464,7 +443,7 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
                 Type arg_type = arg_types[j];
                 Type param_type = sig.params[j].type;
                 if (arg_type != param_type) {
-                    if (isConvertible(arg_type, param_type)) {
+                    if (isConvertible(arg_type, param_type, mode)) {
                         conversion_count++;
                         if (first_conversion_index == -1) {
                             first_conversion_index = static_cast<int>(j);
@@ -498,32 +477,9 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
         }
 
         // Select best candidate
-        Candidate* best_candidate = &candidates[0];
-        for (size_t i = 1; i < candidates.size(); ++i) {
-            if (candidates[i].conversion_count <
-                best_candidate->conversion_count) {
-                best_candidate = &candidates[i];
-            } else if (candidates[i].conversion_count ==
-                       best_candidate->conversion_count) {
-                if (candidates[i].first_conversion_index >
-                    best_candidate->first_conversion_index) {
-                    best_candidate = &candidates[i];
-                }
-            }
-        }
+        auto* best_candidate = selectBestCandidate(candidates);
 
-        int best_conversion_count = best_candidate->conversion_count;
-        int best_first_conversion_index =
-            best_candidate->first_conversion_index;
-        int num_best = 0;
-        for (const auto& cand : candidates) {
-            if (cand.conversion_count == best_conversion_count &&
-                cand.first_conversion_index == best_first_conversion_index) {
-                num_best++;
-            }
-        }
-
-        if (num_best > 1) {
+        if (isAmbiguous(candidates, best_candidate)) {
             reportError(
                 std::format("Ambiguous call to overloaded function '{}'", name),
                 range);
@@ -533,11 +489,11 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
         if (call_expr && function_defs.count(name)) {
             const auto& defs = function_defs.at(name);
             for (auto* def : defs) {
-                if (def->params.size() == best_candidate->sig->params.size()) {
+                if (def->params.size() == best_candidate->item->params.size()) {
                     bool match = true;
                     for (size_t i = 0; i < def->params.size(); ++i) {
                         if (def->params[i].type !=
-                            best_candidate->sig->params[i].type) {
+                            best_candidate->item->params[i].type) {
                             match = false;
                             break;
                         }
@@ -553,7 +509,7 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
             }
         }
 
-        return best_candidate->sig;
+        return best_candidate->item;
     }
 
     const auto& builtins = get_builtin_functions();
@@ -563,12 +519,7 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
 
         std::vector<std::optional<Type>> arg_types(args.size());
 
-        struct Candidate {
-            const BuiltinFunction* builtin;
-            int conversion_count;
-            int first_conversion_index;
-        };
-        std::vector<Candidate> candidates;
+        std::vector<OverloadCandidate<BuiltinFunction>> candidates;
 
         for (const auto& builtin : overloads) {
             if (builtin.arity != (int)args.size())
@@ -598,7 +549,7 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
                 Type arg_type = arg_types[j].value();
 
                 if (arg_type != param_type) {
-                    if (isConvertible(arg_type, param_type)) {
+                    if (isConvertible(arg_type, param_type, mode)) {
                         conversion_count++;
                         if (first_conversion_index == -1) {
                             first_conversion_index = static_cast<int>(j);
@@ -641,32 +592,9 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
         }
 
         // Select best candidate
-        Candidate* best_candidate = &candidates[0];
-        for (size_t i = 1; i < candidates.size(); ++i) {
-            if (candidates[i].conversion_count <
-                best_candidate->conversion_count) {
-                best_candidate = &candidates[i];
-            } else if (candidates[i].conversion_count ==
-                       best_candidate->conversion_count) {
-                if (candidates[i].first_conversion_index >
-                    best_candidate->first_conversion_index) {
-                    best_candidate = &candidates[i];
-                }
-            }
-        }
+        auto* best_candidate = selectBestCandidate(candidates);
 
-        int best_conversion_count = best_candidate->conversion_count;
-        int best_first_conversion_index =
-            best_candidate->first_conversion_index;
-        int num_best = 0;
-        for (const auto& cand : candidates) {
-            if (cand.conversion_count == best_conversion_count &&
-                cand.first_conversion_index == best_first_conversion_index) {
-                num_best++;
-            }
-        }
-
-        if (num_best > 1) {
+        if (isAmbiguous(candidates, best_candidate)) {
             reportError(
                 std::format(
                     "Ambiguous call to overloaded built-in function '{}'",
@@ -700,7 +628,7 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
         }
         for (const auto& arg : args) {
             auto arg_type = analyzeExpr(arg.get());
-            if (!isConvertible(arg_type, Type::VALUE)) {
+            if (!isConvertible(arg_type, Type::VALUE, mode)) {
                 reportError(
                     std::format("Argument to function '{}' has type '{}' which "
                                 "is not convertible to Value.",
@@ -797,7 +725,7 @@ Type SemanticAnalyzer::analyze(ArrayAccessExpr& expr) {
     expr.array_symbol = symbol;
 
     auto index_type = analyzeExpr(expr.index.get());
-    if (!isConvertible(index_type, Type::VALUE)) {
+    if (!isConvertible(index_type, Type::VALUE, mode)) {
         reportError("Array index must be convertible to a value.",
                     expr.index->range());
     }
@@ -865,7 +793,7 @@ void SemanticAnalyzer::analyze(AssignStmt& stmt) {
                 }
             } else {
                 auto size_type = analyzeExpr(call_expr->args[0].get());
-                if (!isConvertible(size_type, Type::VALUE)) {
+                if (!isConvertible(size_type, Type::VALUE, mode)) {
                     reportError("Array size must be convertible to a value.",
                                 stmt.range);
                 }
@@ -916,7 +844,7 @@ void SemanticAnalyzer::analyze(ArrayAssignStmt& stmt) {
     analyzeExpr(stmt.target.get());
 
     auto value_type = analyzeExpr(stmt.value.get());
-    if (!isConvertible(value_type, Type::VALUE)) {
+    if (!isConvertible(value_type, Type::VALUE, mode)) {
         reportError("Array assignment value must be convertible to a value.",
                     stmt.value->range());
     }
@@ -932,7 +860,7 @@ void SemanticAnalyzer::analyze(BlockStmt& stmt) {
 
 void SemanticAnalyzer::analyze(IfStmt& stmt) {
     auto cond_type = analyzeExpr(stmt.condition.get());
-    if (!isConvertible(cond_type, Type::VALUE)) {
+    if (!isConvertible(cond_type, Type::VALUE, mode)) {
         reportError(std::format("If condition has type '{}' which is not "
                                 "convertible to a value.",
                                 to_string(cond_type)),
@@ -948,7 +876,7 @@ void SemanticAnalyzer::analyze(IfStmt& stmt) {
 
 void SemanticAnalyzer::analyze(WhileStmt& stmt) {
     auto cond_type = analyzeExpr(stmt.condition.get());
-    if (!isConvertible(cond_type, Type::VALUE)) {
+    if (!isConvertible(cond_type, Type::VALUE, mode)) {
         reportError(std::format("While condition has type '{}' which is not "
                                 "convertible to a value.",
                                 to_string(cond_type)),
@@ -1157,11 +1085,6 @@ bool SemanticAnalyzer::path_always_returns(Stmt* stmt) {
         return false;
     }
     return false;
-}
-
-bool SemanticAnalyzer::isConvertible(Type from, Type to) {
-    return from == to || (to == Type::VALUE && from != Type::LITERAL_STRING &&
-                          !(mode == Mode::Single && from == Type::CLIP));
 }
 
 bool SemanticAnalyzer::builtinParamTypeIsEvaluatable(

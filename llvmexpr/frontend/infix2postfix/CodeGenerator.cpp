@@ -1,5 +1,6 @@
 #include "CodeGenerator.hpp"
 #include "Builtins.hpp"
+#include "OverloadResolution.hpp"
 #include "PostfixBuilder.hpp"
 #include "PostfixHelper.hpp"
 #include "types.hpp"
@@ -8,27 +9,6 @@
 #include <utility>
 
 namespace infix2postfix {
-
-namespace {
-bool is_constant_infix_internal(const std::string& s) {
-    static const std::set<std::string> constants = {"$pi", "$N",     "$X",
-                                                    "$Y",  "$width", "$height"};
-    return constants.count(s);
-}
-
-bool is_clip_postfix_internal(const std::string& s) {
-    if (s.length() == 1 && s[0] >= 'a' && s[0] <= 'z')
-        return true;
-    if (s.rfind("src", 0) == 0) {
-        for (size_t i = 3; i < s.length(); ++i) {
-            if (!std::isdigit(s[i]))
-                return false;
-        }
-        return true;
-    }
-    return false;
-}
-} // namespace
 
 CodeGenerator::CodeGenerator(Mode mode, int num_inputs)
     : mode(mode), num_inputs(num_inputs) {}
@@ -91,8 +71,8 @@ CodeGenerator::ExprResult CodeGenerator::handle(const VariableExpr& expr) {
 
     b.add_variable_load(var_name);
 
-    if (expr.symbol && expr.symbol->type == Type::ARRAY) {
-        return {b, Type::ARRAY};
+    if (expr.symbol) {
+        return {b, expr.symbol->type};
     }
 
     return {b, Type::VALUE};
@@ -160,12 +140,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
 
         std::vector<std::optional<ExprResult>> arg_results(expr.args.size());
 
-        struct Candidate {
-            const BuiltinFunction* builtin;
-            int conversion_count;
-            int first_conversion_index;
-        };
-        std::vector<Candidate> candidates;
+        std::vector<OverloadCandidate<BuiltinFunction>> candidates;
 
         for (const auto& builtin : overloads) {
             if (builtin.arity != (int)expr.args.size())
@@ -195,7 +170,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
                 Type arg_type = arg_results[j]->type;
 
                 if (arg_type != param_type) {
-                    if (is_convertible(arg_type, param_type)) {
+                    if (isConvertible(arg_type, param_type, mode)) {
                         conversion_count++;
                         if (first_conversion_index == -1) {
                             first_conversion_index = static_cast<int>(j);
@@ -214,28 +189,16 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
         }
 
         if (!candidates.empty()) {
-            Candidate* best_candidate = &candidates[0];
-            for (size_t i = 1; i < candidates.size(); ++i) {
-                if (candidates[i].conversion_count <
-                    best_candidate->conversion_count) {
-                    best_candidate = &candidates[i];
-                } else if (candidates[i].conversion_count ==
-                           best_candidate->conversion_count) {
-                    if (candidates[i].first_conversion_index >
-                        best_candidate->first_conversion_index) {
-                        best_candidate = &candidates[i];
-                    }
-                }
-            }
+            auto* best_candidate = selectBestCandidate(candidates);
 
-            if (best_candidate->builtin->special_handler) {
-                return {best_candidate->builtin->special_handler(this, expr),
+            if (best_candidate->item->special_handler) {
+                return {best_candidate->item->special_handler(this, expr),
                         Type::VALUE};
             }
 
             PostfixBuilder b;
             for (size_t i = 0; i < expr.args.size(); ++i) {
-                if (best_candidate->builtin->param_types[i] !=
+                if (best_candidate->item->param_types[i] !=
                     Type::LITERAL_STRING) {
                     if (!arg_results[i].has_value()) {
                         arg_results[i] = generate(expr.args[i].get());
@@ -675,17 +638,5 @@ PostfixBuilder CodeGenerator::inline_function_call(
     return inlined_builder;
 }
 
-bool CodeGenerator::is_constant_infix(const std::string& name) {
-    return is_constant_infix_internal(name);
-}
-
-bool CodeGenerator::is_clip_name(const std::string& s) {
-    return is_clip_postfix_internal(s);
-}
-
-bool CodeGenerator::is_convertible(Type from, Type to) {
-    return from == to || (to == Type::VALUE && from != Type::LITERAL_STRING &&
-                          !(mode == Mode::Single && from == Type::CLIP));
-}
 
 } // namespace infix2postfix
