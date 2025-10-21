@@ -2,6 +2,7 @@
 #include "CodeGenerator.hpp"
 #include "Parser.hpp"
 #include "SemanticAnalyzer.hpp"
+#include "llvmexpr/utils/EnumName.hpp"
 #include <format>
 
 namespace infix2postfix {
@@ -79,14 +80,12 @@ std::string AnalysisEngine::formatDiagnostics() const {
             warning_count++;
         }
 
-        std::string severity_str =
-            (diag.severity == DiagnosticSeverity::ERROR) ? "Error" : "Warning";
-
         if (!result.empty()) {
             result += "\n";
         }
+        std::string severity_name = std::string(enum_name(diag.severity));
         result += std::format("{} - {}: {}", diag.range.to_string(),
-                              severity_str, diag.message);
+                              severity_name, diag.message);
     }
 
     std::string summary;

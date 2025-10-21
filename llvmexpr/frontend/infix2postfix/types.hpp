@@ -34,21 +34,6 @@ enum class Type {
     ARRAY,
 };
 
-inline std::string to_string(Type t) {
-    switch (t) {
-    case Type::VALUE:
-        return "Value";
-    case Type::CLIP:
-        return "Clip";
-    case Type::LITERAL:
-        return "Literal";
-    case Type::LITERAL_STRING:
-        return "LiteralString";
-    case Type::ARRAY:
-        return "Array";
-    }
-}
-
 enum class TokenType {
     // Keywords
     If,       // if

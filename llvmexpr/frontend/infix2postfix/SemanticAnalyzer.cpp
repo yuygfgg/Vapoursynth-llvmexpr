@@ -1,6 +1,7 @@
 #include "SemanticAnalyzer.hpp"
 #include "Builtins.hpp"
 #include "OverloadResolution.hpp"
+#include "llvmexpr/utils/EnumName.hpp"
 #include <algorithm>
 #include <cstddef>
 #include <format>
@@ -351,7 +352,7 @@ Type SemanticAnalyzer::analyze(UnaryExpr& expr) {
         reportError(std::format("Cannot apply unary operator '{}' to type "
                                 "'{}' which is not convertible to a value.",
                                 token_type_to_string(expr.op.type),
-                                to_string(right_type)),
+                                enum_name(right_type)),
                     expr.range);
     }
 
@@ -366,7 +367,7 @@ Type SemanticAnalyzer::analyze(BinaryExpr& expr) {
         reportError(std::format("Left operand of binary operator '{}' has type "
                                 "'{}' which is not convertible to a value.",
                                 token_type_to_string(expr.op.type),
-                                to_string(left_type)),
+                                enum_name(left_type)),
                     expr.range);
     }
     if (!isConvertible(right_type, Type::VALUE, mode)) {
@@ -374,7 +375,7 @@ Type SemanticAnalyzer::analyze(BinaryExpr& expr) {
             std::format("Right operand of binary operator '{}' has type "
                         "'{}' which is not convertible to a value.",
                         token_type_to_string(expr.op.type),
-                        to_string(right_type)),
+                        enum_name(right_type)),
             expr.range);
     }
 
@@ -386,7 +387,7 @@ Type SemanticAnalyzer::analyze(TernaryExpr& expr) {
     if (!isConvertible(cond_type, Type::VALUE, mode)) {
         reportError(std::format("Ternary condition has type '{}' which is not "
                                 "convertible to a value.",
-                                to_string(cond_type)),
+                                enum_name(cond_type)),
                     expr.range);
     }
 
@@ -447,7 +448,7 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
         if (candidates.empty()) {
             std::string arg_types_str;
             for (size_t i = 0; i < arg_types.size(); ++i) {
-                arg_types_str += to_string(arg_types[i]);
+                arg_types_str += std::string(enum_name(arg_types[i]));
                 if (i < arg_types.size() - 1)
                     arg_types_str += ", ";
             }
@@ -543,7 +544,8 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
                     if (!arg_types[i].has_value()) {
                         arg_types[i] = analyzeExpr(args[i].get());
                     }
-                    arg_types_str += to_string(arg_types[i].value());
+                    arg_types_str +=
+                        std::string(enum_name(arg_types[i].value()));
                 } else {
                     arg_types_str += "LiteralString";
                 }
@@ -604,7 +606,7 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
                 reportError(
                     std::format("Argument to function '{}' has type '{}' which "
                                 "is not convertible to Value.",
-                                name, to_string(arg_type)),
+                                name, enum_name(arg_type)),
                     arg->range());
             }
         }
@@ -835,7 +837,7 @@ void SemanticAnalyzer::analyze(IfStmt& stmt) {
     if (!isConvertible(cond_type, Type::VALUE, mode)) {
         reportError(std::format("If condition has type '{}' which is not "
                                 "convertible to a value.",
-                                to_string(cond_type)),
+                                enum_name(cond_type)),
                     stmt.condition->range());
     }
 
@@ -851,7 +853,7 @@ void SemanticAnalyzer::analyze(WhileStmt& stmt) {
     if (!isConvertible(cond_type, Type::VALUE, mode)) {
         reportError(std::format("While condition has type '{}' which is not "
                                 "convertible to a value.",
-                                to_string(cond_type)),
+                                enum_name(cond_type)),
                     stmt.condition->range());
     }
 

@@ -1,5 +1,6 @@
 #include "ASTPrinter.hpp"
 #include "Builtins.hpp"
+#include "llvmexpr/utils/EnumName.hpp"
 
 namespace infix2postfix {
 
@@ -45,8 +46,8 @@ void ASTPrinter::visit(const AssignStmt& stmt) {
     line("AssignStmt: {}", stmt.name.value);
     if (stmt.symbol) {
         indent();
-        std::string type_str = to_string(stmt.symbol->type);
-        line("Symbol: {} (type: {})", stmt.symbol->name, type_str);
+        std::string type_name = std::string(enum_name(stmt.symbol->type));
+        line("Symbol: {} (type: {})", stmt.symbol->name, type_name);
         unindent();
     }
     indent();
@@ -150,19 +151,8 @@ void ASTPrinter::visit(const GotoStmt& stmt) {
 }
 
 void ASTPrinter::visit(const GlobalDecl& stmt) {
-    std::string mode_str;
-    switch (stmt.mode) {
-    case GlobalMode::ALL:
-        mode_str = "all";
-        break;
-    case GlobalMode::NONE:
-        mode_str = "none";
-        break;
-    case GlobalMode::SPECIFIC:
-        mode_str = "specific";
-        break;
-    }
-    line("GlobalDecl: mode={}", mode_str);
+    std::string mode_name = std::string(enum_name(stmt.mode));
+    line("GlobalDecl: mode={}", mode_name);
     if (stmt.mode == GlobalMode::SPECIFIC) {
         indent();
         for (const auto& g : stmt.globals) {
@@ -184,8 +174,8 @@ void ASTPrinter::visit(const FunctionDef& stmt) {
         line("Params:");
         indent();
         for (const auto& p : stmt.params) {
-            std::string type_str = to_string(p.type);
-            line("Param: {} (type: {})", p.name.value, type_str);
+            std::string type_name = std::string(enum_name(p.type));
+            line("Param: {} (type: {})", p.name.value, type_name);
         }
         unindent();
     }
@@ -210,8 +200,8 @@ void ASTPrinter::visit(const VariableExpr& expr) {
     line("VariableExpr: {}", expr.name.value);
     if (expr.symbol) {
         indent();
-        std::string type_str = to_string(expr.symbol->type);
-        line("Symbol: {} (type: {})", expr.symbol->name, type_str);
+        std::string type_name = std::string(enum_name(expr.symbol->type));
+        line("Symbol: {} (type: {})", expr.symbol->name, type_name);
         unindent();
     }
 }
