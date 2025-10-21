@@ -47,6 +47,7 @@ if enable_sanitizers
 endif
 
 if gcc_syntax
+  add_project_arguments('-ftemplate-depth=2048', language: 'cpp')
   vapoursynth_dep = dependency('vapoursynth', version: '>=55').partial_dependency(compile_args: true, includes: true)
   install_dir = vapoursynth_dep.get_variable(pkgconfig: 'libdir') / 'vapoursynth'
 else

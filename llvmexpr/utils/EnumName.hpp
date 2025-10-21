@@ -50,24 +50,44 @@
 #include <utility>
 
 template <auto value> constexpr std::string_view enum_name() {
-    std::string_view name;
-    name = __PRETTY_FUNCTION__;
-    std::size_t start = name.find('=') + 2;
-    std::size_t end = name.size() - 1;
-    name = std::string_view{name.data() + start, end - start};
-    start = name.rfind("::");
-    return start == std::string_view::npos
-               ? name
-               : std::string_view{name.data() + start + 2,
-                                  name.size() - start - 2};
+    constexpr std::string_view name = __PRETTY_FUNCTION__;
+    static_assert(false, __PRETTY_FUNCTION__);
+    constexpr auto start = name.find('=') + 2;
+    constexpr auto end = name.size() - 1;
+    constexpr auto full = std::string_view{name.data() + start, end - start};
+    constexpr auto last_colon = full.rfind("::");
+    return last_colon == std::string_view::npos ? full
+                                                : full.substr(last_colon + 2);
 }
 
-template <typename T, std::size_t N = 0> constexpr std::size_t enum_max() {
-    constexpr auto value = static_cast<T>(N);
-    if constexpr (enum_name<value>().find(")") == std::string_view::npos)
-        return enum_max<T, N + 1>();
-    else
+template <typename T, std::size_t N = 1>
+constexpr std::size_t find_enum_upper_bound() {
+    if constexpr (enum_name<static_cast<T>(N)>().contains(")")) {
         return N;
+    } else {
+        return find_enum_upper_bound<T, N * 2>();
+    }
+}
+
+template <typename T, std::size_t Low, std::size_t High>
+constexpr std::size_t binary_search_enum_max() {
+    if constexpr (High - Low <= 1) {
+        return enum_name<static_cast<T>(Low)>().contains(")") ? Low : High;
+    } else {
+        constexpr std::size_t Mid = Low + (High - Low) / 2;
+        constexpr bool is_valid =
+            !enum_name<static_cast<T>(Mid)>().contains(")");
+        if constexpr (is_valid) {
+            return binary_search_enum_max<T, Mid, High>();
+        } else {
+            return binary_search_enum_max<T, Low, Mid>();
+        }
+    }
+}
+
+template <typename T> constexpr std::size_t enum_max() {
+    constexpr auto upper = find_enum_upper_bound<T>();
+    return binary_search_enum_max<T, upper / 2, upper>();
 }
 
 template <typename T>
@@ -75,10 +95,9 @@ template <typename T>
 constexpr std::string_view enum_name(T value) {
     constexpr auto num = enum_max<T>();
     constexpr auto names = []<std::size_t... Is>(std::index_sequence<Is...>) {
-        return std::array<std::string_view, num>{
-            enum_name<static_cast<T>(Is)>()...};
+        return std::array{enum_name<static_cast<T>(Is)>()...};
     }(std::make_index_sequence<num>{});
-    return names[static_cast<std::size_t>(value)];
+    return names[std::to_underlying(value)];
 }
 
 #endif // LLVMEXPR_ENUM_NAME_HPP

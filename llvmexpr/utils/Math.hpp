@@ -1,20 +1,48 @@
 /**
  * Copyright (C) 2025 yuygfgg
- * 
+ *
  * This file is part of Vapoursynth-llvmexpr.
- * 
+ *
  * Vapoursynth-llvmexpr is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * Vapoursynth-llvmexpr is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
+ *
+ * The implementation of fast math functions is partially borrowed from vapoursynth
+ * which is licensed under the GNU Lesser General Public License v2.1.
+ *
+ *
+ * Copyright (c) 2013-2020 Fredrik Mellbin
+ *
+ * This file is part of VapourSynth.
+ *
+ * VapourSynth is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * VapourSynth is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with VapourSynth; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ *
+ * The `atan` implementation is from a Stack Overflow answer by user njuffa
+ * (https://stackoverflow.com/a/23097989), licensed under CC BY-SA 4.0.
+ *
+ * The `acos` implementation is from https://forwardscattering.org/post/66.
+ * NOTE: No license was specified on the source website.
  */
 
 #ifndef LLVMEXPR_MATH_FUNCTIONS_HPP
@@ -626,6 +654,7 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Acos> {
     static llvm::Function* generate(MathFunctionGenerator<VectorWidth>* gen) {
         constexpr auto opInfo = getMathOpInfo(MathOp::Acos);
         // https://forwardscattering.org/post/66
+        // TODO: Switch to another implementation that doesn't has licensing issues.
         return gen->createFunction(
             opInfo.name, opInfo.arity,
             [gen](llvm::ArrayRef<llvm::Value*> args) -> llvm::Value* {
