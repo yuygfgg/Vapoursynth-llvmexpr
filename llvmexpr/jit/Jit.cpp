@@ -33,8 +33,8 @@
 
 // Forward declare the host API functions
 extern "C" {
-float* llvmexpr_ensure_buffer(void*, const char*, int64_t);
-int64_t llvmexpr_get_buffer_size(void*, const char*);
+float* llvmexpr_ensure_buffer(const char*, int64_t);
+int64_t llvmexpr_get_buffer_size(const char*);
 }
 
 OrcJit::OrcJit(bool no_nans_fp_math) {
