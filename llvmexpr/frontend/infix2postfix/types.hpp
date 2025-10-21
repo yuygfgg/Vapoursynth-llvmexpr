@@ -1,6 +1,7 @@
 #ifndef LLVMEXPR_INFIX2POSTFIX_TYPES_HPP
 #define LLVMEXPR_INFIX2POSTFIX_TYPES_HPP
 
+#include "llvmexpr/frontend/Tokenizer.hpp"
 #include <format>
 #include <set>
 #include <string>
@@ -210,7 +211,7 @@ struct FunctionSignature {
 
 inline int get_clip_index(const std::string& s) {
     if (s.length() == 1 && s[0] >= 'a' && s[0] <= 'z')
-        return s[0] - 'a';
+        return parse_std_clip_idx(s[0]);
     if (s.rfind("src", 0) == 0) {
         for (size_t i = 3; i < s.length(); ++i) {
             if (!std::isdigit(s[i]))
