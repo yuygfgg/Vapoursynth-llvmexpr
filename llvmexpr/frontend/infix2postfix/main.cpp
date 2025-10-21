@@ -4,13 +4,15 @@
 #include <sstream>
 #include <string>
 
+#include "ASTPrinter.hpp"
 #include "AnalysisEngine.hpp"
 #include "Tokenizer.hpp"
 
 using namespace infix2postfix;
 
 void print_usage() {
-    std::cerr << "Usage: infix2postfix <in.expr> -m [expr/single] -o <out.expr>"
+    std::cerr << "Usage: infix2postfix <in.expr> -m [expr/single] -o "
+                 "<out.expr> [--dump-ast]"
               << std::endl;
 }
 
@@ -18,8 +20,9 @@ int main(int argc, char* argv[]) {
     std::string input_file;
     std::string output_file;
     Mode mode = Mode::Expr;
+    bool dump_ast = false;
 
-    if (argc != 6) {
+    if (argc < 6) {
         print_usage();
         return 1;
     }
@@ -41,6 +44,8 @@ int main(int argc, char* argv[]) {
                     return 1;
                 }
             }
+        } else if (arg == "--dump-ast") {
+            dump_ast = true;
         } else {
             if (input_file.empty()) {
                 input_file = arg;
@@ -73,6 +78,14 @@ int main(int argc, char* argv[]) {
         AnalysisEngine engine(tokens, mode, 114514);
 
         bool success = engine.runAnalysis();
+
+        if (dump_ast) {
+            ASTPrinter printer;
+            std::cout << "--- AST Dump ---\n"
+                      << printer.print(engine.getAST())
+                      << "--- End AST Dump ---\n";
+        }
+
         std::string diagnostics = engine.formatDiagnostics();
 
         if (!success) {

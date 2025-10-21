@@ -157,6 +157,7 @@ shared_module('llvmexpr', sources,
 # Build infix2postfix tool
 infix2postfix_sources = [
   'llvmexpr/frontend/infix2postfix/main.cpp',
+  'llvmexpr/frontend/infix2postfix/ASTPrinter.cpp',
   'llvmexpr/frontend/infix2postfix/Builtins.cpp',
   'llvmexpr/frontend/infix2postfix/Tokenizer.cpp',
   'llvmexpr/frontend/infix2postfix/Parser.cpp',
