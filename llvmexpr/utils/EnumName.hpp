@@ -47,13 +47,14 @@
 
 #include <array>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 #ifndef __clang__
 #error "Vapoursynth-llvmexpr is only supported by Clang"
 #endif
 
-template <auto value> constexpr std::string_view enum_name() {
+template <auto value> consteval std::string_view enum_name() {
     constexpr std::string_view name = __PRETTY_FUNCTION__;
     constexpr auto start = name.find('=') + 2;
     constexpr auto end = name.size() - 1;
@@ -63,44 +64,59 @@ template <auto value> constexpr std::string_view enum_name() {
                                                 : full.substr(last_colon + 2);
 }
 
+namespace llvmexpr_enum_detail {
+template <typename T, std::size_t N> consteval bool is_valid_enum() {
+    return !enum_name<static_cast<T>(N)>().contains(")");
+}
+
 template <typename T, std::size_t N = 1>
-constexpr std::size_t find_enum_upper_bound() {
-    if constexpr (enum_name<static_cast<T>(N)>().contains(")")) {
+consteval std::size_t find_upper_bound() {
+    if constexpr (!is_valid_enum<T, N>()) {
         return N;
     } else {
-        return find_enum_upper_bound<T, N * 2>();
+        return find_upper_bound<T, N * 2>();
     }
 }
 
 template <typename T, std::size_t Low, std::size_t High>
-constexpr std::size_t binary_search_enum_max() {
+consteval std::size_t binary_search_count() {
     if constexpr (High - Low <= 1) {
-        return enum_name<static_cast<T>(Low)>().contains(")") ? Low : High;
+        return is_valid_enum<T, Low>() ? High : Low;
     } else {
         constexpr std::size_t Mid = Low + (High - Low) / 2;
-        constexpr bool is_valid =
-            !enum_name<static_cast<T>(Mid)>().contains(")");
-        if constexpr (is_valid) {
-            return binary_search_enum_max<T, Mid, High>();
+        if constexpr (is_valid_enum<T, Mid>()) {
+            return binary_search_count<T, Mid, High>();
         } else {
-            return binary_search_enum_max<T, Low, Mid>();
+            return binary_search_count<T, Low, Mid>();
         }
     }
 }
 
+template <typename T> consteval std::size_t enum_count() {
+    constexpr std::size_t upper = find_upper_bound<T>();
+    return binary_search_count<T, upper / 2, upper>();
+}
+
+template <typename T, std::size_t... Is>
+consteval auto make_names_impl(std::index_sequence<Is...>) {
+    return std::array{enum_name<static_cast<T>(Is)>()...};
+}
+
+template <typename T> consteval auto make_names() {
+    return make_names_impl<T>(std::make_index_sequence<enum_count<T>()>{});
+}
+} // namespace llvmexpr_enum_detail
+
 template <typename T> constexpr std::size_t enum_max() {
-    constexpr auto upper = find_enum_upper_bound<T>();
-    return binary_search_enum_max<T, upper / 2, upper>();
+    return llvmexpr_enum_detail::enum_count<T>();
 }
 
 template <typename T>
-    requires std::is_enum_v<T>
+    requires std::is_enum_v<T> && std::is_scoped_enum_v<T>
 constexpr std::string_view enum_name(T value) {
-    constexpr auto num = enum_max<T>();
-    constexpr auto names = []<std::size_t... Is>(std::index_sequence<Is...>) {
-        return std::array{enum_name<static_cast<T>(Is)>()...};
-    }(std::make_index_sequence<num>{});
-    return names[std::to_underlying(value)];
+    static constexpr auto names = llvmexpr_enum_detail::make_names<T>();
+    const auto index = static_cast<std::size_t>(std::to_underlying(value));
+    return index < names.size() ? names[index] : std::string_view{};
 }
 
 #endif // LLVMEXPR_ENUM_NAME_HPP
