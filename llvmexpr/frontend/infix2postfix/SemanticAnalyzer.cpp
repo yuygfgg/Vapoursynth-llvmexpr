@@ -430,36 +430,19 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
             arg_types.push_back(analyzeExpr(arg.get()));
         }
 
-        std::vector<OverloadCandidate<FunctionSignature>> candidates;
-
-        for (const auto& sig : overloads) {
-            if (sig.params.size() != arg_types.size())
-                continue;
-
-            int conversion_count = 0;
-            int first_conversion_index = -1;
-            bool possible = true;
-            for (size_t j = 0; j < arg_types.size(); ++j) {
-                Type arg_type = arg_types[j];
-                Type param_type = sig.params[j].type;
-                if (arg_type != param_type) {
-                    if (isConvertible(arg_type, param_type, mode)) {
-                        conversion_count++;
-                        if (first_conversion_index == -1) {
-                            first_conversion_index = static_cast<int>(j);
-                        }
-                    } else {
-                        possible = false;
-                        break;
-                    }
-                }
-            }
-
-            if (possible) {
-                candidates.push_back(
-                    {&sig, conversion_count, first_conversion_index});
-            }
-        }
+        auto candidates = computeCandidates<FunctionSignature>(
+            overloads, args.size(),
+            [&](const FunctionSignature& sig, size_t j) -> std::optional<Type> {
+                if (sig.params.size() != args.size())
+                    return std::nullopt;
+                return arg_types[j];
+            },
+            [&](const FunctionSignature& sig, size_t j) -> std::optional<Type> {
+                if (sig.params.size() != args.size())
+                    return std::nullopt;
+                return sig.params[j].type;
+            },
+            mode);
 
         if (candidates.empty()) {
             std::string arg_types_str;
@@ -519,53 +502,39 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
 
         std::vector<std::optional<Type>> arg_types(args.size());
 
-        std::vector<OverloadCandidate<BuiltinFunction>> candidates;
+        auto candidates = computeCandidates<BuiltinFunction>(
+            overloads, args.size(),
+            [&](const BuiltinFunction& builtin,
+                size_t j) -> std::optional<Type> {
+                if (builtin.arity != (int)args.size())
+                    return std::nullopt;
+                if (builtin.mode_restriction.has_value() &&
+                    builtin.mode_restriction.value() != mode)
+                    return std::nullopt;
 
-        for (const auto& builtin : overloads) {
-            if (builtin.arity != (int)args.size())
-                continue;
-            if (builtin.mode_restriction.has_value() &&
-                builtin.mode_restriction.value() != mode)
-                continue;
-
-            int conversion_count = 0;
-            int first_conversion_index = -1;
-            bool possible = true;
-            for (size_t j = 0; j < args.size(); ++j) {
                 Type param_type = builtin.param_types[j];
-
                 if (param_type == Type::LITERAL_STRING) {
                     auto* var_expr = get_if<VariableExpr>(args[j].get());
-                    if (!var_expr || var_expr->name.value.starts_with("$")) {
-                        possible = false;
-                        break;
-                    }
-                    continue;
+                    if (!var_expr || var_expr->name.value.starts_with("$"))
+                        return std::nullopt;
+                    return Type::LITERAL_STRING;
                 }
 
                 if (!arg_types[j].has_value()) {
                     arg_types[j] = analyzeExpr(args[j].get());
                 }
-                Type arg_type = arg_types[j].value();
-
-                if (arg_type != param_type) {
-                    if (isConvertible(arg_type, param_type, mode)) {
-                        conversion_count++;
-                        if (first_conversion_index == -1) {
-                            first_conversion_index = static_cast<int>(j);
-                        }
-                    } else {
-                        possible = false;
-                        break;
-                    }
-                }
-            }
-
-            if (possible) {
-                candidates.push_back(
-                    {&builtin, conversion_count, first_conversion_index});
-            }
-        }
+                return arg_types[j].value();
+            },
+            [&](const BuiltinFunction& builtin,
+                size_t j) -> std::optional<Type> {
+                if (builtin.arity != (int)args.size())
+                    return std::nullopt;
+                if (builtin.mode_restriction.has_value() &&
+                    builtin.mode_restriction.value() != mode)
+                    return std::nullopt;
+                return builtin.param_types[j];
+            },
+            mode);
 
         if (candidates.empty()) {
             std::string arg_types_str;
