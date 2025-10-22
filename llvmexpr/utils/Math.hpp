@@ -45,8 +45,8 @@
  * NOTE: No license was specified on the source website.
  */
 
-#ifndef LLVMEXPR_MATH_FUNCTIONS_HPP
-#define LLVMEXPR_MATH_FUNCTIONS_HPP
+#ifndef LLVMEXPR_UTILS_MATH_HPP
+#define LLVMEXPR_UTILS_MATH_HPP
 
 #include <format>
 #include <functional>
@@ -818,4 +818,4 @@ class MathLibraryManager {
     }
 };
 
-#endif // LLVMEXPR_MATH_FUNCTIONS_HPP
+#endif // LLVMEXPR_UTILS_MATH_HPP

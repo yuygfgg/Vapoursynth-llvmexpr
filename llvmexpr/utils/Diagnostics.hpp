@@ -17,8 +17,8 @@
  * along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef LLVMEXPR_DIAGNOSTICS_HPP
-#define LLVMEXPR_DIAGNOSTICS_HPP
+#ifndef LLVMEXPR_UTILS_DIAGNOSTICS_HPP
+#define LLVMEXPR_UTILS_DIAGNOSTICS_HPP
 
 #include <atomic>
 
@@ -48,4 +48,4 @@ class VectorizationDiagnosticHandler {
     void* original_context;
 };
 
-#endif // LLVMEXPR_DIAGNOSTICS_HPP
+#endif // LLVMEXPR_UTILS_DIAGNOSTICS_HPP

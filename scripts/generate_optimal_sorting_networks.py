@@ -155,6 +155,8 @@ def generate_cpp_header(networks, output_path, source_url):
         " * You should have received a copy of the GNU General Public License",
         " * along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.",
         " */",
+        "#ifndef LLVMEXPR_UTILS_SORTING_HPP",
+        "#define LLVMEXPR_UTILS_SORTING_HPP",
         "",
         "#include <algorithm>",
         "#include <array>",
@@ -267,6 +269,7 @@ def generate_cpp_header(networks, output_path, source_url):
             "    return out;",
             "}",
             "",
+            "#endif // LLVMEXPR_UTILS_SORTING_HPP",
         ]
     )
 

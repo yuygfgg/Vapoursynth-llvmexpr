@@ -42,8 +42,8 @@
  * SOFTWARE.
  */
 
-#ifndef LLVMEXPR_ENUM_NAME_HPP
-#define LLVMEXPR_ENUM_NAME_HPP
+#ifndef LLVMEXPR_UTILS_ENUMNAME_HPP
+#define LLVMEXPR_UTILS_ENUMNAME_HPP
 
 #include <array>
 #include <string_view>
@@ -119,4 +119,4 @@ constexpr std::string_view enum_name(T value) {
     return index < names.size() ? names[index] : std::string_view{};
 }
 
-#endif // LLVMEXPR_ENUM_NAME_HPP
+#endif // LLVMEXPR_UTILS_ENUMNAME_HPP

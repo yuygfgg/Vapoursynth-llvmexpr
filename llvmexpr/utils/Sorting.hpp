@@ -16,6 +16,8 @@
  * You should have received a copy of the GNU General Public License
  * along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
  */
+#ifndef LLVMEXPR_UTILS_SORTING_HPP
+#define LLVMEXPR_UTILS_SORTING_HPP
 
 #include <algorithm>
 #include <array>
@@ -2164,3 +2166,5 @@ constexpr std::vector<std::pair<int, int>> get_sorting_network(int n) {
 
     return out;
 }
+
+#endif // LLVMEXPR_UTILS_SORTING_HPP
