@@ -177,7 +177,8 @@ const std::map<std::string, std::vector<BuiltinFunction>> builtin_functions = {
                       2,
                       Mode::Single,
                       {Type::LITERAL_STRING, Type::VALUE},
-                      &handle_set_prop}}},
+                      &handle_set_prop,
+                      false}}},
     {"dyn",
      {
          BuiltinFunction{"dyn",
@@ -202,14 +203,16 @@ const std::map<std::string, std::vector<BuiltinFunction>> builtin_functions = {
                          3,
                          Mode::Expr,
                          {Type::VALUE, Type::VALUE, Type::VALUE},
-                         &handle_store_expr},
+                         &handle_store_expr,
+                         false},
          BuiltinFunction{"store",
                          4,
                          Mode::Single,
                          {Type::VALUE, Type::VALUE, Type::LITERAL, Type::VALUE},
-                         &handle_store_single},
+                         &handle_store_single,
+                         false},
      }},
-    {"exit", {BuiltinFunction{"exit", 0, Mode::Expr, {}, &handle_exit}}},
+    {"exit", {BuiltinFunction{"exit", 0, Mode::Expr, {}, &handle_exit, false}}},
 };
 
 } // namespace

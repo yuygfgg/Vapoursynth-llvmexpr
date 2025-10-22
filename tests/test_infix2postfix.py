@@ -1238,7 +1238,7 @@ RESULT = 1
 """
         success, output = run_infix2postfix(infix, "expr")
         assert not success, "Should fail assigning array to variable"
-        assert "Cannot assign array" in output
+        assert "Variable assignment value must be convertible to a value." in output
 
     def test_array_cannot_be_assigned_in_function(self):
         """Test that arrays cannot be assigned to variables in functions."""
@@ -1252,7 +1252,7 @@ RESULT = process(arr)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert not success, "Should fail assigning array parameter to variable"
-        assert "Cannot assign array" in output
+        assert "Variable assignment value must be convertible to a value." in output
 
     def test_function_cannot_return_array(self):
         """Test that functions cannot return arrays."""
@@ -1359,6 +1359,23 @@ RESULT = result1 + result2
         assert "arr{}^2" in output
         assert "0 arr{}@" in output
         assert "2 *" in output
+
+    def test_array_creation_no_args_fails(self):
+        """Test that new() with no arguments fails gracefully."""
+        infix = "arr = new()"
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail with no arguments for new()"
+        assert "new() requires exactly 1 argument (size)" in output
+
+    def test_array_resize_no_args_fails(self):
+        """Test that resize() with no arguments fails gracefully."""
+        infix = """
+arr = new(1)
+arr = resize()
+"""
+        success, output = run_infix2postfix(infix, "single")
+        assert not success, "Should fail with no arguments for resize()"
+        assert "resize() requires exactly 1 argument (size)" in output
 
     def test_array_complex_scenario_expr(self):
         """Test complex array scenario in Expr mode."""
@@ -1603,6 +1620,56 @@ RESULT = f(10)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed: {output}"
+
+
+class TestVoidFunctions:
+    """Tests to ensure void functions are handled correctly."""
+
+    def test_assign_void_user_function_fails(self):
+        """Test that assigning the result of a user-defined void function fails."""
+        infix = """
+function void_func() {
+    # No return value
+}
+a = void_func()
+RESULT = 0
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "Variable assignment value must be convertible to a value." in output
+
+    def test_assign_void_builtin_function_fails(self):
+        """Test that assigning the result of a built-in void function (store) fails."""
+        infix = """
+a = store(0, 0, 0)
+RESULT = 0
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "Variable assignment value must be convertible to a value." in output
+
+    def test_pass_void_user_function_as_arg_fails(self):
+        """Test that passing a user-defined void function as an argument fails."""
+        infix = """
+function void_func() { }
+function takes_value(Value v) { return v }
+RESULT = takes_value(void_func())
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert (
+            "No matching user-defined function for call to 'takes_value(VOID)'"
+            in output
+        )
+
+    def test_pass_void_builtin_function_as_arg_fails(self):
+        """Test that passing a built-in void function as an argument fails."""
+        infix = """
+RESULT = sqrt(store(0, 0, 0))
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success
+        assert "No matching overload for function 'sqrt(VOID)'" in output
 
 
 class TestMultipleReturns:

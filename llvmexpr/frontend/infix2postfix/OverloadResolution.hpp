@@ -8,7 +8,10 @@
 namespace infix2postfix {
 
 inline bool isConvertible(Type from, Type to, Mode mode) {
+    if (from == Type::VOID)
+        return false;
     return from == to || (to == Type::VALUE && from != Type::LITERAL_STRING &&
+                          from != Type::ARRAY &&
                           !(mode == Mode::Single && from == Type::CLIP));
 }
 

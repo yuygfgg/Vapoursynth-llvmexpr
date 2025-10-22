@@ -21,6 +21,7 @@ struct BuiltinFunction {
     std::vector<Type> param_types;
     std::function<PostfixBuilder(CodeGenerator*, const CallExpr&)>
         special_handler = nullptr;
+    bool returns_value = true;
 };
 
 const std::map<std::string, std::vector<BuiltinFunction>>&

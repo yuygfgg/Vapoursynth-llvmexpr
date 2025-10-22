@@ -408,6 +408,17 @@ Type SemanticAnalyzer::analyze(CallExpr& expr) {
     auto signature = resolveOverload(expr.callee, expr.args, expr.range, &expr);
     expr.resolved_signature = signature;
 
+    if (expr.resolved_signature) {
+        return expr.resolved_signature->returns_value ? Type::VALUE
+                                                      : Type::VOID;
+    }
+    if (expr.resolved_builtin) {
+        return expr.resolved_builtin->returns_value ? Type::VALUE : Type::VOID;
+    }
+    if (expr.callee.starts_with("nth_")) {
+        return Type::VALUE;
+    }
+
     return Type::VALUE;
 }
 
@@ -709,7 +720,10 @@ Type SemanticAnalyzer::analyze(ArrayAccessExpr& expr) {
 
 // Statement analysis
 void SemanticAnalyzer::analyze(const ExprStmt& stmt) {
-    analyzeExpr(stmt.expr.get());
+    Type expr_type = analyzeExpr(stmt.expr.get());
+    if (expr_type != Type::VOID) {
+        reportError("Expression result is unused.", stmt.range);
+    }
 }
 
 void SemanticAnalyzer::analyze(AssignStmt& stmt) {
@@ -730,6 +744,7 @@ void SemanticAnalyzer::analyze(AssignStmt& stmt) {
                     std::format("{}() requires exactly 1 argument (size).",
                                 call_expr->callee),
                     stmt.range);
+                return;
             }
 
             std::string var_name = stmt.name.value;
@@ -780,14 +795,10 @@ void SemanticAnalyzer::analyze(AssignStmt& stmt) {
             return;
         }
     }
-
     auto value_type = analyzeExpr(stmt.value.get());
-
-    if (value_type == Type::ARRAY) {
-        reportError(std::format("Cannot assign array to variable '{}'.",
-                                stmt.name.value),
+    if (!isConvertible(value_type, Type::VALUE, mode)) {
+        reportError("Variable assignment value must be convertible to a value.",
                     stmt.range);
-        return;
     }
 
     std::string var_name = stmt.name.value;

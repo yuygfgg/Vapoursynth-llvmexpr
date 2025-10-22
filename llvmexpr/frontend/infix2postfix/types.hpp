@@ -32,6 +32,7 @@ enum class Type {
     LITERAL,
     LITERAL_STRING,
     ARRAY,
+    VOID,
 };
 
 enum class TokenType {
