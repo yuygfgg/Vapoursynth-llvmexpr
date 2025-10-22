@@ -6,7 +6,7 @@ The plugin provides two main functions:
 *   `llvmexpr.Expr`: Evaluates an expression for **every pixel** in a frame, ideal for spatial filtering and general image manipulation.
 *   `llvmexpr.SingleExpr`: Evaluates an expression only **once per frame**, designed for tasks like calculating frame-wide statistics, reading specific pixels, and writing to frame properties or arbitrary pixel locations.
 
-`llvmexpr.Expr` is designed to be a powerful and feature-rich alternative to `akarin.Expr`. It is (almost) fully compatible with `akarin`'s syntax and extends it with additional features, most notably Turing-complete control flow and advanced math functions. See [Migrating From Akarin](docs/migrating_from_akarin.md) for a detailed comparison.
+`llvmexpr.Expr` is designed to be a powerful and feature-rich alternative to `akarin.Expr`. It is (almost) fully compatible with `akarin`'s syntax and extends it with additional features, most notably **Turing-complete control flow**, **array and dynamic memory allocation**, **advanced math functions** and **C-style infix syntax**. See [Migrating From Akarin](docs/migrating_from_akarin.md) for a detailed comparison.
 
 In terms of performance, `llvmexpr` may excel at complex mathematical computations. However, its performance can be limited by memory access patterns. In scenarios involving heavy random memory access or specific spatial operations (see `rotate clip` in benchmarks), `akarin.Expr` may offer better performance.
 
@@ -16,26 +16,26 @@ In terms of performance, `llvmexpr` may excel at complex mathematical computatio
 
 Benchmark on Apple M2 Pro with 32GB RAM.
 
-| Test Case | llvmexpr | akarin |
-|---|---|---|
-| simple arithmetic | 3394.66 FPS | 3178.16 FPS |
-| logical condition | 3268.11 FPS | 3347.38 FPS |
-| data range clamp | 3354.53 FPS | 3304.06 FPS |
-| complex math chain | 1366.07 FPS | 1274.04 FPS |
-| trigonometry coords | 2090.50 FPS | FAILED (Error) |
-| power function | 3238.64 FPS | 3138.22 FPS |
-| stack dup | 3404.09 FPS | 3328.36 FPS |
-| named variables | 3349.18 FPS | 3271.53 FPS |
-| static relative access | 3026.66 FPS | 3085.37 FPS |
-| dynamic absolute access | 2980.11 FPS | 3015.62 FPS |
-| bitwise and | 3314.40 FPS | 3254.09 FPS |
-| gain | 1456.08 FPS | 1722.37 FPS |
-| power with loop | 3275.87 FPS | FAILED (Error) |
-| 3D rendering | 371.87 FPS | 192.80 FPS |
-| 3D rendering 2 (icosahedron) | 552.66 FPS | 324.18 FPS |
-| rotate clip | 215.35 FPS | 347.64 FPS |
-| 8x8 dct | 180.91 FPS | 183.51 FPS |
-| 8x8 idct | 192.42 FPS | 164.70 FPS |
+| Test Case                    | llvmexpr    | akarin         |
+| ---------------------------- | ----------- | -------------- |
+| simple arithmetic            | 3394.66 FPS | 3178.16 FPS    |
+| logical condition            | 3268.11 FPS | 3347.38 FPS    |
+| data range clamp             | 3354.53 FPS | 3304.06 FPS    |
+| complex math chain           | 1366.07 FPS | 1274.04 FPS    |
+| trigonometry coords          | 2090.50 FPS | FAILED (Error) |
+| power function               | 3238.64 FPS | 3138.22 FPS    |
+| stack dup                    | 3404.09 FPS | 3328.36 FPS    |
+| named variables              | 3349.18 FPS | 3271.53 FPS    |
+| static relative access       | 3026.66 FPS | 3085.37 FPS    |
+| dynamic absolute access      | 2980.11 FPS | 3015.62 FPS    |
+| bitwise and                  | 3314.40 FPS | 3254.09 FPS    |
+| gain                         | 1456.08 FPS | 1722.37 FPS    |
+| power with loop              | 3275.87 FPS | FAILED (Error) |
+| 3D rendering                 | 371.87 FPS  | 192.80 FPS     |
+| 3D rendering 2 (icosahedron) | 552.66 FPS  | 324.18 FPS     |
+| rotate clip                  | 215.35 FPS  | 347.64 FPS     |
+| 8x8 dct                      | 180.91 FPS  | 183.51 FPS     |
+| 8x8 idct                     | 192.42 FPS  | 164.70 FPS     |
 
 Geometric mean FPS (common successful tests only):
   llvmexpr: 1352.85 FPS
@@ -110,10 +110,10 @@ cp -r llvmexpr-vsc ~/.vscode/extensions/llvmexpr-vsc
 
 See [examples](examples) for examples of infix code.
 
-- [8x8 DCT](examples/8x8dct.expr)
-- [8x8 IDCT](examples/8x8idct.expr)
-- [NL-Means](examples/nl-means.expr)
-- [Area Filter](examples/area_filter.expr)
+- [8x8 DCT](examples/8x8dct.expr) - 8x8 Discrete Cosine Transform (Expr)
+- [8x8 IDCT](examples/8x8idct.expr) - 8x8 Inverse Discrete Cosine Transform (Expr)
+- [NL-Means](examples/nl-means.expr) - Non-Local Means Denoising (Expr)
+- [Area Filter](examples/area_filter.expr) - Connected Component Area Filtering (SingleExpr)
 
 ## Documentation
 
@@ -156,12 +156,13 @@ pytest .
 A command-line tool for converting infix expressions to postfix format is available after building:
 
 ```sh
-builddir/infix2postfix input.expr -m expr -o output.expr
+builddir/infix2postfix input.expr -m expr -o output.expr [--dump-ast]
 ```
 
 **Parameters:**
 - First argument: Input file containing infix expression
 - `-m`: Mode (`expr` for per-pixel expressions, `single` for per-frame expressions)
 - `-o`: Output file for the converted postfix expression
+- `--dump-ast`: (Optional) Dump the AST of the expression to the console
 
 Alternatively, you can use the `infix=1` parameter directly in the VapourSynth plugin to convert expressions at runtime.
