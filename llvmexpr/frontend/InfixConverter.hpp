@@ -24,12 +24,16 @@
 #include <string>
 #include <vector>
 
+//TODO: Expose these to postfix
 struct InfixConversionContext {
     int width = 0;
     int height = 0;
     int num_inputs = 0;
     int output_bitdepth = 0;
     std::vector<int> input_bitdepths;
+    int subsample_w = 0;
+    int subsample_h = 0;
+    int plane_no = -1; // -1 = applicable
 };
 
 std::string

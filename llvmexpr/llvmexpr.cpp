@@ -373,26 +373,26 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
 
         bool use_infix = vsapi->mapGetInt(in, "infix", 0, &err) != 0;
 
-        // Prepare conversion context for preprocessor
-        InfixConversionContext ctx;
-        if (use_infix) {
-            ctx.width = d->vi.width;
-            ctx.height = d->vi.height;
-            ctx.num_inputs = d->num_inputs;
-            ctx.output_bitdepth = d->vi.format.bitsPerSample;
-            ctx.input_bitdepths.resize(d->num_inputs);
-            for (int i = 0; i < d->num_inputs; ++i) {
-                const VSVideoInfo* input_vi = vsapi->getVideoInfo(d->nodes[i]);
-                ctx.input_bitdepths[i] = input_vi->format.bitsPerSample;
-            }
-        }
-
         std::string expr_strs[3];
         for (int i = 0; i < nexpr; ++i) {
             std::string input_expr = vsapi->mapGetData(in, "expr", i, &err);
             if (use_infix && !input_expr.empty()) {
-                expr_strs[i] = convertInfixToPostfix(input_expr, d->num_inputs,
-                                                     infix2postfix::Mode::Expr, &ctx);
+                InfixConversionContext ctx;
+                ctx.width = d->vi.width;
+                ctx.height = d->vi.height;
+                ctx.num_inputs = d->num_inputs;
+                ctx.output_bitdepth = d->vi.format.bitsPerSample;
+                ctx.subsample_w = d->vi.format.subSamplingW;
+                ctx.subsample_h = d->vi.format.subSamplingH;
+                ctx.plane_no = i;
+                ctx.input_bitdepths.resize(d->num_inputs);
+                for (int j = 0; j < d->num_inputs; ++j) {
+                    const VSVideoInfo* input_vi =
+                        vsapi->getVideoInfo(d->nodes[j]);
+                    ctx.input_bitdepths[j] = input_vi->format.bitsPerSample;
+                }
+                expr_strs[i] = convertInfixToPostfix(
+                    input_expr, d->num_inputs, infix2postfix::Mode::Expr, &ctx);
             } else {
                 expr_strs[i] = input_expr;
             }
@@ -579,24 +579,23 @@ void VS_CC singleExprCreate(const VSMap* in, VSMap* out,
 
         bool use_infix = vsapi->mapGetInt(in, "infix", 0, &err) != 0;
 
-        // Prepare conversion context for preprocessor
-        InfixConversionContext ctx;
+        std::string processed_expr;
         if (use_infix) {
+            InfixConversionContext ctx;
             ctx.width = d->vi.width;
             ctx.height = d->vi.height;
             ctx.num_inputs = d->num_inputs;
             ctx.output_bitdepth = d->vi.format.bitsPerSample;
+            ctx.subsample_w = d->vi.format.subSamplingW;
+            ctx.subsample_h = d->vi.format.subSamplingH;
+            ctx.plane_no = -1; // Not applicable
             ctx.input_bitdepths.resize(d->num_inputs);
             for (int i = 0; i < d->num_inputs; ++i) {
                 const VSVideoInfo* input_vi = vsapi->getVideoInfo(d->nodes[i]);
                 ctx.input_bitdepths[i] = input_vi->format.bitsPerSample;
             }
-        }
-
-        std::string processed_expr;
-        if (use_infix) {
-            processed_expr = convertInfixToPostfix(expr_str, d->num_inputs,
-                                                   infix2postfix::Mode::Single, &ctx);
+            processed_expr = convertInfixToPostfix(
+                expr_str, d->num_inputs, infix2postfix::Mode::Single, &ctx);
         } else {
             processed_expr = expr_str;
         }

@@ -19,17 +19,17 @@
 @error This expr should be used in Expr mode
 @endif
 
-patch_radius = 2
-search_radius = 5
-filter_strength = 10.0
+@define PATCH_RADIUS 2
+@define SEARCH_RADIUS 5
+@define FILTER_STRENGTH 10.0
+@define H_SQUARED (FILTER_STRENGTH * FILTER_STRENGTH)
 
-<global<patch_radius>>
 function patch_distance(cx1, cy1, cx2, cy2) {
     sum_sq_diff = 0.0
-    py = -patch_radius
-    while (py <= patch_radius) {
-        px = -patch_radius
-        while (px <= patch_radius) {
+    py = -PATCH_RADIUS
+    while (py <= PATCH_RADIUS) {
+        px = -PATCH_RADIUS
+        while (px <= PATCH_RADIUS) {
             pixel1 = dyn($x, cx1 + px, cy1 + py)
             pixel2 = dyn($x, cx2 + px, cy2 + py)
             diff = pixel1 - pixel2
@@ -43,13 +43,12 @@ function patch_distance(cx1, cy1, cx2, cy2) {
 
 weighted_sum = 0.0
 total_weight = 0.0
-h_squared = filter_strength * filter_strength
-sy = $Y - search_radius
-while (sy <= $Y + search_radius) {
-    sx = $X - search_radius
-    while (sx <= $X + search_radius) {
+sy = $Y - SEARCH_RADIUS
+while (sy <= $Y + SEARCH_RADIUS) {
+    sx = $X - SEARCH_RADIUS
+    while (sx <= $X + SEARCH_RADIUS) {
         distance = patch_distance($X, $Y, sx, sy)
-        weight = exp(-distance / h_squared)
+        weight = exp(-distance / H_SQUARED)
         search_pixel_value = dyn($x, sx, sy)
         total_weight = total_weight + weight
         weighted_sum = weighted_sum + (search_pixel_value * weight)

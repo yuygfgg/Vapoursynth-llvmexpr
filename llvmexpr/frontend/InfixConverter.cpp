@@ -58,6 +58,16 @@ std::string convertInfixToPostfix(const std::string& infix_expr, int num_inputs,
                     macro_name, std::to_string(context->input_bitdepths[i]));
             }
 
+            preprocessor.addPredefinedMacro(
+                "__SUBSAMPLE_W__", std::to_string(context->subsample_w));
+            preprocessor.addPredefinedMacro(
+                "__SUBSAMPLE_H__", std::to_string(context->subsample_h));
+
+            if (mode == infix2postfix::Mode::Expr && context->plane_no >= 0) {
+                preprocessor.addPredefinedMacro(
+                    "__PLANE_NO__", std::to_string(context->plane_no));
+            }
+
             auto preprocess_result = preprocessor.process();
 
             if (!preprocess_result.success) {

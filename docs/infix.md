@@ -40,13 +40,16 @@ The following macros are automatically defined:
 - `__SINGLEEXPR__` - Defined when compiling in `SingleExpr` mode (per-frame execution)
 
 **Context Macros (when using `infix=1` in VapourSynth):**
-- `__WIDTH__` - Output frame width (integer)
-- `__HEIGHT__` - Output frame height (integer)
+- `__WIDTH__` - Output frame width (integer) (sub-pixeling not counted)
+- `__HEIGHT__` - Output frame height (integer) (sub-pixeling not counted)
 - `__INPUT_NUM__` - Number of input clips (integer)
-- `__OUTPUT_BITDEPTH__` - Output bit depth (8, 10, 12, 14, 16, or 32)
+- `__OUTPUT_BITDEPTH__` - Output bit depth
 - `__INPUT_BITDEPTH_0__` - Bit depth of first input clip
 - `__INPUT_BITDEPTH_1__` - Bit depth of second input clip (if present)
 - `__INPUT_BITDEPTH_N__` - Bit depth of (N+1)-th input clip
+- `__SUBSAMPLE_W__` - Horizontal chroma subsampling (0 for 4:4:4, 1 for 4:2:0/4:2:2)
+- `__SUBSAMPLE_H__` - Vertical chroma subsampling (0 for 4:4:4/4:2:2, 1 for 4:2:0)
+- **Expr only:** `__PLANE_NO__` - Current plane being processed (0, 1, or 2)
 
 These macros can be used with `@ifdef` to write mode-specific or format-specific code:
 

@@ -33,7 +33,7 @@
 # ==============================================================================
 
 # DCT block size
-N = 8
+@define N 8
 
 # Frequency coordinates (u, v) for the current output pixel within an 8x8 block.
 u = $X % N

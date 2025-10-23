@@ -19,18 +19,22 @@
 @error This expr should be used in SingleExpr mode
 @endif
 
-# Configuration and Initialization
-min_size_thr = 100;
-bg_val = 0;
-fg_val = __OUTPUT_BITDEPTH__ == 32 ? 1 : 2 ** (__OUTPUT_BITDEPTH__ - 1);
+@if __OUTPUT_BITDEPTH__ == 32
+@define FG_VAL 1
+@else
+@define FG_VAL 2 ^ (__OUTPUT_BITDEPTH__ - 1)
+@endif
 
-w = $width;
-h = $height;
-max_labels = (w * h) / 2 + 2;
+@define BG_VAL 0
+@define MIN_SIZE_THR 100
 
-label_map = new(w * h);
-parent = new(max_labels);
-area = new(max_labels);
+@define NUM_PIXELS __WIDTH__ * __HEIGHT__
+
+@define MAX_LABELS (NUM_PIXELS) / 2 + 2
+
+label_map = new(NUM_PIXELS);
+parent = new(MAX_LABELS);
+area = new(MAX_LABELS);
 
 dx = new(4); # Delta X
 dy = new(4); # Delta Y
@@ -41,13 +45,13 @@ dx[3] =  1; dy[3] = -1;
 
 # Initialize
 i = 0;
-while (i < max_labels) {
+while (i < MAX_LABELS) {
     parent[i] = i;
     area[i] = 0;
     i = i + 1;
 }
 i = 0;
-while (i < w * h) {
+while (i < NUM_PIXELS) {
     label_map[i] = 0;
     i = i + 1;
 }
@@ -82,12 +86,12 @@ function union_sets(Value i, Value j) {
 # Labeling and Recording Equivalences
 next_label = 1;
 y = 0;
-while (y < h) {
+while (y < __HEIGHT__) {
     x = 0;
-    while (x < w) {
+    while (x < __WIDTH__) {
         pixel_val = dyn($x, x, y, 0);
 
-        if (pixel_val != bg_val) {
+        if (pixel_val != BG_VAL) {
             neighbor_labels = new(4);
             n_count = 0;
             
@@ -97,9 +101,9 @@ while (y < h) {
                 ny = y + dy[k];
 
                 # Boundary check (ny is always <= y, so only need ny >= 0)
-                if (nx >= 0 && nx < w && ny >= 0) {
-                    if (dyn($x, nx, ny, 0) != bg_val) {
-                        neighbor_labels[n_count] = label_map[ny * w + nx];
+                if (nx >= 0 && nx < __WIDTH__ && ny >= 0) {
+                    if (dyn($x, nx, ny, 0) != BG_VAL) {
+                        neighbor_labels[n_count] = label_map[ny * __WIDTH__ + nx];
                         n_count = n_count + 1;
                     }
                 }
@@ -107,7 +111,7 @@ while (y < h) {
             }
 
             if (n_count == 0) {
-                label_map[y * w + x] = next_label;
+                label_map[y * __WIDTH__ + x] = next_label;
                 next_label = next_label + 1;
             } else {
                 current_label = neighbor_labels[0];
@@ -117,7 +121,7 @@ while (y < h) {
                     k = k + 1;
                 }
                 
-                label_map[y * w + x] = current_label;
+                label_map[y * __WIDTH__ + x] = current_label;
                 
                 k = 0;
                 while(k < n_count) {
@@ -133,10 +137,10 @@ while (y < h) {
 
 # Resolve Labels and Calculate Area
 y = 0;
-while (y < h) {
+while (y < __HEIGHT__) {
     x = 0;
-    while (x < w) {
-        idx = y * w + x;
+    while (x < __WIDTH__) {
+        idx = y * __WIDTH__ + x;
         if (label_map[idx] > 0) {
             root = find_root(label_map[idx]);
             label_map[idx] = root;
@@ -149,14 +153,14 @@ while (y < h) {
 
 # Generate Final Output
 y = 0;
-while (y < h) {
+while (y < __HEIGHT__) {
     x = 0;
-    while (x < w) {
-        final_val = bg_val;
-        label = label_map[y * w + x];
+    while (x < __WIDTH__) {
+        final_val = BG_VAL;
+        label = label_map[y * __WIDTH__ + x];
         if (label > 0) {
-            if (area[label] >= min_size_thr) {
-                final_val = fg_val;
+            if (area[label] >= MIN_SIZE_THR) {
+                final_val = FG_VAL;
             }
         }
         store(x, y, 0, final_val);
