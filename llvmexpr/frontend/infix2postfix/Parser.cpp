@@ -451,7 +451,15 @@ std::unique_ptr<Expr> Parser::parseFactor() {
 }
 
 std::unique_ptr<Expr> Parser::parseExponent() {
-    return parseBinary(&Parser::parseUnary, TokenType::StarStar);
+    // '**' is right-associative: a ** b ** c = a ** (b ** c)
+    auto expr = parseUnary();
+    if (match({TokenType::StarStar})) {
+        Token op = previous();
+        auto right = parseExponent();
+        expr =
+            make_node<Expr, BinaryExpr>(std::move(expr), op, std::move(right));
+    }
+    return expr;
 }
 
 std::unique_ptr<Expr> Parser::parseUnary() {

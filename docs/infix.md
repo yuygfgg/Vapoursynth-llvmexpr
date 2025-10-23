@@ -328,7 +328,7 @@ Operators are left-associative, except for the unary and ternary operators. The 
 | 6          | `+`, `-`            | Addition, Subtraction    | Binary     | Left          |
 | 7          | `*`, `/`            | Multiplication, Division | Binary     | Left          |
 |            | `%`                 | Modulus                  | Binary     | Left          |
-| 8          | `**`                | Exponentiation (Power)   | Binary     | Left          |
+| 8          | `**`                | Exponentiation (Power)   | Binary     | Right         |
 | 9          | `-`                 | Negation                 | Unary      | Right         |
 |            | `!`                 | Logical NOT              | Unary      | Right         |
 | 10         | `? :`               | Ternary Conditional      | Ternary    | Right         |
