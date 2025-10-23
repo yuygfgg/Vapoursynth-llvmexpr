@@ -21,6 +21,7 @@
 #define LLVMEXPR_INFIX2POSTFIX_PREPROCESSOR_HPP
 
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -74,6 +75,23 @@ class Preprocessor {
   private:
     class ExpressionEvaluator;
 
+    struct LineParser {
+        const std::string& str;
+        size_t pos = 0;
+
+        explicit LineParser(const std::string& s) : str(s) {}
+
+        bool eof() const { return pos >= str.length(); }
+        char peek() const { return eof() ? '\0' : str[pos]; }
+        void consume() {
+            if (!eof())
+                pos++;
+        }
+        char consume_one() { return eof() ? '\0' : str[pos++]; }
+        void skipWhitespace();
+        std::string_view extractIdentifier();
+    };
+
     struct ConditionalBlock {
         int start_line;
         bool is_active;
@@ -87,16 +105,22 @@ class Preprocessor {
     void handleUndef(const std::string& line, int line_number);
     void handleIfdef(const std::string& line, int line_number);
     void handleIfndef(const std::string& line, int line_number);
+    void handleIfdefCommon(const std::string& line, int line_number,
+                           bool check_defined);
     void handleIf(const std::string& line, int line_number);
     void handleElse(const std::string& line, int line_number);
     void handleEndif(const std::string& line, int line_number);
     void handleError(const std::string& line, int line_number);
 
+    std::optional<std::vector<std::string>>
+    parseMacroArguments(LineParser& parser, const std::string& macro_name,
+                        int line_number);
+
     std::string expandMacros(const std::string& line, int line_number);
     std::string expandMacrosImpl(const std::string& line, int line_number,
                                  std::vector<MacroExpansion>* expansions_out);
     std::string expandDefinedOperator(const std::string& text);
-    bool isIdentifierChar(char c) const;
+    std::string evaluateIfPossible(const std::string& text);
     bool isCurrentBlockActive() const;
 
     void addError(const std::string& message, int line);
