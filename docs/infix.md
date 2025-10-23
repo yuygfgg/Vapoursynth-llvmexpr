@@ -39,6 +39,8 @@ The following macros are automatically defined:
 - `__EXPR__` - Defined when compiling in `Expr` mode (per-pixel execution)
 - `__SINGLEEXPR__` - Defined when compiling in `SingleExpr` mode (per-frame execution)
 
+These macros can be used with `@ifdef` to write mode-specific or format-specific code.
+
 **Context Macros (when using `infix=1` in VapourSynth):**
 - `__WIDTH__` - Output frame width (integer) (sub-pixeling not counted)
 - `__HEIGHT__` - Output frame height (integer) (sub-pixeling not counted)
@@ -50,8 +52,6 @@ The following macros are automatically defined:
 - `__SUBSAMPLE_W__` - Horizontal chroma subsampling (0 for 4:4:4, 1 for 4:2:0/4:2:2)
 - `__SUBSAMPLE_H__` - Vertical chroma subsampling (0 for 4:4:4/4:2:2, 1 for 4:2:0)
 - **Expr only:** `__PLANE_NO__` - Current plane being processed (0, 1, or 2)
-
-These macros can be used with `@ifdef` to write mode-specific or format-specific code:
 
 ### 2.2. Preprocessor Directives
 
@@ -147,7 +147,7 @@ The expression can contain:
 - Integer and floating-point literals.
 - Previously defined macros, which will be expanded.
 - The `defined(MACRO)` operator, which returns 1 if `MACRO` is defined, and 0 otherwise.
-- Arithmetic operators: `+`, `-`, `*`, `/`, `%`
+- Arithmetic operators: `+`, `-`, `*`, `/`, `%`, `**`
 - Comparison operators: `==`, `!=`, `>`, `<`, `>=`, `<=`
 - Logical operators: `&&`, `||`, `!`
 - Parentheses `()` for grouping.
@@ -183,10 +183,17 @@ Macros are expanded during preprocessing:
 
 ```
 @define MAX 100
+@define SQUARE 2 ** 2        # Evaluates to: 4
+@define LARGE_VALUE 2 ** 10  # Evaluates to: 1024
 
 x = MAX;        # Expands to: x = 100;
 y = MAX + 1;    # Expands to: y = 100 + 1;
+z = SQUARE;     # Expands to: z = 4;
 ```
+
+**Notes:**
+- The `**` operator (power/exponentiation) is right-associative, meaning `2 ** 3 ** 2` is evaluated as `2 ** (3 ** 2)` = `2 ** 9` = `512`.
+- Power operations always produce floating-point results in the preprocessor.
 
 ## 3. Lexical Structure
 

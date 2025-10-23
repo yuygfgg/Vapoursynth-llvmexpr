@@ -22,7 +22,7 @@
 @if __OUTPUT_BITDEPTH__ == 32
 @define FG_VAL 1
 @else
-@define FG_VAL 2 ^ (__OUTPUT_BITDEPTH__ - 1)
+@define FG_VAL 2 ** (__OUTPUT_BITDEPTH__ - 1)
 @endif
 
 @define BG_VAL 0

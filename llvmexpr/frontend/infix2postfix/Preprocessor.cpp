@@ -19,6 +19,7 @@
 
 #include "Preprocessor.hpp"
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <format>
 #include <sstream>
@@ -76,6 +77,7 @@ class Preprocessor::ExpressionEvaluator {
         Multiply,
         Divide,
         Modulo,
+        Power,
         LParen,
         RParen,
         LogicalAnd,
@@ -188,7 +190,12 @@ class Preprocessor::ExpressionEvaluator {
                 tokens_.push_back({TokenType::Minus, "-"});
                 break;
             case '*':
-                tokens_.push_back({TokenType::Multiply, "*"});
+                if (i + 1 < expression_.length() && expression_[i + 1] == '*') {
+                    tokens_.push_back({TokenType::Power, "**"});
+                    i++;
+                } else {
+                    tokens_.push_back({TokenType::Multiply, "*"});
+                }
                 break;
             case '/':
                 tokens_.push_back({TokenType::Divide, "/"});
@@ -301,13 +308,29 @@ class Preprocessor::ExpressionEvaluator {
         return parse_primary();
     }
 
-    Value parse_factor() {
+    Value parse_power() {
         Value left = parse_unary();
+        // Power is right-associative, so we use recursion instead of iteration
+        if (match(TokenType::Power)) {
+            Value right = parse_power();  // Right-associative: recurse
+            double l = std::holds_alternative<double>(left)
+                           ? std::get<double>(left)
+                           : static_cast<double>(std::get<int64_t>(left));
+            double r = std::holds_alternative<double>(right)
+                           ? std::get<double>(right)
+                           : static_cast<double>(std::get<int64_t>(right));
+            return std::pow(l, r);
+        }
+        return left;
+    }
+
+    Value parse_factor() {
+        Value left = parse_power();
         while (peek().type == TokenType::Multiply ||
                peek().type == TokenType::Divide ||
                peek().type == TokenType::Modulo) {
             Token op = consume();
-            Value right = parse_unary();
+            Value right = parse_power();
             if (std::holds_alternative<double>(left) ||
                 std::holds_alternative<double>(right)) {
                 double l = std::holds_alternative<double>(left)
