@@ -760,7 +760,9 @@ void Preprocessor::handleIf(const std::string& line, int line_number) {
 
     if (parent_active) {
         try {
-            ExpressionEvaluator evaluator(expression, macros);
+            // Expand defined() operator before evaluating
+            std::string expanded_expr = expandDefinedOperator(expression);
+            ExpressionEvaluator evaluator(expanded_expr, macros);
             auto result = evaluator.evaluate();
             condition_met = ExpressionEvaluator::is_truthy(result);
         } catch (const std::runtime_error& e) {
@@ -831,49 +833,63 @@ void Preprocessor::handleError(const std::string& line, int line_number) {
     }
 }
 
-std::string Preprocessor::expandMacros(const std::string& line,
-                                       int line_number) {
-    std::string processed_line = line;
+std::string Preprocessor::expandDefinedOperator(const std::string& text) {
+    std::string processed = text;
     size_t pos = 0;
-    while ((pos = processed_line.find("defined", pos)) != std::string::npos) {
+    while ((pos = processed.find("defined", pos)) != std::string::npos) {
+        // Check if "defined" is a standalone word (not part of another identifier)
+        bool is_start_boundary = (pos == 0) || 
+                                 (!std::isalnum(processed[pos - 1]) && processed[pos - 1] != '_');
+        bool is_end_boundary = (pos + 7 >= processed.length()) || 
+                               (!std::isalnum(processed[pos + 7]) && processed[pos + 7] != '_');
+        
+        if (!is_start_boundary || !is_end_boundary) {
+            pos++;
+            continue;
+        }
+        
         size_t start = pos + 7;
         bool has_paren = false;
-        while (start < processed_line.length() &&
-               std::isspace(processed_line[start]))
+        while (start < processed.length() && std::isspace(processed[start]))
             start++;
-        if (start < processed_line.length() && processed_line[start] == '(') {
+        if (start < processed.length() && processed[start] == '(') {
             has_paren = true;
             start++;
-            while (start < processed_line.length() &&
-                   std::isspace(processed_line[start]))
+            while (start < processed.length() && std::isspace(processed[start]))
                 start++;
         }
 
         size_t end = start;
-        while (
-            end < processed_line.length() &&
-            (std::isalnum(processed_line[end]) || processed_line[end] == '_')) {
+        while (end < processed.length() &&
+               (std::isalnum(processed[end]) || processed[end] == '_')) {
             end++;
         }
 
         if (end > start) {
-            std::string macro_name = processed_line.substr(start, end - start);
+            std::string macro_name = processed.substr(start, end - start);
             size_t final_end = end;
             if (has_paren) {
                 size_t paren_end = final_end;
-                while (paren_end < processed_line.length() &&
-                       std::isspace(processed_line[paren_end]))
+                while (paren_end < processed.length() &&
+                       std::isspace(processed[paren_end]))
                     paren_end++;
-                if (paren_end < processed_line.length() &&
-                    processed_line[paren_end] == ')') {
+                if (paren_end < processed.length() &&
+                    processed[paren_end] == ')') {
                     final_end = paren_end + 1;
                 }
             }
-            processed_line.replace(pos, final_end - pos,
-                                   macros.count(macro_name) ? "1" : "0");
+            processed.replace(pos, final_end - pos,
+                              macros.count(macro_name) ? "1" : "0");
         }
         pos++;
     }
+    return processed;
+}
+
+std::string Preprocessor::expandMacros(const std::string& line,
+                                       int line_number) {
+    // First expand defined() operator
+    std::string processed_line = expandDefinedOperator(line);
 
     if (macros.empty()) {
         return processed_line;

@@ -1672,6 +1672,563 @@ RESULT = sqrt(store(0, 0, 0))
         assert "No matching overload for function 'sqrt(VOID)'" in output
 
 
+class TestPreprocessor:
+    """Test preprocessor directives and macro functionality."""
+
+    def test_simple_define(self):
+        """Test basic @define directive."""
+        infix = """
+@define MAX 100
+RESULT = MAX
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "100" in output
+        assert "MAX" not in output
+
+    def test_define_with_expression(self):
+        """Test @define with arithmetic expression that gets evaluated."""
+        infix = """
+@define SIZE (2 * 3)
+RESULT = SIZE
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "6" in output
+
+    def test_define_in_expression(self):
+        """Test using defined macro in expressions."""
+        infix = """
+@define MULTIPLIER 5
+a = MULTIPLIER * 10
+RESULT = a + MULTIPLIER
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "5 10 *" in output
+        assert "a@ 5 +" in output
+
+    def test_undef(self):
+        """Test @undef directive."""
+        infix = """
+@define TEMP 42
+a = TEMP
+@undef TEMP
+RESULT = a
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "42 a!" in output
+
+    def test_ifdef_true(self):
+        """Test @ifdef when macro is defined."""
+        infix = """
+@define DEBUG
+@ifdef DEBUG
+RESULT = 255
+@else
+RESULT = 0
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "255 RESULT!" in output
+        assert "0 RESULT!" not in output
+
+    def test_ifdef_false(self):
+        """Test @ifdef when macro is not defined."""
+        infix = """
+@ifdef UNDEFINED
+RESULT = 0
+@else
+RESULT = 255
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "255 RESULT!" in output
+        assert not output.startswith("0 RESULT!")
+
+    def test_ifndef_true(self):
+        """Test @ifndef when macro is not defined."""
+        infix = """
+@ifndef UNDEFINED
+RESULT = 255
+@else
+RESULT = 0
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "255 RESULT!" in output
+
+    def test_ifndef_false(self):
+        """Test @ifndef when macro is defined."""
+        infix = """
+@define FEATURE
+@ifndef FEATURE
+RESULT = 0
+@else
+RESULT = 255
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "255 RESULT!" in output
+
+    def test_nested_ifdef(self):
+        """Test nested @ifdef directives."""
+        infix = """
+@define OUTER
+@define INNER
+@ifdef OUTER
+    @ifdef INNER
+        RESULT = 3
+    @else
+        RESULT = 2
+    @endif
+@else
+    RESULT = 1
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "3 RESULT!" in output
+
+    def test_if_with_literal(self):
+        """Test @if with numeric literal."""
+        infix = """
+@if 1
+RESULT = 255
+@else
+RESULT = 0
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "255 RESULT!" in output
+
+    def test_if_with_zero(self):
+        """Test @if with zero (false condition)."""
+        infix = """
+@if 0
+RESULT = 0
+@else
+RESULT = 255
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "255 RESULT!" in output
+
+    def test_if_with_expression(self):
+        """Test @if with arithmetic expression."""
+        infix = """
+@define VERSION 3
+@if VERSION > 2
+RESULT = 255
+@else
+RESULT = 0
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "255 RESULT!" in output
+
+    def test_if_with_defined_operator(self):
+        """Test @if with defined() operator."""
+        infix = """
+@define FEATURE
+@if defined(FEATURE)
+RESULT = 255
+@else
+RESULT = 0
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "255 RESULT!" in output
+
+    def test_if_with_defined_operator_false(self):
+        """Test @if with defined() operator on undefined macro."""
+        infix = """
+@if defined(UNDEFINED)
+RESULT = 0
+@else
+RESULT = 255
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "255 RESULT!" in output
+
+    def test_if_with_logical_operators(self):
+        """Test @if with logical operators."""
+        infix = """
+@define A 1
+@define B 1
+@if A && B
+RESULT = 255
+@else
+RESULT = 0
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "255 RESULT!" in output
+
+    def test_if_with_complex_expression(self):
+        """Test @if with complex expression."""
+        infix = """
+@define VERSION 5
+@if (VERSION >= 3) && (VERSION <= 10)
+RESULT = 255
+@else
+RESULT = 0
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "255 RESULT!" in output
+
+    def test_error_directive_in_active_block(self):
+        """Test @error directive in active code block."""
+        infix = """
+@error This should fail
+RESULT = 1
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail with @error directive"
+        assert "This should fail" in output
+
+    def test_error_directive_in_inactive_block(self):
+        """Test @error directive in inactive code block (should not trigger)."""
+        infix = """
+@ifdef UNDEFINED
+@error This should not fail
+@endif
+RESULT = 255
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Should succeed: {output}"
+        assert "255 RESULT!" in output
+
+    def test_predefined_expr_macro(self):
+        """Test __EXPR__ predefined macro in Expr mode."""
+        infix = """
+@ifdef __EXPR__
+RESULT = 255
+@else
+RESULT = 0
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "255 RESULT!" in output
+
+    def test_predefined_singleexpr_macro(self):
+        """Test __SINGLEEXPR__ predefined macro in SingleExpr mode."""
+        infix = """
+@ifdef __SINGLEEXPR__
+set_prop(Mode, 1)
+@else
+RESULT = 0
+@endif
+"""
+        success, output = run_infix2postfix(infix, "single")
+        assert success, f"Failed to convert: {output}"
+        assert "Mode$" in output
+
+    def test_mode_specific_code(self):
+        """Test writing mode-specific code with preprocessor."""
+        infix = """
+@ifdef __EXPR__
+val = $X + $Y
+RESULT = val
+@endif
+@ifdef __SINGLEEXPR__
+set_prop(Test, 42)
+@endif
+"""
+        success_expr, output_expr = run_infix2postfix(infix, "expr")
+        assert success_expr, f"Expr mode failed: {output_expr}"
+        assert "X Y +" in output_expr
+
+        success_single, output_single = run_infix2postfix(infix, "single")
+        assert success_single, f"Single mode failed: {output_single}"
+        assert "Test$" in output_single
+
+    def test_macro_not_expanded_in_comments(self):
+        """Test that macros are not expanded in comments."""
+        infix = """
+@define VALUE 100
+# This is VALUE in a comment
+RESULT = VALUE
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "100 RESULT!" in output
+
+    def test_multiple_macros(self):
+        """Test multiple macro definitions and usage."""
+        infix = """
+@define WIDTH 1920
+@define HEIGHT 1080
+@define ASPECT_RATIO (WIDTH / HEIGHT)
+result = ASPECT_RATIO
+RESULT = result
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+
+    def test_redefine_macro(self):
+        """Test redefining a macro (should work after undef)."""
+        infix = """
+@define VALUE 10
+a = VALUE
+@undef VALUE
+@define VALUE 20
+b = VALUE
+RESULT = a + b
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "10 a!" in output
+        assert "20 b!" in output
+
+    def test_ifdef_without_endif_error(self):
+        """Test @ifdef without matching @endif."""
+        infix = """
+@ifdef TEST
+RESULT = 1
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail without @endif"
+
+    def test_else_without_if_error(self):
+        """Test @else without matching @if/@ifdef/@ifndef."""
+        infix = """
+@else
+RESULT = 1
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail with orphaned @else"
+
+    def test_endif_without_if_error(self):
+        """Test @endif without matching @if/@ifdef/@ifndef."""
+        infix = """
+@endif
+RESULT = 1
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail with orphaned @endif"
+
+    def test_macro_in_function(self):
+        """Test using macros in function definitions."""
+        infix = """
+@define MULTIPLIER 2
+function double_it(x) {
+    return x * MULTIPLIER
+}
+RESULT = double_it(21)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "2 *" in output
+
+    def test_conditional_function_definition(self):
+        """Test conditionally defining functions."""
+        infix = """
+@define USE_OPTIMIZED
+@ifdef USE_OPTIMIZED
+function process(x) {
+    return x * 2
+}
+@else
+function process(x) {
+    return x + x
+}
+@endif
+RESULT = process(10)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "2 *" in output
+
+    def test_define_with_floating_point(self):
+        """Test @define with floating-point values."""
+        infix = """
+@define PI 3.14159
+@define HALF_PI (PI / 2)
+RESULT = HALF_PI
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+
+    def test_macro_case_sensitivity(self):
+        """Test that macro names are case-sensitive."""
+        infix = """
+@define value 10
+@define VALUE 20
+a = value
+b = VALUE
+RESULT = a + b
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "10 a!" in output
+        assert "20 b!" in output
+
+    def test_if_comparison_operators(self):
+        """Test @if with various comparison operators."""
+        infix = """
+@define VER 5
+@if VER == 5
+RESULT = 1
+@else
+@if VER != 5
+RESULT = 2
+@else
+@if VER < 5
+RESULT = 3
+@else
+@if VER > 5
+RESULT = 4
+@else
+RESULT = 5
+@endif
+@endif
+@endif
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "1 RESULT!" in output
+
+    def test_complex_preprocessor_scenario(self):
+        """Test complex preprocessor usage combining multiple features."""
+        infix = """
+@define DEBUG
+@define THRESHOLD 128
+@define SCALE 2
+
+@ifdef DEBUG
+# Debug mode enabled
+@endif
+
+@if THRESHOLD > 100
+function process(x) {
+    @ifdef DEBUG
+    result = x * SCALE
+    @else
+    result = x
+    @endif
+    return result
+}
+@else
+function process(x) {
+    return x / SCALE
+}
+@endif
+
+RESULT = process($x)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "2 *" in output
+
+    def test_error_with_mode_check(self):
+        """Test @error combined with mode checking."""
+        infix = """
+@ifdef __SINGLEEXPR__
+@error This script is not compatible with SingleExpr mode
+@endif
+RESULT = $X
+"""
+        success_expr, output_expr = run_infix2postfix(infix, "expr")
+        assert success_expr, f"Should succeed in Expr mode: {output_expr}"
+
+        success_single, output_single = run_infix2postfix(infix, "single")
+        assert not success_single, "Should fail in SingleExpr mode"
+        assert "not compatible with SingleExpr mode" in output_single
+
+    def test_macro_with_underscore(self):
+        """Test macro names with underscores and constant expressions."""
+        infix = """
+@define MY_CONSTANT 42
+@define _PRIVATE 10
+@define __SPECIAL__ 5
+@define RES MY_CONSTANT + _PRIVATE + __SPECIAL__
+RESULT = RES
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "57" in output
+
+    def test_define_without_value(self):
+        """Test @define without value (feature flag)."""
+        infix = """
+@define FEATURE_ENABLED
+@ifdef FEATURE_ENABLED
+RESULT = 255
+@else
+RESULT = 0
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "255 RESULT!" in output
+
+    def test_if_with_not_operator(self):
+        """Test @if with logical NOT operator."""
+        infix = """
+@define DISABLED 0
+@if !DISABLED
+RESULT = 255
+@else
+RESULT = 0
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "255 RESULT!" in output
+
+    def test_if_with_or_operator(self):
+        """Test @if with logical OR operator."""
+        infix = """
+@define A 0
+@define B 1
+@if A || B
+RESULT = 255
+@else
+RESULT = 0
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "255 RESULT!" in output
+
+    def test_multiline_conditional(self):
+        """Test multiline code in conditional blocks."""
+        infix = """
+@define ENABLE_PROCESSING
+@ifdef ENABLE_PROCESSING
+a = 10
+b = 20
+c = 30
+result = a + b + c
+RESULT = result
+@else
+RESULT = 0
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "10 a!" in output
+        assert "20 b!" in output
+        assert "30 c!" in output
+
+
 class TestMultipleReturns:
     def test_valid_multiple_value_returns(self):
         """Test a function with multiple value returns where all paths return."""
