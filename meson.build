@@ -19,7 +19,7 @@ project('llvmexpr', 'cpp', 'c',
   default_options: ['buildtype=release', 'warning_level=2', 'b_lto=true', 'b_ndebug=if-release', 'cpp_std=c++23', 'c_gnu_symbol_visibility=hidden', 'cpp_gnu_symbol_visibility=hidden'],
   license: 'GPL-3.0-or-later',
   meson_version: '>=1.4.0',
-  version: '3.1'
+  version: '3.2'
 )
 
 cxx = meson.get_compiler('cpp')
