@@ -8,6 +8,9 @@
   ],
   "patterns": [
     {
+      "include": "#preprocessor"
+    },
+    {
       "include": "#comments"
     },
     {
@@ -54,6 +57,91 @@
     }
   ],
   "repository": {
+    "preprocessor": {
+      "patterns": [
+        {
+          "name": "meta.preprocessor.define.llvmexpr-infix",
+          "begin": "^\\s*(@define)\\s+([a-zA-Z_]\\w*)\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.directive.define.llvmexpr-infix"
+            },
+            "2": {
+              "name": "entity.name.constant.preprocessor.llvmexpr-infix"
+            }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "include": "#preprocessor_macros"
+            },
+            {
+              "name": "constant.other.macro-value.llvmexpr-infix",
+              "match": ".+"
+            }
+          ]
+        },
+        {
+          "name": "meta.preprocessor.undef.llvmexpr-infix",
+          "match": "^\\s*(@undef)\\s+([a-zA-Z_]\\w*)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.control.directive.undef.llvmexpr-infix"
+            },
+            "2": {
+              "name": "entity.name.constant.preprocessor.llvmexpr-infix"
+            }
+          }
+        },
+        {
+          "name": "meta.preprocessor.conditional.llvmexpr-infix",
+          "match": "^\\s*(@ifdef|@ifndef)\\s+([a-zA-Z_]\\w*)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.control.directive.conditional.llvmexpr-infix"
+            },
+            "2": {
+              "name": "entity.name.constant.preprocessor.llvmexpr-infix"
+            }
+          }
+        },
+        {
+          "name": "keyword.control.directive.conditional.llvmexpr-infix",
+          "match": "^\\s*(@else|@endif)\\b"
+        },
+        {
+          "name": "meta.preprocessor.error.llvmexpr-infix",
+          "begin": "^\\s*(@error)\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.directive.error.llvmexpr-infix"
+            }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "name": "string.unquoted.error-message.llvmexpr-infix",
+              "match": ".+"
+            }
+          ]
+        },
+        {
+          "include": "#preprocessor_macros"
+        }
+      ]
+    },
+    "preprocessor_macros": {
+      "patterns": [
+        {
+          "name": "constant.language.predefined-macro.mode.llvmexpr-infix",
+          "match": "\\b(__EXPR__|__SINGLEEXPR__)\\b"
+        },
+        {
+          "name": "constant.language.predefined-macro.context.llvmexpr-infix",
+          "match": "\\b(__WIDTH__|__HEIGHT__|__INPUT_NUM__|__OUTPUT_BITDEPTH__|__INPUT_BITDEPTH_\\d+)\\b"
+        }
+      ]
+    },
     "comments": {
       "patterns": [
         {

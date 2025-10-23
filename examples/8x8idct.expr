@@ -8,8 +8,7 @@
 # (at your option) any later version.
 # 
 # Vapoursynth-llvmexpr is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY
-without even the implied warranty of
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 # 
@@ -22,6 +21,10 @@ without even the implied warranty of
 # This script reconstructs pixel values from 8x8 blocks of DCT coefficients
 # provided by the input source clip ($src0). The output at coordinate (X, Y)
 # is the reconstructed pixel value (x, y) for the corresponding block.
+
+@ifndef __EXPR__
+@error This expr should be used in Expr mode
+@endif
 
 # ==============================================================================
 # 1. SETUP: Determine current block and spatial coordinates (x, y)

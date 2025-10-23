@@ -24,6 +24,10 @@
 #
 # The 2D DCT is implemented as two separable 1D DCTs (one for rows, one for columns).
 
+@ifndef __EXPR__
+@error This expr should be used in Expr mode
+@endif
+
 # ==============================================================================
 # 1. SETUP: Determine current block and frequency coordinates (u, v)
 # ==============================================================================

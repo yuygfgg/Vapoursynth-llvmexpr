@@ -8,8 +8,9 @@
 namespace infix2postfix {
 
 AnalysisEngine::AnalysisEngine(const std::vector<Token>& tokens, Mode mode,
-                               int num_inputs)
-    : tokens(tokens), mode(mode), num_inputs(num_inputs) {}
+                               int num_inputs,
+                               const std::vector<LineMapping>& line_map)
+    : tokens(tokens), mode(mode), num_inputs(num_inputs), line_map(line_map) {}
 
 AnalysisEngine::~AnalysisEngine() = default;
 
@@ -84,8 +85,41 @@ std::string AnalysisEngine::formatDiagnostics() const {
             result += "\n";
         }
         std::string severity_name = std::string(enum_name(diag.severity));
-        result += std::format("{} - {}: {}", diag.range.to_string(),
-                              severity_name, diag.message);
+
+        const LineMapping* mapping = nullptr;
+        for (const auto& m : line_map) {
+            if (m.preprocessed_line == diag.range.start.line) {
+                mapping = &m;
+                break;
+            }
+        }
+
+        Range range = diag.range;
+        std::string message = diag.message;
+
+        if (mapping) {
+            range.start.line = mapping->original_line;
+            range.end.line = mapping->original_line;
+
+            if (!mapping->expansions.empty()) {
+                std::string expansion_trace;
+                for (const auto& expansion : mapping->expansions) {
+                    if (diag.range.start.column + 1 ==
+                            expansion.preprocessed_start_column &&
+                        diag.range.end.column + 1 ==
+                            expansion.preprocessed_end_column) {
+                        expansion_trace += std::format(
+                            "\n  note: in expansion of macro '{}' from {}:{}",
+                            expansion.macro_name, mapping->original_line,
+                            expansion.original_column);
+                    }
+                }
+                message += expansion_trace;
+            }
+        }
+
+        result += std::format("{} - {}: {}", range.to_string(), severity_name,
+                              message);
     }
 
     std::string summary;

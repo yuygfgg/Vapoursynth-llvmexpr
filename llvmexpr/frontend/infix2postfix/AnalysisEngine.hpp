@@ -2,6 +2,7 @@
 #define LLVMEXPR_INFIX2POSTFIX_ANALYSISENGINE_HPP
 
 #include "AST.hpp"
+#include "Preprocessor.hpp"
 #include "types.hpp"
 #include <memory>
 #include <string>
@@ -27,7 +28,8 @@ class SemanticAnalyzer; // Forward declaration
 
 class AnalysisEngine {
   public:
-    AnalysisEngine(const std::vector<Token>& tokens, Mode mode, int num_inputs);
+    AnalysisEngine(const std::vector<Token>& tokens, Mode mode, int num_inputs,
+                   const std::vector<LineMapping>& line_map);
     ~AnalysisEngine();
 
     bool runAnalysis();
@@ -49,6 +51,7 @@ class AnalysisEngine {
     std::vector<Token> tokens;
     Mode mode;
     int num_inputs;
+    std::vector<LineMapping> line_map;
 
     std::unique_ptr<Program> ast;
     std::unique_ptr<SemanticAnalyzer> semantic_analyzer;

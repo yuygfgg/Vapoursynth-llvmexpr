@@ -15,10 +15,14 @@
 # You should have received a copy of the GNU General Public License
 # along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
 
+@ifndef __SINGLEEXPR__
+@error This expr should be used in SingleExpr mode
+@endif
+
 # Configuration and Initialization
 min_size_thr = 100;
 bg_val = 0;
-fg_val = 255;
+fg_val = __OUTPUT_BITDEPTH__ == 32 ? 1 : 2 ** (__OUTPUT_BITDEPTH__ - 1);
 
 w = $width;
 h = $height;

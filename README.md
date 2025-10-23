@@ -161,8 +161,15 @@ builddir/infix2postfix input.expr -m expr -o output.expr [--dump-ast]
 
 **Parameters:**
 - First argument: Input file containing infix expression
-- `-m`: Mode (`expr` for per-pixel expressions, `single` for per-frame expressions)
-- `-o`: Output file for the converted postfix expression
+- `-m MODE`: Mode (`expr` for per-pixel expressions, `single` for per-frame expressions)
+- `-o FILE`: Output file for the converted postfix expression
+- `-D MACRO[=value]`: Define a preprocessor macro (can be used multiple times)
 - `--dump-ast`: (Optional) Dump the AST of the expression to the console
+- `-E`: (Optional) Output preprocessed code and print macro expansion trace to the console
+
+**Example:**
+```bash
+builddir/infix2postfix input.expr -m expr -o output.expr -D VERSION=3 -D DEBUG --dump-ast
+```
 
 Alternatively, you can use the `infix=1` parameter directly in the VapourSynth plugin to convert expressions at runtime.

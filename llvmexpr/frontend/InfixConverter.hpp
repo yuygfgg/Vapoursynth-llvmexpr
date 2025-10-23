@@ -22,8 +22,19 @@
 
 #include "infix2postfix/types.hpp"
 #include <string>
+#include <vector>
 
-std::string convertInfixToPostfix(const std::string& infix_expr, int num_inputs,
-                                  infix2postfix::Mode mode);
+struct InfixConversionContext {
+    int width = 0;
+    int height = 0;
+    int num_inputs = 0;
+    int output_bitdepth = 0;
+    std::vector<int> input_bitdepths;
+};
+
+std::string
+convertInfixToPostfix(const std::string& infix_expr, int num_inputs,
+                      infix2postfix::Mode mode,
+                      const InfixConversionContext* context = nullptr);
 
 #endif

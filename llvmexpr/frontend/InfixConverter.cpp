@@ -22,15 +22,61 @@
 #include <stdexcept>
 
 #include "infix2postfix/AnalysisEngine.hpp"
+#include "infix2postfix/Preprocessor.hpp"
 #include "infix2postfix/Tokenizer.hpp"
 
 std::string convertInfixToPostfix(const std::string& infix_expr, int num_inputs,
-                                  infix2postfix::Mode mode) {
+                                  infix2postfix::Mode mode,
+                                  const InfixConversionContext* context) {
     try {
-        infix2postfix::Tokenizer tokenizer(infix_expr);
+        std::string preprocessed_source = infix_expr;
+        std::vector<infix2postfix::LineMapping> line_map;
+
+        if (context) {
+            infix2postfix::Preprocessor preprocessor(infix_expr);
+
+            if (mode == infix2postfix::Mode::Expr) {
+                preprocessor.addPredefinedMacro("__EXPR__", "");
+            } else {
+                preprocessor.addPredefinedMacro("__SINGLEEXPR__", "");
+            }
+
+            preprocessor.addPredefinedMacro("__WIDTH__",
+                                            std::to_string(context->width));
+            preprocessor.addPredefinedMacro("__HEIGHT__",
+                                            std::to_string(context->height));
+            preprocessor.addPredefinedMacro(
+                "__INPUT_NUM__", std::to_string(context->num_inputs));
+            preprocessor.addPredefinedMacro(
+                "__OUTPUT_BITDEPTH__",
+                std::to_string(context->output_bitdepth));
+
+            for (size_t i = 0; i < context->input_bitdepths.size(); ++i) {
+                std::string macro_name =
+                    std::format("__INPUT_BITDEPTH_{}__", i);
+                preprocessor.addPredefinedMacro(
+                    macro_name, std::to_string(context->input_bitdepths[i]));
+            }
+
+            auto preprocess_result = preprocessor.process();
+
+            if (!preprocess_result.success) {
+                std::string error_msg = "Preprocessing errors:\n";
+                for (const auto& error : preprocess_result.errors) {
+                    error_msg += error + "\n";
+                }
+                throw std::runtime_error(error_msg);
+            }
+
+            preprocessed_source = preprocess_result.source;
+            line_map = preprocess_result.line_map;
+        }
+
+        infix2postfix::Tokenizer tokenizer(preprocessed_source);
         auto tokens = tokenizer.tokenize();
 
-        infix2postfix::AnalysisEngine engine(tokens, mode, num_inputs);
+        infix2postfix::AnalysisEngine engine(tokens, mode, num_inputs,
+                                             line_map);
         bool success = engine.runAnalysis();
 
         if (!success) {
@@ -38,7 +84,6 @@ std::string convertInfixToPostfix(const std::string& infix_expr, int num_inputs,
             throw std::runtime_error(diagnostics);
         }
 
-        // Use the new interface: generateCode() instead of direct CodeGenerator
         return engine.generateCode();
     } catch (const std::exception& e) {
         throw std::runtime_error(

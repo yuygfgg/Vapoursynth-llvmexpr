@@ -23,9 +23,146 @@ This is a specialized model where the script is executed only *once for the enti
     - All output must be performed explicitly by writing to absolute pixel coordinates (`store()`) or by writing to frame properties (`set_prop()`).
     - The special `RESULT` variable has no effect on the output frame.
 
-## 2. Lexical Structure
+## 2. Preprocessor
 
-### 2.1. Comments
+The infix2postfix tool includes a preprocessor that runs before parsing. This allows for macro definitions and conditional compilation, providing powerful code organization and configuration capabilities.
+
+### 2.1. Overview
+
+The preprocessor processes directives at the beginning of lines (marked with `@`) before the source code is tokenized and parsed. All preprocessing is completed before semantic analysis begins.
+
+#### Predefined Macros
+
+The following macros are automatically defined:
+
+**Mode-Specific Macros:**
+- `__EXPR__` - Defined when compiling in `Expr` mode (per-pixel execution)
+- `__SINGLEEXPR__` - Defined when compiling in `SingleExpr` mode (per-frame execution)
+
+**Context Macros (when using `infix=1` in VapourSynth):**
+- `__WIDTH__` - Output frame width (integer)
+- `__HEIGHT__` - Output frame height (integer)
+- `__INPUT_NUM__` - Number of input clips (integer)
+- `__OUTPUT_BITDEPTH__` - Output bit depth (8, 10, 12, 14, 16, or 32)
+- `__INPUT_BITDEPTH_0__` - Bit depth of first input clip
+- `__INPUT_BITDEPTH_1__` - Bit depth of second input clip (if present)
+- `__INPUT_BITDEPTH_N__` - Bit depth of (N+1)-th input clip
+
+These macros can be used with `@ifdef` to write mode-specific or format-specific code:
+
+### 2.2. Preprocessor Directives
+
+All preprocessor directives start with `@` at the beginning of a line (after any whitespace):
+
+| Directive | Syntax                    | Description                              |
+| :-------- | :------------------------ | :--------------------------------------- |
+| `@define` | `@define NAME [value]`    | Define a macro                           |
+| `@undef`  | `@undef NAME`             | Undefine a macro                         |
+| `@ifdef`  | `@ifdef NAME ... @endif`  | Conditional compilation (if defined)     |
+| `@ifndef` | `@ifndef NAME ... @endif` | Conditional compilation (if not defined) |
+| `@else`   | `@else`                   | Alternative branch (optional)            |
+| `@endif`  | `@endif`                  | End conditional block                    |
+| `@error`  | `@error [message]`        | Emit compilation error if enabled        |
+
+### 2.3. Macro Definitions
+
+Define constants or feature flags using the `@define` directive:
+
+**Syntax:** `@define NAME [value]`
+
+- If a value is provided, all occurrences of `NAME` as a token will be replaced with the value
+- If no value is provided, `NAME` is just marked as defined (useful for feature flags)
+- Macro names must start with a letter or underscore
+- Macro names can contain letters, digits, and underscores
+
+### 2.4. Undefining Macros
+
+Remove a macro definition using the `@undef` directive:
+
+**Syntax:** `@undef NAME`
+
+### 2.5. Conditional Compilation
+
+#### @ifdef - If Defined
+
+Include code only when a macro is defined:
+
+**Syntax:**
+```
+@ifdef NAME
+  # Code included if NAME is defined
+@else
+  # Code included if NAME is not defined
+@endif
+```
+
+The `@else` block is optional.
+
+**Example:**
+
+```
+@define DEBUG_MODE
+
+@ifdef DEBUG_MODE
+  # This code will be included
+  debug_value = 42;
+@else
+  # This code will be excluded
+  debug_value = 0;
+@endif
+```
+
+#### @ifndef - If Not Defined
+
+Include code only when a macro is NOT defined:
+
+**Syntax:**
+```
+@ifndef NAME
+  # Code included if NAME is NOT defined
+@else
+  # Code included if NAME is defined
+@endif
+```
+
+### 2.6. Error Directive
+
+Use `@error` to emit a compilation error if the directive is encountered in active code:
+
+**Syntax:** `@error [message]`
+
+This is useful for preventing compilation in certain configurations or warning about deprecated features. The `@error` directive only triggers when it's in an active code block.
+
+**Example:**
+
+```
+@ifdef __EXPR__
+  @error This expr should not be used in Expr mode
+@endif
+```
+
+### 2.7. Macro Expansion
+
+Macros are expanded during preprocessing:
+
+1. Only complete tokens (identifiers) are replaced
+2. Macro names must start with a letter or underscore
+3. Macro names can contain letters, digits, and underscores
+4. Macro expansion is simple text replacement (no arguments)
+5. Macros are not expanded recursively
+
+**Example:**
+
+```
+@define MAX 100
+
+x = MAX;        # Expands to: x = 100;
+y = MAX + 1;    # Expands to: y = 100 + 1;
+```
+
+## 3. Lexical Structure
+
+### 3.1. Comments
 
 Comments begin with a `#` character and extend to the end of the line. They are ignored by the parser.
 
@@ -34,11 +171,11 @@ Comments begin with a `#` character and extend to the end of the line. They are 
 a = 1 # This is an inline comment.
 ```
 
-### 2.2. Whitespace
+### 3.2. Whitespace
 
 Whitespace characters (spaces, tabs, newlines) are used to separate tokens. Multiple whitespace characters are treated as a single separator. Newlines are significant as they terminate statements.
 
-### 2.3. Identifiers
+### 3.3. Identifiers
 
 Identifiers are used for naming variables and functions.
 
@@ -46,7 +183,7 @@ Identifiers are used for naming variables and functions.
 - **Case-Sensitivity:** Identifiers are case-sensitive. `myVar` and `myvar` are different.
 - **Reserved Prefix:** Identifiers starting with `__internal_` are reserved for internal use by the transpiler and must not be used in user code.
 
-### 2.4. Literals
+### 3.4. Literals
 
 #### Numeric Literals
 
@@ -56,11 +193,11 @@ The language supports several formats for numeric constants:
 - **Hexadecimal:** Prefixed with `0x`. Can include a fractional part and a binary exponent (`p-exponent`). Examples: `0xFF`, `0x1.9p-2`.
 - **Octal:** Prefixed with a leading `0`. Example: `0755`.
 
-## 3. Program Structure
+## 4. Program Structure
 
 A program is a script composed of one or more statements.
 
-### 3.1. Statements
+### 4.1. Statements
 
 - Statements can be terminated by either a newline or a semicolon (`;`).
 - Semicolons are optional if a statement is on its own line.
@@ -88,7 +225,7 @@ my_func(my_var);
 a = 1; b = 2; c = a + b
 ```
 
-### 3.2. Final Result (`Expr` mode)
+### 4.2. Final Result (`Expr` mode)
 
 In `Expr` mode, the final output for each pixel is determined by the value assigned to the special `RESULT` variable. This assignment is typically the last statement in the global scope.
 
@@ -99,31 +236,31 @@ RESULT = final_value
 
 In `SingleExpr` mode, assigning to `RESULT` has no effect. Output in this mode is handled explicitly via the `store()` and `set_prop()` functions.
 
-## 4. Variables and Constants
+## 5. Variables and Constants
 
-### 4.1. Variables
+### 5.1. Variables
 
 - **Declaration:** Variables are declared implicitly upon their first assignment.
 - **Usage:** A variable must be guaranteed to be assigned a value before it is used in an expression. The transpiler performs a static analysis to ensure a variable is defined on all possible execution paths before any use. Referencing a variable that is not guaranteed to be initialized will result in a syntax error.
 
-### 4.2. Constants
+### 5.2. Constants
 
 Constants represent fixed values and are **always** identified by a `$` prefix. They are treated as literal values and do not require prior assignment.
 
-### 4.3. Built-in Constants
+### 5.3. Built-in Constants
 
 The language provides several built-in constants.
 
-| Constant  | Description                                                                                             | Availability |
-| :-------- | :------------------------------------------------------------------------------------------------------ | :----------- |
-| `$pi`     | The value of π.                                                                                         | Both         |
-| `$N`      | The current frame number (0-based).                                                                     | Both         |
-| `$X`      | The current column coordinate (chroma-subsampling counted).                                             | `Expr` only  |
-| `$Y`      | The current row coordinate (chroma-subsampling counted).                                                | `Expr` only  |
-| `$width`  | The width of the video plane. In `Expr`, this is the width of the current plane. In `SingleExpr`, this is the width of the luma plane.  | Both         |
+| Constant  | Description                                                                                                                               | Availability |
+| :-------- | :---------------------------------------------------------------------------------------------------------------------------------------- | :----------- |
+| `$pi`     | The value of π.                                                                                                                           | Both         |
+| `$N`      | The current frame number (0-based).                                                                                                       | Both         |
+| `$X`      | The current column coordinate (chroma-subsampling counted).                                                                               | `Expr` only  |
+| `$Y`      | The current row coordinate (chroma-subsampling counted).                                                                                  | `Expr` only  |
+| `$width`  | The width of the video plane. In `Expr`, this is the width of the current plane. In `SingleExpr`, this is the width of the luma plane.    | Both         |
 | `$height` | The height of the video plane. In `Expr`, this is the height of the current plane. In `SingleExpr`, this is the height of the luma plane. | Both         |
 
-### 4.4. Source Clips
+### 5.4. Source Clips
 
 Source clips are special constants used to reference input video clips. They must be prefixed with a `$`.
 
@@ -139,15 +276,15 @@ Source clips can be referenced in two equivalent ways:
 
 2.  **`src` Prefixed:** The identifier `src` followed by one or more digits, prefixed with `$` (e.g., `$src0`, `$src1`).
 
-## 5. Operators
+## 6. Operators
 
 Operators are left-associative, except for the unary and ternary operators. The following table lists operators in order of precedence, from lowest to highest.
 
 | Precedence | Operator            | Description              | Arity      | Associativity |
 | :--------- | :------------------ | :----------------------- | :--------- | :------------ |
-| 1          | `|`                 | Logical OR               | Binary     | Left          |
+| 1          | `                   | `                        | Logical OR | Binary        | Left |
 | 2          | `&&`                | Logical AND              | Binary     | Left          |
-| 3          | `|`                 | Bitwise OR               | Binary     | Left          |
+| 3          | `                   | `                        | Bitwise OR | Binary        | Left |
 |            | `^`                 | Bitwise XOR              | Binary     | Left          |
 |            | `&`                 | Bitwise AND              | Binary     | Left          |
 |            | `~`                 | Bitwise NOT              | Unary      | Right         |
@@ -164,11 +301,11 @@ Operators are left-associative, except for the unary and ternary operators. The 
 Note: Bitwise operators operates on integer values. When operating on floating-point values, operands are first rounded to the nearest integer.
 Note: Logical operators treat any value greater than 0 as `true`. They return `1.0` for true and `0.0` for false.
 
-## 6. Data Access
+## 7. Data Access
 
 Data access methods for pixels and frame properties differ significantly between `Expr` and `SingleExpr` modes.
 
-### 6.1. Frame Property Access
+### 7.1. Frame Property Access
 
 #### Reading (Both Modes)
 
@@ -196,7 +333,7 @@ avg = (dyn(x, 0, 0, 0) + dyn(x, w-1, h-1, 0)) / 2;
 set_prop(AverageValue, avg);
 ```
 
-### 6.2. Pixel Access (`Expr` mode)
+### 7.2. Pixel Access (`Expr` mode)
 
 In `Expr` mode, you can access pixels from source clips relative to the current pixel or at absolute coordinates.
 
@@ -216,7 +353,7 @@ Access a pixel at a fixed, constant offset from the current coordinate (`$X`, `$
 
 Access a pixel at a dynamically calculated coordinate using the 3-argument `dyn()` function. See section 7.2 for details.
 
-### 6.3. Pixel and Data I/O (`SingleExpr` mode)
+### 7.3. Pixel and Data I/O (`SingleExpr` mode)
 
 In `SingleExpr` mode, all data I/O is explicit and uses absolute coordinates.
 
@@ -238,39 +375,39 @@ Read pixels from specific coordinates and planes using the 4-argument version of
 
 Write values to specific output frame locations using the 4-argument version of `store()`. See section 7.2 for details.
 
-## 7. Functions
+## 8. Functions
 
-### 7.1. Function Calls
+### 8.1. Function Calls
 
 Functions are called using standard syntax: `functionName(argument1, argument2, ...)`
 
-### 7.2. Built-in Functions
+### 8.2. Built-in Functions
 
-| Function                          | Arity               | Description                                                   |
-| :-------------------------------- | :------------------ | :------------------------------------------------------------ |
-| `sin`, `cos`, `tan`               | 1                   | Trigonometric sine, cosine, tangent.                          |
-| `asin`, `acos`, `atan`            | 1                   | Inverse trigonometric functions.                              |
-| `atan2`                           | 2                   | Two-argument arctangent; `atan2(y, x)`.                       |
-| `exp`, `exp2`                     | 1                   | Exponential functions `e^x`, `2^x`.                           |
-| `log`, `log2`, `log10`            | 1                   | Natural/base-2/base-10 logarithms.                            |
-| `sqrt`                            | 1                   | Square root.                                                  |
-| `abs`                             | 1                   | Absolute value.                                               |
-| `sgn`                             | 1                   | Signum function: -1 if x < 0, 0 if x == 0, 1 if x > 0.        |
-| `floor`, `ceil`, `round`, `trunc` | 1                   | Rounding family.                                              |
-| `min`, `max`                      | 2                   | Minimum/maximum.                                              |
-| `copysign`                        | 2                   | Magnitude of first operand, sign of second.                   |
-| `clamp`                           | 3                   | `clamp(x, lo, hi)`; clamps to `[lo, hi]`.                     |
-| `fma`                             | 3                   | Fused multiply-add: `(a * b) + c`.                            |
-| `nth_N`                           | `M` (where `M ≥ N`) | `nth_3(a, b, c, d)` returns the 3rd smallest of the 4 values. |
+| Function                          | Arity               | Description                                                                                             |
+| :-------------------------------- | :------------------ | :------------------------------------------------------------------------------------------------------ |
+| `sin`, `cos`, `tan`               | 1                   | Trigonometric sine, cosine, tangent.                                                                    |
+| `asin`, `acos`, `atan`            | 1                   | Inverse trigonometric functions.                                                                        |
+| `atan2`                           | 2                   | Two-argument arctangent; `atan2(y, x)`.                                                                 |
+| `exp`, `exp2`                     | 1                   | Exponential functions `e^x`, `2^x`.                                                                     |
+| `log`, `log2`, `log10`            | 1                   | Natural/base-2/base-10 logarithms.                                                                      |
+| `sqrt`                            | 1                   | Square root.                                                                                            |
+| `abs`                             | 1                   | Absolute value.                                                                                         |
+| `sgn`                             | 1                   | Signum function: -1 if x < 0, 0 if x == 0, 1 if x > 0.                                                  |
+| `floor`, `ceil`, `round`, `trunc` | 1                   | Rounding family.                                                                                        |
+| `min`, `max`                      | 2                   | Minimum/maximum.                                                                                        |
+| `copysign`                        | 2                   | Magnitude of first operand, sign of second.                                                             |
+| `clamp`                           | 3                   | `clamp(x, lo, hi)`; clamps to `[lo, hi]`.                                                               |
+| `fma`                             | 3                   | Fused multiply-add: `(a * b) + c`.                                                                      |
+| `nth_N`                           | `M` (where `M ≥ N`) | `nth_3(a, b, c, d)` returns the 3rd smallest of the 4 values.                                           |
 | `new`                             | 1                   | Allocates an array. In `Expr` mode, size must be a literal. In `SingleExpr`, size can be an expression. |
-| `resize`                          | 1                   | Resizes an array. Alias for `new()` in `SingleExpr` mode only.|
+| `resize`                          | 1                   | Resizes an array. Alias for `new()` in `SingleExpr` mode only.                                          |
 
 Notes:
 
 - All built-ins are recognized by name and arity; wrong arity will raise a syntax error.
 - `nth_N(...)` supports any `N ≥ 1`. It sorts its `M` arguments internally and returns the `N`-th smallest. This compiles to stack ops using `sortM`/`dropK` under the hood.
 
-### 7.3. Mode-Specific Functions
+### 8.3. Mode-Specific Functions
 
 #### `dyn()` - Dynamic Pixel Access
 
@@ -316,7 +453,7 @@ The `store()` function has different signatures for `Expr` and `SingleExpr` mode
 - **Signature:** `exit()`
 - Suppresses the default pixel write to the current coordinate (`$X`, `$Y`). This is useful when an expression only writes to other pixels using `store()`.
 
-### 7.4. User-Defined Functions
+### 8.4. User-Defined Functions
 
 - **Definition:**
 
@@ -350,7 +487,7 @@ function functionName(Type1 param1, Type2 param2) {
 - **Inlining:** Function calls are effectively inlined at compile time. Recursion is not supported.
 - **Nesting:** Function definitions cannot be nested.
 
-### 7.5. Function Overloading
+### 8.5. Function Overloading
 
 The language supports function overloading, allowing multiple functions to share the same name as long as their parameter lists are different in number or type.
 
@@ -379,9 +516,9 @@ a = process($x)  # Calls process(Clip c)
 b = process(10.0)  # Calls process(Value v)
 ```
 
-## 8. Scope and Globals
+## 9. Scope and Globals
 
-### 8.1. Scopes
+### 9.1. Scopes
 
 - **Global Scope:** Variables defined at the top level of the script.
 - **Function Scope:** Each function has its own local scope. This includes its parameters and any variables assigned within its body.
@@ -397,7 +534,7 @@ if ($x > 10) {
 # because 'a' is not defined in the global scope.
 # RESULT = a
 ```
-### 8.2. Global Variable Access
+### 9.2. Global Variable Access
 
 By default, functions operate in an isolated scope and cannot access global variables. This behavior can be modified with a global declaration placed immediately before a function definition.
 
@@ -419,11 +556,11 @@ RESULT = useGlobal(5) # Evaluates to 105
 
 - Any global variable a function depends on must be defined before that function is called.
 
-## 9. Control Flow (if/else/while and Labels)
+## 10. Control Flow (if/else/while and Labels)
 
 The infix syntax supports structured conditionals, loops, and low-level jumps at both global and function scope. These compile to RPN labels and jumps.
 
-### 9.1. If / Else Blocks
+### 10.1. If / Else Blocks
 
 - **Syntax:**
 
@@ -439,7 +576,7 @@ if (condition) {
 - The condition is any valid expression; non-zero is treated as true.
 - Each block is a sequence of normal statements (assignments or expressions).
 
-### 9.2. Goto and Labels
+### 10.2. Goto and Labels
 
 - **Define a label:** `label_name:` (at the start of a line)
 - **Unconditional jump:** `goto label_name`
@@ -450,7 +587,7 @@ Constraints and rules:
 - The target label must exist somewhere in the script; otherwise a syntax error is raised.
 - Labels only mark positions; they do not execute anything by themselves.
 
-### 9.3. While Loops
+### 10.3. While Loops
 
 A `while` loop provides a C-style syntax for repeated execution as long as a condition is true.
 
@@ -478,11 +615,11 @@ while (counter > 0) {
 RESULT = counter # will be 0
 ```
 
-## 10. Arrays
+## 11. Arrays
 
 Arrays are collections of values that can be created and accessed by an index. They are especially useful in `SingleExpr` mode for tasks like building lookup tables, histograms, or buffering data for complex calculations.
 
-### 10.1. Declaration and Initialization
+### 11.1. Declaration and Initialization
 
 Arrays are created by calling the built-in `new()` function and assigning the result to a variable.
 
@@ -504,7 +641,7 @@ Arrays are created by calling the built-in `new()` function and assigning the re
     ```
     Note: An array must be allocated using `new()` before it can be resized.
 
-### 10.2. Element Access
+### 11.2. Element Access
 
 C-style square brackets `[]` are used to read from and write to array elements.
 
@@ -530,7 +667,7 @@ some_value = dyn($x, 10, 10, 0);
 result_from_lut = lut[some_value]; # Read from the LUT
 ```
 
-### 10.3. Arrays as Function Parameters
+### 11.3. Arrays as Function Parameters
 
 Arrays can be passed to user-defined functions by specifying the `Array` type in the function signature. The array is passed by reference, meaning the function can modify the original array.
 
@@ -550,13 +687,13 @@ my_data = new(10);
 fill_array(my_data, 3.14, 10); # my_data is now filled with 3.14
 ```
 
-### 10.4. Scope and Lifetime
+### 11.4. Scope and Lifetime
 
 The lifetime of an array depends on the execution mode:
 
 - **`Expr` mode:** Arrays are temporary and exist only for the evaluation of a single pixel. They are re-created and destroyed for each pixel and cannot be used to share data between pixels.
 - **`SingleExpr` mode:** Arrays are persistent and exist for the lifetime of the filter instance. Their contents are preserved between frame evaluations. **Warning:** Due to VapourSynth's parallel processing, you should not rely on arrays for communication *between* frames, as frame evaluation order is not guaranteed.
 
-### 10.5. Safety
+### 11.5. Safety
 
 **Warning:** The language does not perform runtime bounds checking on array access. Accessing an index outside the allocated size (e.g., `my_array[-1]` or `my_array[size]`) will result in **undefined behavior**, which may include crashes or memory corruption. It is the script author's responsibility to ensure all access is within bounds.
