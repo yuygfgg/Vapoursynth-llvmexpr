@@ -32,9 +32,11 @@ class Preprocessor::ExpressionEvaluator {
   public:
     using Value = std::variant<int64_t, double>;
 
-    ExpressionEvaluator(std::string expression,
-                        const std::map<std::string, MacroDefinition>& macros)
-        : expression_(std::move(expression)), macros_(macros) {}
+    ExpressionEvaluator(std::string expression_in,
+                        const std::map<std::string, MacroDefinition>& macros_in,
+                        Preprocessor* preprocessor_in = nullptr)
+        : expression(std::move(expression_in)), macros(macros_in),
+          preprocessor(preprocessor_in) {}
 
     Value evaluate() {
         full_macro_expansion();
@@ -99,60 +101,67 @@ class Preprocessor::ExpressionEvaluator {
     };
 
     void full_macro_expansion() {
-        std::string current_expr = expression_;
-        std::string result;
-        bool changed;
-        do {
-            changed = false;
-            result.clear();
-            size_t i = 0;
-            while (i < current_expr.length()) {
-                if (std::isalpha(current_expr[i]) || current_expr[i] == '_') {
-                    size_t start = i;
-                    while (i < current_expr.length() &&
-                           (std::isalnum(current_expr[i]) ||
-                            current_expr[i] == '_')) {
+        if (!preprocessor) {
+            // Fallback for old behavior if preprocessor is not provided
+            // This can be removed if all call sites are updated
+            std::string current_expr = expression;
+            std::string result;
+            bool changed;
+            do {
+                changed = false;
+                result.clear();
+                size_t i = 0;
+                while (i < current_expr.length()) {
+                    if (std::isalpha(current_expr[i]) ||
+                        current_expr[i] == '_') {
+                        size_t start = i;
+                        while (i < current_expr.length() &&
+                               (std::isalnum(current_expr[i]) ||
+                                current_expr[i] == '_')) {
+                            i++;
+                        }
+                        std::string identifier =
+                            current_expr.substr(start, i - start);
+                        auto it = macros.find(identifier);
+                        if (it != macros.end()) {
+                            result += it->second.body;
+                            changed = true;
+                        } else {
+                            result += identifier;
+                        }
+                    } else {
+                        result += current_expr[i];
                         i++;
                     }
-                    std::string identifier =
-                        current_expr.substr(start, i - start);
-                    auto it = macros_.find(identifier);
-                    if (it != macros_.end()) {
-                        result += it->second.body;
-                        changed = true;
-                    } else {
-                        result += identifier;
-                    }
-                } else {
-                    result += current_expr[i];
-                    i++;
                 }
-            }
-            current_expr = result;
-        } while (changed);
-        expression_ = result;
+                current_expr = result;
+            } while (changed);
+            expression = result;
+            return;
+        }
+        expression = preprocessor->expandMacrosImpl(expression, -1, nullptr);
     }
 
     void tokenize() {
         size_t i = 0;
-        while (i < expression_.length()) {
-            if (std::isspace(expression_[i])) {
+        while (i < expression.length()) {
+            if (std::isspace(expression[i])) {
                 i++;
                 continue;
             }
 
-            if (std::isdigit(expression_[i]) ||
-                (expression_[i] == '.' && i + 1 < expression_.length() &&
-                 std::isdigit(expression_[i + 1]))) {
+            if (std::isdigit(expression[i]) ||
+                (expression[i] == '.' && i + 1 < expression.length() &&
+                 std::isdigit(expression[i + 1]))) {
                 size_t start = i;
-                while (i < expression_.length() &&
-                       (std::isalnum(expression_[i]) || expression_[i] == '.' ||
-                        ((expression_[i] == '+' || expression_[i] == '-') &&
-                         (std::tolower(expression_[i - 1]) == 'e' ||
-                          std::tolower(expression_[i - 1]) == 'p')))) {
+                while (i < expression.length() &&
+                       (std::isalnum(expression[i]) || expression[i] == '.' ||
+                        ((expression[i] == '+' || expression[i] == '-') &&
+                         (std::tolower(expression[i - 1]) == 'e' ||
+                          std::tolower(expression[i - 1]) == 'p')))) {
                     i++;
                 }
-                std::string num_str = expression_.substr(start, i - start);
+                std::string num_str = expression.substr(start, i - start);
                 try {
                     if (num_str.find('.') != std::string::npos ||
                         num_str.find('e') != std::string::npos ||
@@ -170,19 +179,19 @@ class Preprocessor::ExpressionEvaluator {
                 continue;
             }
 
-            if (std::isalpha(expression_[i]) || expression_[i] == '_') {
+            if (std::isalpha(expression[i]) || expression[i] == '_') {
                 size_t start = i;
                 while (
-                    i < expression_.length() &&
-                    (std::isalnum(expression_[i]) || expression_[i] == '_')) {
+                    i < expression.length() &&
+                    (std::isalnum(expression[i]) || expression[i] == '_')) {
                     i++;
                 }
-                std::string text = expression_.substr(start, i - start);
+                std::string text = expression.substr(start, i - start);
                 throw std::runtime_error("Unknown identifier in expression: " +
                                          text);
             }
 
-            switch (expression_[i]) {
+            switch (expression[i]) {
             case '+':
                 tokens_.push_back({TokenType::Plus, "+"});
                 break;
@@ -190,7 +199,7 @@ class Preprocessor::ExpressionEvaluator {
                 tokens_.push_back({TokenType::Minus, "-"});
                 break;
             case '*':
-                if (i + 1 < expression_.length() && expression_[i + 1] == '*') {
+                if (i + 1 < expression.length() && expression[i + 1] == '*') {
                     tokens_.push_back({TokenType::Power, "**"});
                     i++;
                 } else {
@@ -210,7 +219,7 @@ class Preprocessor::ExpressionEvaluator {
                 tokens_.push_back({TokenType::RParen, ")"});
                 break;
             case '!':
-                if (i + 1 < expression_.length() && expression_[i + 1] == '=') {
+                if (i + 1 < expression.length() && expression[i + 1] == '=') {
                     tokens_.push_back({TokenType::NotEqual, "!="});
                     i++;
                 } else {
@@ -218,7 +227,7 @@ class Preprocessor::ExpressionEvaluator {
                 }
                 break;
             case '=':
-                if (i + 1 < expression_.length() && expression_[i + 1] == '=') {
+                if (i + 1 < expression.length() && expression[i + 1] == '=') {
                     tokens_.push_back({TokenType::Equal, "=="});
                     i++;
                 } else {
@@ -226,7 +235,7 @@ class Preprocessor::ExpressionEvaluator {
                 }
                 break;
             case '&':
-                if (i + 1 < expression_.length() && expression_[i + 1] == '&') {
+                if (i + 1 < expression.length() && expression[i + 1] == '&') {
                     tokens_.push_back({TokenType::LogicalAnd, "&&"});
                     i++;
                 } else {
@@ -234,7 +243,7 @@ class Preprocessor::ExpressionEvaluator {
                 }
                 break;
             case '|':
-                if (i + 1 < expression_.length() && expression_[i + 1] == '|') {
+                if (i + 1 < expression.length() && expression[i + 1] == '|') {
                     tokens_.push_back({TokenType::LogicalOr, "||"});
                     i++;
                 } else {
@@ -242,7 +251,7 @@ class Preprocessor::ExpressionEvaluator {
                 }
                 break;
             case '>':
-                if (i + 1 < expression_.length() && expression_[i + 1] == '=') {
+                if (i + 1 < expression.length() && expression[i + 1] == '=') {
                     tokens_.push_back({TokenType::GreaterEqual, ">="});
                     i++;
                 } else {
@@ -250,7 +259,7 @@ class Preprocessor::ExpressionEvaluator {
                 }
                 break;
             case '<':
-                if (i + 1 < expression_.length() && expression_[i + 1] == '=') {
+                if (i + 1 < expression.length() && expression[i + 1] == '=') {
                     tokens_.push_back({TokenType::LessEqual, "<="});
                     i++;
                 } else {
@@ -260,7 +269,7 @@ class Preprocessor::ExpressionEvaluator {
             default:
                 throw std::runtime_error(
                     std::string("Unexpected character in expression: ") +
-                    expression_[i]);
+                    expression[i]);
             }
             i++;
         }
@@ -458,10 +467,11 @@ class Preprocessor::ExpressionEvaluator {
         return left;
     }
 
-    std::string expression_;
-    const std::map<std::string, MacroDefinition>& macros_;
+    std::string expression;
+    const std::map<std::string, MacroDefinition>& macros;
     std::vector<Token> tokens_;
     size_t pos_ = 0;
+    Preprocessor* preprocessor;
 };
 
 Preprocessor::Preprocessor(const std::string& source) : source(source) {}
@@ -524,6 +534,285 @@ void Preprocessor::processLine(const std::string& line, int line_number) {
         std::string expanded = expandMacros(line, line_number);
         output_lines.back() = expanded;
     }
+}
+
+std::string
+Preprocessor::expandMacrosImpl(const std::string& line, int line_number,
+                               std::vector<MacroExpansion>* expansions_out) {
+    std::string current_line = line;
+    std::string result;
+    bool changed;
+    constexpr int RECURSION_LIMIT = 1000;
+    int count = 0;
+
+    do {
+        changed = false;
+        result.clear();
+        std::vector<MacroExpansion> expansions_this_pass;
+
+        size_t i = 0;
+        int column = 1;
+
+        while (i < current_line.length()) {
+            char c = current_line[i];
+
+            if (std::isalpha(c) || c == '_') {
+                size_t start = i;
+                int token_column = column;
+
+                while (i < current_line.length() &&
+                       isIdentifierChar(current_line[i])) {
+                    i++;
+                    column++;
+                }
+
+                std::string token = current_line.substr(start, i - start);
+
+                auto it = macros.find(token);
+                if (it != macros.end()) {
+                    const MacroDefinition& macro = it->second;
+                    std::string replacement;
+                    size_t expansion_end = i;
+
+                    if (macro.is_function_like) {
+                        size_t temp_i = i;
+                        while (temp_i < current_line.length() &&
+                               std::isspace(current_line[temp_i])) {
+                            temp_i++;
+                        }
+
+                        if (temp_i < current_line.length() &&
+                            current_line[temp_i] == '(') {
+                            // Parse arguments
+                            temp_i++; // Skip '('
+                            std::vector<std::string> arguments;
+                            std::string current_arg;
+                            int paren_depth = 0;
+                            bool error = false;
+
+                            while (temp_i < current_line.length()) {
+                                char ch = current_line[temp_i];
+
+                                if (ch == '(') {
+                                    paren_depth++;
+                                    current_arg += ch;
+                                    temp_i++;
+                                } else if (ch == ')') {
+                                    if (paren_depth == 0) {
+                                        // End of argument list
+                                        size_t arg_start =
+                                            current_arg.find_first_not_of(
+                                                " \t");
+                                        size_t arg_end =
+                                            current_arg.find_last_not_of(" \t");
+                                        if (arg_start != std::string::npos &&
+                                            arg_end != std::string::npos) {
+                                            arguments.push_back(
+                                                current_arg.substr(
+                                                    arg_start,
+                                                    arg_end - arg_start + 1));
+                                        } else if (!current_arg.empty() ||
+                                                   !arguments.empty()) {
+                                            arguments.push_back("");
+                                        }
+                                        temp_i++; // Skip ')'
+                                        break;
+                                    } else {
+                                        paren_depth--;
+                                        current_arg += ch;
+                                        temp_i++;
+                                    }
+                                } else if (ch == ',' && paren_depth == 0) {
+                                    size_t arg_start =
+                                        current_arg.find_first_not_of(" \t");
+                                    size_t arg_end =
+                                        current_arg.find_last_not_of(" \t");
+                                    if (arg_start != std::string::npos &&
+                                        arg_end != std::string::npos) {
+                                        arguments.push_back(current_arg.substr(
+                                            arg_start,
+                                            arg_end - arg_start + 1));
+                                    } else {
+                                        arguments.push_back("");
+                                    }
+                                    current_arg.clear();
+                                    temp_i++;
+                                } else {
+                                    current_arg += ch;
+                                    temp_i++;
+                                }
+                            }
+
+                            if (paren_depth != 0 ||
+                                (temp_i > i &&
+                                 current_line[temp_i - 1] != ')')) {
+                                addError(std::format("Unterminated argument "
+                                                     "list for macro '{}'",
+                                                     token),
+                                         line_number);
+                                error = true;
+                            }
+
+                            if (!error) {
+                                if (arguments.size() !=
+                                    macro.parameters.size()) {
+                                    addError(
+                                        std::format(
+                                            "Macro '{}' expects {} "
+                                            "arguments, but {} were provided",
+                                            token, macro.parameters.size(),
+                                            arguments.size()),
+                                        line_number);
+                                    error = true;
+                                }
+                            }
+
+                            if (!error) {
+                                // Try to evaluate each argument as a constant expression
+                                std::vector<std::string> evaluated_arguments;
+                                for (const auto& arg : arguments) {
+                                    ExpressionEvaluator evaluator(arg, macros,
+                                                                  this);
+                                    auto evaluated =
+                                        evaluator.try_evaluate_constant();
+                                    if (evaluated) {
+                                        // Successfully evaluated, use the result
+                                        if (std::holds_alternative<int64_t>(
+                                                *evaluated)) {
+                                            evaluated_arguments.push_back(
+                                                std::to_string(
+                                                    std::get<int64_t>(
+                                                        *evaluated)));
+                                        } else {
+                                            evaluated_arguments.push_back(
+                                                std::to_string(std::get<double>(
+                                                    *evaluated)));
+                                        }
+                                    } else {
+                                        // Cannot evaluate, keep original argument
+                                        evaluated_arguments.push_back(arg);
+                                    }
+                                }
+
+                                replacement = macro.body;
+                                for (size_t param_idx = 0;
+                                     param_idx < macro.parameters.size();
+                                     param_idx++) {
+                                    const std::string& param =
+                                        macro.parameters[param_idx];
+                                    const std::string& arg =
+                                        evaluated_arguments[param_idx];
+
+                                    size_t pos = 0;
+                                    while (
+                                        (pos = replacement.find(param, pos)) !=
+                                        std::string::npos) {
+                                        bool is_start_boundary =
+                                            (pos == 0) ||
+                                            !isIdentifierChar(
+                                                replacement[pos - 1]);
+                                        bool is_end_boundary =
+                                            (pos + param.length() >=
+                                             replacement.length()) ||
+                                            !isIdentifierChar(
+                                                replacement[pos +
+                                                            param.length()]);
+
+                                        if (is_start_boundary &&
+                                            is_end_boundary) {
+                                            replacement.replace(
+                                                pos, param.length(), arg);
+                                            pos += arg.length();
+                                        } else {
+                                            pos++;
+                                        }
+                                    }
+                                }
+
+                                // Recursively expand the result of the macro expansion
+                                std::string recursively_expanded =
+                                    expandMacrosImpl(replacement, line_number,
+                                                     nullptr);
+
+                                // Try to evaluate the expanded macro as a constant expression
+                                ExpressionEvaluator evaluator(
+                                    recursively_expanded, macros, this);
+                                auto evaluated =
+                                    evaluator.try_evaluate_constant();
+                                if (evaluated) {
+                                    if (std::holds_alternative<int64_t>(
+                                            *evaluated)) {
+                                        replacement = std::to_string(
+                                            std::get<int64_t>(*evaluated));
+                                    } else {
+                                        replacement = std::to_string(
+                                            std::get<double>(*evaluated));
+                                    }
+                                } else {
+                                    replacement = recursively_expanded;
+                                }
+
+                                expansion_end = temp_i;
+                                changed = true;
+                            } else {
+                                replacement = token;
+                            }
+                        } else {
+                            // Function-like macro not followed by '('
+                            replacement = token;
+                        }
+                    } else {
+                        // Object-like macro
+                        replacement = macro.body;
+                        expansion_end = i;
+                        changed = true;
+                    }
+
+                    int preprocessed_start_col = result.length() + 1;
+                    result += replacement;
+                    int preprocessed_end_col = result.length();
+
+                    if (changed && expansions_out &&
+                        (expansion_end > start || !macro.is_function_like)) {
+                        MacroExpansion expansion;
+                        expansion.macro_name = token;
+                        expansion.original_line = line_number;
+                        expansion.original_column = token_column;
+                        expansion.replacement_text = replacement;
+                        expansion.preprocessed_start_column =
+                            preprocessed_start_col;
+                        expansion.preprocessed_end_column =
+                            preprocessed_end_col;
+                        expansions_this_pass.push_back(expansion);
+                    }
+
+                    i = expansion_end;
+                    column += (expansion_end - start);
+                } else {
+                    result += token;
+                }
+            } else {
+                result += c;
+                i++;
+                column++;
+            }
+        }
+
+        current_line = result;
+        if (expansions_out && !expansions_this_pass.empty()) {
+            expansions_out->insert(expansions_out->end(),
+                                   expansions_this_pass.begin(),
+                                   expansions_this_pass.end());
+        }
+
+        if (++count > RECURSION_LIMIT) {
+            addError("Macro expansion limit reached, possible recursive macro?",
+                     line_number);
+            break;
+        }
+    } while (changed);
+
+    return current_line;
 }
 
 bool Preprocessor::isDirective(const std::string& line) const {
@@ -721,7 +1010,7 @@ void Preprocessor::handleDefine(const std::string& line, int line_number) {
 
     // Object-like macro: try to evaluate as constant expression
     if (!macro.is_function_like && !body.empty()) {
-        ExpressionEvaluator evaluator(body, macros);
+        ExpressionEvaluator evaluator(body, macros, this);
         auto evaluated = evaluator.try_evaluate_constant();
         if (evaluated) {
             if (std::holds_alternative<int64_t>(*evaluated)) {
@@ -879,7 +1168,7 @@ void Preprocessor::handleIf(const std::string& line, int line_number) {
         try {
             // Expand defined() operator before evaluating
             std::string expanded_expr = expandDefinedOperator(expression);
-            ExpressionEvaluator evaluator(expanded_expr, macros);
+            ExpressionEvaluator evaluator(expanded_expr, macros, this);
             auto result = evaluator.evaluate();
             condition_met = ExpressionEvaluator::is_truthy(result);
         } catch (const std::runtime_error& e) {
@@ -1014,231 +1303,17 @@ std::string Preprocessor::expandMacros(const std::string& line,
         return processed_line;
     }
 
-    std::string current_line = processed_line;
-    std::string result;
-    bool changed;
-    int recursion_limit = 1000;
-    int count = 0;
+    std::vector<MacroExpansion> expansions;
+    std::string result =
+        expandMacrosImpl(processed_line, line_number, &expansions);
 
-    do {
-        changed = false;
-        result.clear();
-        std::vector<MacroExpansion> expansions_this_pass;
+    if (!expansions.empty() && !line_mappings.empty()) {
+        line_mappings.back().expansions.insert(
+            line_mappings.back().expansions.end(), expansions.begin(),
+            expansions.end());
+    }
 
-        size_t i = 0;
-        int column = 1;
-
-        while (i < current_line.length()) {
-            char c = current_line[i];
-
-            if (std::isalpha(c) || c == '_') {
-                size_t start = i;
-                int token_column = column;
-
-                while (i < current_line.length() &&
-                       isIdentifierChar(current_line[i])) {
-                    i++;
-                    column++;
-                }
-
-                std::string token = current_line.substr(start, i - start);
-
-                auto it = macros.find(token);
-                if (it != macros.end()) {
-                    const MacroDefinition& macro = it->second;
-                    std::string replacement;
-                    size_t expansion_end = i;
-
-                    if (macro.is_function_like) {
-                        size_t temp_i = i;
-                        while (temp_i < current_line.length() &&
-                               std::isspace(current_line[temp_i])) {
-                            temp_i++;
-                        }
-
-                        if (temp_i < current_line.length() &&
-                            current_line[temp_i] == '(') {
-                            // Parse arguments
-                            temp_i++; // Skip '('
-                            std::vector<std::string> arguments;
-                            std::string current_arg;
-                            int paren_depth = 0;
-                            bool error = false;
-
-                            while (temp_i < current_line.length()) {
-                                char ch = current_line[temp_i];
-
-                                if (ch == '(') {
-                                    paren_depth++;
-                                    current_arg += ch;
-                                    temp_i++;
-                                } else if (ch == ')') {
-                                    if (paren_depth == 0) {
-                                        // End of argument list
-                                        size_t arg_start =
-                                            current_arg.find_first_not_of(
-                                                " \t");
-                                        size_t arg_end =
-                                            current_arg.find_last_not_of(" \t");
-                                        if (arg_start != std::string::npos &&
-                                            arg_end != std::string::npos) {
-                                            arguments.push_back(
-                                                current_arg.substr(
-                                                    arg_start,
-                                                    arg_end - arg_start + 1));
-                                        } else if (!current_arg.empty() ||
-                                                   !arguments.empty()) {
-                                            arguments.push_back("");
-                                        }
-                                        temp_i++; // Skip ')'
-                                        break;
-                                    } else {
-                                        paren_depth--;
-                                        current_arg += ch;
-                                        temp_i++;
-                                    }
-                                } else if (ch == ',' && paren_depth == 0) {
-                                    size_t arg_start =
-                                        current_arg.find_first_not_of(" \t");
-                                    size_t arg_end =
-                                        current_arg.find_last_not_of(" \t");
-                                    if (arg_start != std::string::npos &&
-                                        arg_end != std::string::npos) {
-                                        arguments.push_back(current_arg.substr(
-                                            arg_start,
-                                            arg_end - arg_start + 1));
-                                    } else {
-                                        arguments.push_back("");
-                                    }
-                                    current_arg.clear();
-                                    temp_i++;
-                                } else {
-                                    current_arg += ch;
-                                    temp_i++;
-                                }
-                            }
-
-                            if (paren_depth != 0 ||
-                                (temp_i > i &&
-                                 current_line[temp_i - 1] != ')')) {
-                                addError(std::format("Unterminated argument "
-                                                     "list for macro '{}'",
-                                                     token),
-                                         line_number);
-                                error = true;
-                            }
-
-                            if (!error) {
-                                if (arguments.size() !=
-                                    macro.parameters.size()) {
-                                    addError(
-                                        std::format(
-                                            "Macro '{}' expects {} "
-                                            "arguments, but {} were provided",
-                                            token, macro.parameters.size(),
-                                            arguments.size()),
-                                        line_number);
-                                    error = true;
-                                }
-                            }
-
-                            if (!error) {
-                                replacement = macro.body;
-                                for (size_t param_idx = 0;
-                                     param_idx < macro.parameters.size();
-                                     param_idx++) {
-                                    const std::string& param =
-                                        macro.parameters[param_idx];
-                                    const std::string& arg =
-                                        arguments[param_idx];
-
-                                    size_t pos = 0;
-                                    while (
-                                        (pos = replacement.find(param, pos)) !=
-                                        std::string::npos) {
-                                        bool is_start_boundary =
-                                            (pos == 0) ||
-                                            !isIdentifierChar(
-                                                replacement[pos - 1]);
-                                        bool is_end_boundary =
-                                            (pos + param.length() >=
-                                             replacement.length()) ||
-                                            !isIdentifierChar(
-                                                replacement[pos +
-                                                            param.length()]);
-
-                                        if (is_start_boundary &&
-                                            is_end_boundary) {
-                                            replacement.replace(
-                                                pos, param.length(), arg);
-                                            pos += arg.length();
-                                        } else {
-                                            pos++;
-                                        }
-                                    }
-                                }
-
-                                expansion_end = temp_i;
-                                changed = true;
-                            } else {
-                                replacement = token;
-                            }
-                        } else {
-                            // Function-like macro not followed by '('
-                            replacement = token;
-                        }
-                    } else {
-                        // Object-like macro
-                        replacement = macro.body;
-                        expansion_end = i;
-                        changed = true;
-                    }
-
-                    int preprocessed_start_col = result.length() + 1;
-                    result += replacement;
-                    int preprocessed_end_col = result.length();
-
-                    if (changed &&
-                        (expansion_end > start || !macro.is_function_like)) {
-                        MacroExpansion expansion;
-                        expansion.macro_name = token;
-                        expansion.original_line = line_number;
-                        expansion.original_column = token_column;
-                        expansion.replacement_text = replacement;
-                        expansion.preprocessed_start_column =
-                            preprocessed_start_col;
-                        expansion.preprocessed_end_column =
-                            preprocessed_end_col;
-                        expansions_this_pass.push_back(expansion);
-                    }
-
-                    i = expansion_end;
-                    column += (expansion_end - start);
-                } else {
-                    result += token;
-                }
-            } else {
-                result += c;
-                i++;
-                column++;
-            }
-        }
-
-        current_line = result;
-        if (!expansions_this_pass.empty() && !line_mappings.empty()) {
-            line_mappings.back().expansions.insert(
-                line_mappings.back().expansions.end(),
-                expansions_this_pass.begin(), expansions_this_pass.end());
-        }
-
-        if (++count > recursion_limit) {
-            addError("Macro expansion limit reached, possible recursive macro?",
-                     line_number);
-            break;
-        }
-    } while (changed);
-
-    return current_line;
+    return result;
 }
 
 bool Preprocessor::isIdentifierChar(char c) const {

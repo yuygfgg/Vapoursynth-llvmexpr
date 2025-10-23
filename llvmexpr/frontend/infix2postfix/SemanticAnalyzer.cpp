@@ -774,10 +774,10 @@ void SemanticAnalyzer::analyze(AssignStmt& stmt) {
             }
 
             if (mode == Mode::Expr) {
-                auto* num_expr = get_if<NumberExpr>(call_expr->args[0].get());
-                if (!num_expr) {
+                auto size_type = analyzeExpr(call_expr->args[0].get());
+                if (size_type != Type::LITERAL) {
                     reportError(
-                        "In Expr mode, array size must be a numeric literal.",
+                        "Array size must be a literal constant.",
                         stmt.range);
                 }
             } else {

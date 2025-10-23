@@ -1146,13 +1146,28 @@ RESULT = arr[3]
     def test_array_expr_mode_requires_literal_size(self):
         """Test that Expr mode requires literal size for new()."""
         infix = """
-size = 10
+size = 10 + $x
 arr = new(size)
 RESULT = 1
 """
         success, output = run_infix2postfix(infix, "expr")
         assert not success, "Should fail with non-literal size in Expr mode"
-        assert "array size must be a numeric literal" in output
+        assert "Array size must be a literal constant" in output
+
+    def test_array_expr_mode_literal_param_size(self):
+        """Test that Expr mode accepts Literal-typed parameter for new() size."""
+        infix = """
+function create_array(Literal size) {
+    arr = new(size)
+    arr[0] = 100
+    return arr[0]
+}
+RESULT = create_array(10)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Should succeed with Literal-typed parameter: {output}"
+        assert "arr{}^10" in output
+        assert "100 0" in output
 
     def test_array_resize_not_in_expr_mode(self):
         """Test that resize() is not available in Expr mode."""
@@ -1448,6 +1463,19 @@ RESULT = result
         assert "arr{}^3" in output
         assert "arr{}!" in output
         assert "arr{}@" in output
+    
+    def test_array_size_Literal(self):
+        infix = """
+function test(Literal size) {
+    arr = new(size)
+    return arr[0]
+}
+RESULT = test(10)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "__internal_func_test_0_arr{}^10" in output
+        assert "0 __internal_func_test_0_arr{}@" in output
 
 
 class TestControlFlowValidation:
@@ -2236,9 +2264,8 @@ RESULT = ADD(10, 20)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert "10" in output
-        assert "20" in output
-        assert "+" in output
+        # With constant folding, ADD(10, 20) evaluates to 30
+        assert "30" in output
         assert "ADD" not in output
 
     def test_function_like_macro_single_param(self):
@@ -2249,8 +2276,8 @@ RESULT = SQR(5)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert "5" in output
-        assert "*" in output
+        # With constant folding, SQR(5) evaluates to 25
+        assert "25" in output
 
     def test_function_like_macro_nested_calls(self):
         """Test nested function-like macro calls."""
@@ -2262,8 +2289,8 @@ RESULT = SQR(3)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert "3" in output
-        assert "*" in output
+        # With constant folding, SQR(3) -> MUL(3, 3) evaluates to 9
+        assert "9" in output
 
     def test_function_like_macro_complex_args(self):
         """Test function-like macro with complex arguments containing parentheses."""
@@ -2275,12 +2302,7 @@ RESULT = result
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert "2" in output
-        assert "3" in output
-        assert "4" in output
-        assert "5" in output
-        assert "*" in output
-        assert "+" in output
+        assert "26" in output
 
     def test_function_like_macro_without_parens_no_expand(self):
         """Test that function-like macro without parentheses is not expanded."""
@@ -2341,9 +2363,8 @@ RESULT = CIRCLE_AREA(10)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert "3.141590" in output or "3.14159" in output
-        assert "10" in output
-        assert "*" in output
+        # With constant folding, CIRCLE_AREA(10) -> (3.14159 * 10 * 10) evaluates to 314.159
+        assert "314.159" in output
 
     def test_function_like_macro_in_expression(self):
         """Test using function-like macro in complex expressions."""
@@ -2371,8 +2392,7 @@ RESULT = QUAD(5)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert "5" in output
-        assert "+" in output
+        assert "20" in output
 
     def test_function_like_macro_whitespace_handling(self):
         """Test function-like macro with various whitespace in arguments."""
@@ -2382,9 +2402,8 @@ RESULT = ADD( 10 , 20 )
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert "10" in output
-        assert "20" in output
-        assert "+" in output
+        # With constant folding, ADD(10, 20) evaluates to 30
+        assert "30" in output
 
     def test_function_like_macro_duplicate_params_error(self):
         """Test that duplicate parameter names cause an error."""
@@ -2453,9 +2472,8 @@ RESULT = result
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert "5" in output
-        # Should see three instances of 5
-        assert output.count("5") >= 3
+        # With constant folding, TEST(5) -> (5 + 5 * 5) evaluates to 30
+        assert "30" in output
 
     def test_function_like_macro_word_boundary(self):
         """Test that parameter names don't match partial identifiers."""
@@ -2475,6 +2493,21 @@ RESULT = result
         assert "value_a" in output
         assert "value_ab" in output
         assert "value_abc" in output
+
+    def test_function_like_macro_constant_folding(self):
+        """Test that constant expressions in macro expansions are evaluated."""
+        infix = """
+@define CALC_LEN(b, e) ((e) - (b))
+function test(Literal len) {
+    arr = new(len)
+    return arr[0]
+}
+RESULT = test(CALC_LEN(0, 10))
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        # The expression ((10) - (0)) should be evaluated to 10
+        assert "arr{}^10" in output
 
 
 class TestMultipleReturns:

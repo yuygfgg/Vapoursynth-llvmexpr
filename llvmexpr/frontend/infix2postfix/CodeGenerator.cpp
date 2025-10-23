@@ -259,8 +259,23 @@ PostfixBuilder CodeGenerator::handle(const AssignStmt& stmt) {
             PostfixBuilder b;
 
             if (mode == Mode::Expr) {
-                auto* num_expr = get_if<NumberExpr>(call_expr->args[0].get());
-                b.add_array_alloc_static(var_name, num_expr->value.value);
+                auto* arg_expr = call_expr->args[0].get();
+
+                std::string size_value;
+
+                if (auto* num_expr = get_if<NumberExpr>(arg_expr)) {
+                    size_value = num_expr->value.value;
+                } else if (auto* var_expr = get_if<VariableExpr>(arg_expr)) {
+                    std::string var_name_arg = var_expr->name.value;
+                    if (param_substitutions.count(var_name_arg)) {
+                        auto* subst_expr = param_substitutions.at(var_name_arg);
+                        if (auto* subst_num = get_if<NumberExpr>(subst_expr)) {
+                            size_value = subst_num->value.value;
+                        }
+                    }
+                }
+
+                b.add_array_alloc_static(var_name, size_value);
             } else {
                 auto size_result = generate(call_expr->args[0].get());
                 b.append(size_result.postfix);

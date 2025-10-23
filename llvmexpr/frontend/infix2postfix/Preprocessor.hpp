@@ -93,6 +93,8 @@ class Preprocessor {
     void handleError(const std::string& line, int line_number);
 
     std::string expandMacros(const std::string& line, int line_number);
+    std::string expandMacrosImpl(const std::string& line, int line_number,
+                                 std::vector<MacroExpansion>* expansions_out);
     std::string expandDefinedOperator(const std::string& text);
     bool isIdentifierChar(char c) const;
     bool isCurrentBlockActive() const;

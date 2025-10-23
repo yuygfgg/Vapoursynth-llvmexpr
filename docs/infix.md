@@ -112,8 +112,10 @@ Function-like macros allow parameterized text replacement, similar to C preproce
 Function-like macros must be invoked with parentheses:
 
 ```
-result = MAX(10, 20);  # Expands to: ((10) > (20) ? (10) : (20))
-value = SQR(5);        # Expands to: ((5) * (5))
+@define MAX(a, b) ((a) > (b) ? (a) : (b))
+@define SQR(x) ((x) * (x))
+result = MAX(10, 20);  # Expands to: 20
+value = SQR(5);        # Expands to: 25
 ```
 
 **Without Parentheses:**
@@ -123,7 +125,7 @@ If a function-like macro name appears without parentheses, it will **not** be ex
 ```
 @define ADD(a, b) ((a) + (b))
 
-x = ADD(5, 3);  # Expanded to: ((5) + (3))
+x = ADD(5, 3);  # Expands to 8
 y = ADD;        # NOT expanded, remains as 'ADD'
 ```
 
@@ -131,15 +133,14 @@ This allows you to use the macro name as a regular identifier if needed.
 
 **Nested Macros:**
 
-Function-like macros can call other macros, and arguments can themselves be macro invocations:
+Function-like macros can call other macros, and arguments can themselves be macro invocations. The preprocessor performs multiple passes, ensuring that macros are fully expanded.
 
 ```
 @define ADD(a, b) ((a) + (b))
-@define MUL(a, b) ((a) * (b))
-@define SQUARE(x) MUL(x, x)
+@define DOUBLE(x) ADD(x, x)
+@define QUAD(x) DOUBLE(DOUBLE(x))
 
-result = SQUARE(5);               # First: MUL(5, 5), then: ((5) * (5))
-value = ADD(MUL(2, 3), MUL(4, 5)); # Nested: ((((2) * (3))) + (((4) * (5))))
+result = QUAD(5); # Expands to 20
 ```
 
 **Complex Arguments:**
@@ -299,7 +300,7 @@ z = SQUARE;     # Expands to: z = 4;
 @define ADD(a, b) ((a) + (b))
 @define DOUBLE(x) ADD(x, x)
 
-result = DOUBLE(5);  # First: ADD(5, 5), then: ((5) + (5))
+result = DOUBLE(5);  # First: ADD(5, 5), then evaluated to: 10
 ```
 
 **Notes:**
@@ -771,7 +772,7 @@ Arrays are collections of values that can be created and accessed by an index. T
 Arrays are created by calling the built-in `new()` function and assigning the result to a variable.
 
 - **`Expr` Mode (Fixed-Size Only):**
-  - The size must be a numeric literal.
+  - The size must be a literal constant.
   - `my_lut = new(256);`
 
 - **`SingleExpr` Mode (Fixed or Dynamic Size):**
