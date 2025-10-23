@@ -41,6 +41,13 @@ struct LineMapping {
     std::vector<MacroExpansion> expansions;
 };
 
+struct MacroDefinition {
+    std::string name;
+    std::string body;
+    bool is_function_like = false;
+    std::vector<std::string> parameters;
+};
+
 struct PreprocessResult {
     std::string source;
     std::vector<LineMapping> line_map;
@@ -97,7 +104,7 @@ class Preprocessor {
     std::string source;
     std::string filename;
 
-    std::map<std::string, std::string> macros;
+    std::map<std::string, MacroDefinition> macros;
 
     std::vector<ConditionalBlock> conditional_stack;
 

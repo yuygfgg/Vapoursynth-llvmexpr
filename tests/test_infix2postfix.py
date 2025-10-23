@@ -2228,6 +2228,254 @@ RESULT = 0
         assert "20 b!" in output
         assert "30 c!" in output
 
+    def test_function_like_macro_basic(self):
+        """Test basic function-like macro."""
+        infix = """
+@define ADD(a, b) ((a) + (b))
+RESULT = ADD(10, 20)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "10" in output
+        assert "20" in output
+        assert "+" in output
+        assert "ADD" not in output
+
+    def test_function_like_macro_single_param(self):
+        """Test function-like macro with single parameter."""
+        infix = """
+@define SQR(x) ((x) * (x))
+RESULT = SQR(5)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "5" in output
+        assert "*" in output
+
+    def test_function_like_macro_nested_calls(self):
+        """Test nested function-like macro calls."""
+        infix = """
+@define ADD(a, b) ((a) + (b))
+@define MUL(a, b) ((a) * (b))
+@define SQR(x) MUL(x, x)
+RESULT = SQR(3)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "3" in output
+        assert "*" in output
+
+    def test_function_like_macro_complex_args(self):
+        """Test function-like macro with complex arguments containing parentheses."""
+        infix = """
+@define ADD(a, b) ((a) + (b))
+@define MUL(a, b) ((a) * (b))
+result = ADD(MUL(2, 3), MUL(4, 5))
+RESULT = result
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "2" in output
+        assert "3" in output
+        assert "4" in output
+        assert "5" in output
+        assert "*" in output
+        assert "+" in output
+
+    def test_function_like_macro_without_parens_no_expand(self):
+        """Test that function-like macro without parentheses is not expanded."""
+        infix = """
+@define MAX(a, b) ((a) > (b) ? (a) : (b))
+result = MAX(10, 20)
+RESULT = result
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "10" in output
+        assert "20" in output
+        assert "?" in output
+        assert "MAX" not in output  # Macro name should be expanded
+
+    def test_function_like_macro_wrong_arg_count(self):
+        """Test function-like macro with wrong number of arguments."""
+        infix = """
+@define ADD(a, b) ((a) + (b))
+RESULT = ADD(1, 2, 3)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail with wrong argument count"
+        assert "expects 2 arguments, but 3 were provided" in output
+
+    def test_function_like_macro_empty_params(self):
+        """Test function-like macro with empty parameter list."""
+        infix = """
+@define ZERO() 0
+@define ONE() 1
+RESULT = ZERO() + ONE()
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "0" in output
+        assert "1" in output
+        assert "+" in output
+
+    def test_function_like_macro_multiple_params(self):
+        """Test function-like macro with multiple parameters."""
+        infix = """
+@define CLAMP(x, min, max) ((x) < (min) ? (min) : ((x) > (max) ? (max) : (x)))
+RESULT = CLAMP(50, 0, 100)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "50" in output
+        assert "0" in output
+        assert "100" in output
+        assert "?" in output
+
+    def test_function_like_macro_with_object_macro(self):
+        """Test mixing function-like and object-like macros."""
+        infix = """
+@define PI 3.14159
+@define CIRCLE_AREA(r) (PI * (r) * (r))
+RESULT = CIRCLE_AREA(10)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "3.141590" in output or "3.14159" in output
+        assert "10" in output
+        assert "*" in output
+
+    def test_function_like_macro_in_expression(self):
+        """Test using function-like macro in complex expressions."""
+        infix = """
+@define MAX(a, b) ((a) > (b) ? (a) : (b))
+@define MIN(a, b) ((a) < (b) ? (a) : (b))
+result = MAX(5, 10) + MIN(3, 7)
+RESULT = result
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "5" in output
+        assert "10" in output
+        assert "3" in output
+        assert "7" in output
+        assert "?" in output
+
+    def test_function_like_macro_recursive_expansion(self):
+        """Test recursive expansion of function-like macros."""
+        infix = """
+@define ADD(a, b) ((a) + (b))
+@define DOUBLE(x) ADD(x, x)
+@define QUAD(x) DOUBLE(DOUBLE(x))
+RESULT = QUAD(5)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "5" in output
+        assert "+" in output
+
+    def test_function_like_macro_whitespace_handling(self):
+        """Test function-like macro with various whitespace in arguments."""
+        infix = """
+@define ADD(a, b) ((a) + (b))
+RESULT = ADD( 10 , 20 )
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "10" in output
+        assert "20" in output
+        assert "+" in output
+
+    def test_function_like_macro_duplicate_params_error(self):
+        """Test that duplicate parameter names cause an error."""
+        infix = """
+@define BAD(x, x) ((x) + (x))
+RESULT = BAD(1, 2)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail with duplicate parameter names"
+        assert "Duplicate parameter name" in output
+
+    def test_function_like_macro_unterminated_params_error(self):
+        """Test that unterminated parameter list causes an error."""
+        infix = """
+@define BAD(a, b
+RESULT = 1
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail with unterminated parameter list"
+        assert "Unterminated parameter list" in output
+
+    def test_function_like_macro_no_space_before_paren(self):
+        """Test that space before paren makes it object-like, not function-like."""
+        infix = """
+@define NOTFUNC (10 + 20)
+result = NOTFUNC
+RESULT = result
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        # Should expand to the evaluated value (30)
+        assert "30" in output
+
+    def test_function_like_macro_in_function_definition(self):
+        """Test using function-like macro in user function."""
+        infix = """
+@define ADD(a, b) ((a) + (b))
+function process(x) {
+    return ADD(x, 10)
+}
+RESULT = process(5)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "10" in output
+        assert "+" in output
+
+    def test_function_like_macro_with_ternary(self):
+        """Test function-like macro containing ternary operator."""
+        infix = """
+@define ABS(x) ((x) < 0 ? -(x) : (x))
+RESULT = ABS(-5)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "5" in output or "-5" in output
+        assert "?" in output
+
+    def test_function_like_macro_parameter_replacement(self):
+        """Test that parameter replacement is word-boundary aware."""
+        infix = """
+@define TEST(x) (x + x * x)
+# Parameter 'x' should be replaced three times
+result = TEST(5)
+RESULT = result
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "5" in output
+        # Should see three instances of 5
+        assert output.count("5") >= 3
+
+    def test_function_like_macro_word_boundary(self):
+        """Test that parameter names don't match partial identifiers."""
+        infix = """
+@define EXTRACT(a) a
+value_a = 10
+value_ab = 20
+value_abc = 30
+result = EXTRACT(value_a) + EXTRACT(value_ab) + EXTRACT(value_abc)
+RESULT = result
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "10" in output
+        assert "20" in output
+        assert "30" in output
+        assert "value_a" in output
+        assert "value_ab" in output
+        assert "value_abc" in output
+
 
 class TestMultipleReturns:
     def test_valid_multiple_value_returns(self):

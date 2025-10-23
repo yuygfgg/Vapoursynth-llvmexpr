@@ -57,18 +57,23 @@ These macros can be used with `@ifdef` to write mode-specific or format-specific
 
 All preprocessor directives start with `@` at the beginning of a line (after any whitespace):
 
-| Directive | Syntax                      | Description                                                                    |
-| :-------- | :-------------------------- | :----------------------------------------------------------------------------- |
-| `@define` | `@define NAME [value]`      | Define a macro. The value can be a constant expression that will be evaluated. |
-| `@undef`  | `@undef NAME`               | Undefine a macro                                                               |
-| `@ifdef`  | `@ifdef NAME ... @endif`    | Conditional compilation (if defined)                                           |
-| `@ifndef` | `@ifndef NAME ... @endif`   | Conditional compilation (if not defined)                                       |
-| `@if`     | `@if expression ... @endif` | Conditional compilation based on an expression's value.                        |
-| `@else`   | `@else`                     | Alternative branch (optional)                                                  |
-| `@endif`  | `@endif`                    | End conditional block                                                          |
-| `@error`  | `@error [message]`          | Emit compilation error if enabled                                              |
+| Directive | Syntax                      | Description                                                                                 |
+| :-------- | :-------------------------- | :------------------------------------------------------------------------------------------ |
+| `@define` | `@define NAME [value]`      | Define an object-like macro. The value can be a constant expression that will be evaluated. |
+|           | `@define NAME(params) body` | Define a function-like macro with parameters. No space between name and `(`.                |
+| `@undef`  | `@undef NAME`               | Undefine a macro                                                                            |
+| `@ifdef`  | `@ifdef NAME ... @endif`    | Conditional compilation (if defined)                                                        |
+| `@ifndef` | `@ifndef NAME ... @endif`   | Conditional compilation (if not defined)                                                    |
+| `@if`     | `@if expression ... @endif` | Conditional compilation based on an expression's value.                                     |
+| `@else`   | `@else`                     | Alternative branch (optional)                                                               |
+| `@endif`  | `@endif`                    | End conditional block                                                                       |
+| `@error`  | `@error [message]`          | Emit compilation error if enabled                                                           |
 
 ### 2.3. Macro Definitions
+
+The preprocessor supports two types of macros: object-like macros and function-like macros.
+
+#### 2.3.1. Object-Like Macros
 
 Define constants or feature flags using the `@define` directive:
 
@@ -79,6 +84,93 @@ Define constants or feature flags using the `@define` directive:
 - If no value is provided, `NAME` is just marked as defined (useful for feature flags)
 - Macro names must start with a letter or underscore
 - Macro names can contain letters, digits, and underscores
+
+**Examples:**
+
+```
+@define MAX_VALUE 255
+@define PI 3.14159
+@define ENABLE_FEATURE
+@define COMPUTED (2 * 3 + 1)  # Evaluates to 7
+```
+
+#### 2.3.2. Function-Like Macros
+
+Function-like macros allow parameterized text replacement, similar to C preprocessor macros.
+
+**Syntax:** `@define NAME(param1, param2, ...) body`
+
+**Important:** There must be **no space** between the macro name and the opening parenthesis. If there is a space, it will be treated as an object-like macro.
+
+- Parameters are identifiers separated by commas
+- Parameter names follow the same rules as variable names
+- The macro body can reference parameters, which will be replaced with the actual arguments when the macro is invoked
+- Parameters are replaced using word-boundary matching to avoid partial replacements
+
+**Invocation:**
+
+Function-like macros must be invoked with parentheses:
+
+```
+result = MAX(10, 20);  # Expands to: ((10) > (20) ? (10) : (20))
+value = SQR(5);        # Expands to: ((5) * (5))
+```
+
+**Without Parentheses:**
+
+If a function-like macro name appears without parentheses, it will **not** be expanded:
+
+```
+@define ADD(a, b) ((a) + (b))
+
+x = ADD(5, 3);  # Expanded to: ((5) + (3))
+y = ADD;        # NOT expanded, remains as 'ADD'
+```
+
+This allows you to use the macro name as a regular identifier if needed.
+
+**Nested Macros:**
+
+Function-like macros can call other macros, and arguments can themselves be macro invocations:
+
+```
+@define ADD(a, b) ((a) + (b))
+@define MUL(a, b) ((a) * (b))
+@define SQUARE(x) MUL(x, x)
+
+result = SQUARE(5);               # First: MUL(5, 5), then: ((5) * (5))
+value = ADD(MUL(2, 3), MUL(4, 5)); # Nested: ((((2) * (3))) + (((4) * (5))))
+```
+
+**Complex Arguments:**
+
+Arguments can contain parentheses and commas. The preprocessor correctly handles parenthesis matching:
+
+```
+@define PROCESS(expr) (expr)
+
+# The comma inside func() is not treated as an argument separator
+result = PROCESS(func(a, b));
+```
+
+**Empty Parameter Lists:**
+
+Macros can have no parameters:
+
+```
+@define ZERO() 0
+@define PI() 3.14159
+
+x = ZERO();  # Expands to: 0
+```
+
+**Differences from C/C++ Macros:**
+
+- No `#` (stringification) operator
+- No `##` (token pasting) operator
+- No variadic macros (`...` and `__VA_ARGS__`)
+- No multiline macros (no backslash continuation)
+- All macro definitions must be on a single line
 
 ### 2.4. Undefining Macros
 
@@ -171,17 +263,30 @@ This is useful for preventing compilation in certain configurations or warning a
 
 ### 2.8. Macro Expansion
 
-Macros are expanded during preprocessing:
+Macros are expanded during preprocessing with the following rules:
+
+**Object-Like Macros:**
 
 1. Only complete tokens (identifiers) are replaced
 2. Macro names must start with a letter or underscore
 3. Macro names can contain letters, digits, and underscores
-4. Macro expansion is simple text replacement (no arguments)
-5. Macros are not expanded recursively
+4. If the macro value is a constant expression, it will be evaluated at preprocessing time
+
+**Function-Like Macros:**
+
+1. Must be followed by `(` to be expanded (no space between name and `(`)
+2. Arguments are parsed with proper parenthesis matching
+3. Parameters are replaced in the macro body using word-boundary matching
+4. Recursive expansion is supported: macros can call other macros
+
+**Expansion Process:**
+
+The preprocessor performs multiple passes of macro expansion until no more macros can be expanded (up to a recursion limit of 1000). This allows for complex nested macro invocations.
 
 **Example:**
 
 ```
+# Object-like macros
 @define MAX 100
 @define SQUARE 2 ** 2        # Evaluates to: 4
 @define LARGE_VALUE 2 ** 10  # Evaluates to: 1024
@@ -189,11 +294,18 @@ Macros are expanded during preprocessing:
 x = MAX;        # Expands to: x = 100;
 y = MAX + 1;    # Expands to: y = 100 + 1;
 z = SQUARE;     # Expands to: z = 4;
+
+# Function-like macros
+@define ADD(a, b) ((a) + (b))
+@define DOUBLE(x) ADD(x, x)
+
+result = DOUBLE(5);  # First: ADD(5, 5), then: ((5) + (5))
 ```
 
 **Notes:**
 - The `**` operator (power/exponentiation) is right-associative, meaning `2 ** 3 ** 2` is evaluated as `2 ** (3 ** 2)` = `2 ** 9` = `512`.
 - Power operations always produce floating-point results in the preprocessor.
+- For function-like macros, each argument can be an arbitrary expression, including other macro calls.
 
 ## 3. Lexical Structure
 
