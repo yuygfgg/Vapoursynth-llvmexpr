@@ -27,6 +27,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
+#include <utility>
 #include <variant>
 
 namespace infix2postfix {
@@ -180,9 +181,9 @@ class Preprocessor::ExpressionEvaluator {
                         tokens.push_back({TokenType::Number, num_str,
                                           Value(std::stod(num_str))});
                     } else {
-                        tokens.push_back(
-                            {TokenType::Number, num_str,
-                             Value(std::stoll(num_str, nullptr, 0))});
+                        tokens.push_back({TokenType::Number, num_str,
+                                          Value(static_cast<int64_t>(std::stoll(
+                                              num_str, nullptr, 0)))});
                     }
                 } catch (const std::invalid_argument&) {
                     throw std::runtime_error("Invalid number format: " +
