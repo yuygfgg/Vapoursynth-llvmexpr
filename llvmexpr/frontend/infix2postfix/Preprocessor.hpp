@@ -26,9 +26,6 @@
 
 namespace infix2postfix {
 
-/**
- * Macro expansion information for diagnostic purposes
- */
 struct MacroExpansion {
     std::string macro_name;
     int original_line;
@@ -68,6 +65,8 @@ class Preprocessor {
     formatMacroExpansions(const std::vector<LineMapping>& line_map);
 
   private:
+    class ExpressionEvaluator;
+
     struct ConditionalBlock {
         int start_line;
         bool is_active;
@@ -81,6 +80,7 @@ class Preprocessor {
     void handleUndef(const std::string& line, int line_number);
     void handleIfdef(const std::string& line, int line_number);
     void handleIfndef(const std::string& line, int line_number);
+    void handleIf(const std::string& line, int line_number);
     void handleElse(const std::string& line, int line_number);
     void handleEndif(const std::string& line, int line_number);
     void handleError(const std::string& line, int line_number);

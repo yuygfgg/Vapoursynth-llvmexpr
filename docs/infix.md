@@ -54,15 +54,16 @@ These macros can be used with `@ifdef` to write mode-specific or format-specific
 
 All preprocessor directives start with `@` at the beginning of a line (after any whitespace):
 
-| Directive | Syntax                    | Description                              |
-| :-------- | :------------------------ | :--------------------------------------- |
-| `@define` | `@define NAME [value]`    | Define a macro                           |
-| `@undef`  | `@undef NAME`             | Undefine a macro                         |
-| `@ifdef`  | `@ifdef NAME ... @endif`  | Conditional compilation (if defined)     |
-| `@ifndef` | `@ifndef NAME ... @endif` | Conditional compilation (if not defined) |
-| `@else`   | `@else`                   | Alternative branch (optional)            |
-| `@endif`  | `@endif`                  | End conditional block                    |
-| `@error`  | `@error [message]`        | Emit compilation error if enabled        |
+| Directive | Syntax                      | Description                                                                    |
+| :-------- | :-------------------------- | :----------------------------------------------------------------------------- |
+| `@define` | `@define NAME [value]`      | Define a macro. The value can be a constant expression that will be evaluated. |
+| `@undef`  | `@undef NAME`               | Undefine a macro                                                               |
+| `@ifdef`  | `@ifdef NAME ... @endif`    | Conditional compilation (if defined)                                           |
+| `@ifndef` | `@ifndef NAME ... @endif`   | Conditional compilation (if not defined)                                       |
+| `@if`     | `@if expression ... @endif` | Conditional compilation based on an expression's value.                        |
+| `@else`   | `@else`                     | Alternative branch (optional)                                                  |
+| `@endif`  | `@endif`                    | End conditional block                                                          |
+| `@error`  | `@error [message]`          | Emit compilation error if enabled                                              |
 
 ### 2.3. Macro Definitions
 
@@ -71,6 +72,7 @@ Define constants or feature flags using the `@define` directive:
 **Syntax:** `@define NAME [value]`
 
 - If a value is provided, all occurrences of `NAME` as a token will be replaced with the value
+- If the value is a constant expression that can be evaluated at compile time, it will be replaced with the result. For example, `@define SIX (2 * 3)` will cause `SIX` to expand to `6`.
 - If no value is provided, `NAME` is just marked as defined (useful for feature flags)
 - Macro names must start with a letter or underscore
 - Macro names can contain letters, digits, and underscores
@@ -125,7 +127,30 @@ Include code only when a macro is NOT defined:
 @endif
 ```
 
-### 2.6. Error Directive
+### 2.6. @if Directive
+
+The `@if` directive allows for conditional compilation based on the result of a constant expression.
+
+**Syntax:**
+```
+@if expression
+  # Code included if the expression evaluates to a non-zero value
+@else
+  # Optional: code included otherwise
+@endif
+```
+
+The expression can contain:
+- Integer and floating-point literals.
+- Previously defined macros, which will be expanded.
+- The `defined(MACRO)` operator, which returns 1 if `MACRO` is defined, and 0 otherwise.
+- Arithmetic operators: `+`, `-`, `*`, `/`, `%`
+- Comparison operators: `==`, `!=`, `>`, `<`, `>=`, `<=`
+- Logical operators: `&&`, `||`, `!`
+- Parentheses `()` for grouping.
+
+
+### 2.7. Error Directive
 
 Use `@error` to emit a compilation error if the directive is encountered in active code:
 
@@ -141,7 +166,7 @@ This is useful for preventing compilation in certain configurations or warning a
 @endif
 ```
 
-### 2.7. Macro Expansion
+### 2.8. Macro Expansion
 
 Macros are expanded during preprocessing:
 
