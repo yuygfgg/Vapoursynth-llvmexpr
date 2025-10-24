@@ -10,15 +10,16 @@ namespace infix2postfix {
 
 class Tokenizer {
   public:
-    explicit Tokenizer(const std::string& source);
+    explicit Tokenizer(std::string source);
     std::vector<Token> tokenize();
 
   private:
     Token nextToken();
-    char peek(int offset = 0) const;
+    [[nodiscard]] char peek(int offset = 0) const;
     char advance();
     void skipWhitespaceAndComments();
-    Token makeToken(TokenType type, const std::string& value = "") const;
+    [[nodiscard]] Token makeToken(TokenType type,
+                                  const std::string& value = "") const;
     Token identifier();
     Token number();
     Token globalDeclaration();

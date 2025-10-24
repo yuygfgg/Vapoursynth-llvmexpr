@@ -2,6 +2,7 @@
 #define LLVMEXPR_INFIX2POSTFIX_SYMBOL_HPP
 
 #include "types.hpp"
+#include <cstdint>
 #include <string>
 
 namespace infix2postfix {
@@ -9,7 +10,7 @@ namespace infix2postfix {
 struct Stmt;
 struct Expr;
 
-enum class SymbolKind { VARIABLE, FUNCTION, PARAMETER, LABEL };
+enum class SymbolKind : std::uint8_t { VARIABLE, FUNCTION, PARAMETER, LABEL };
 
 struct Symbol {
     SymbolKind kind;

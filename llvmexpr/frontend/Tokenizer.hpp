@@ -20,11 +20,12 @@
 #ifndef LLVMEXPR_TOKENIZER_HPP
 #define LLVMEXPR_TOKENIZER_HPP
 
+#include <cstdint>
 #include <string>
 #include <variant>
 #include <vector>
 
-enum class TokenType {
+enum class TokenType : std::uint8_t {
     // Literals & Constants
     NUMBER,
     CONSTANT_X,
@@ -198,7 +199,7 @@ struct TokenBehavior {
 using DynamicBehaviorFn = TokenBehavior (*)(const Token&);
 using BehaviorResolver = std::variant<TokenBehavior, DynamicBehaviorFn>;
 
-enum class ExprMode {
+enum class ExprMode : std::uint8_t {
     EXPR,
     SINGLE_EXPR,
 };
@@ -207,9 +208,8 @@ enum class ExprMode {
 inline int parse_std_clip_idx(char c) {
     if (c >= 'x' && c <= 'z') {
         return c - 'x';
-    } else {
-        return c - 'a' + 3;
     }
+    return c - 'a' + 3;
 }
 
 // Public interface

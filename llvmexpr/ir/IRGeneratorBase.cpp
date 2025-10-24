@@ -44,22 +44,26 @@ IRGeneratorBase::IRGeneratorBase(
     llvm::LLVMContext& context_ref, llvm::Module& module_ref,
     llvm::IRBuilder<>& builder_ref, MathLibraryManager& math_mgr,
     std::string func_name_in, int approx_math_in)
-    : tokens(tokens_in), vo(out_vi), vi(in_vi), num_inputs(in_vi.size()),
-      width(width_in), height(height_in), mirror_boundary(mirror),
-      prop_map(p_map), analysis_results(analysis_results_in),
-      func_name(std::move(func_name_in)), approx_math(approx_math_in),
-      context(context_ref), module(module_ref), builder(builder_ref),
-      math_manager(math_mgr), func(nullptr), rwptrs_arg(nullptr),
-      strides_arg(nullptr), props_arg(nullptr), alias_scope_domain(nullptr),
-      min_rel_x(0), max_rel_x(0), uses_x(false), uses_y(false) {
+    : tokens(tokens_in), vo(out_vi), vi(in_vi),
+      num_inputs(static_cast<int>(in_vi.size())), width(width_in),
+      height(height_in), mirror_boundary(mirror), prop_map(p_map),
+      analysis_results(analysis_results_in), func_name(std::move(func_name_in)),
+      approx_math(approx_math_in), context(context_ref), module(module_ref),
+      builder(builder_ref), math_manager(math_mgr), func(nullptr),
+      rwptrs_arg(nullptr), strides_arg(nullptr), props_arg(nullptr),
+      alias_scope_domain(nullptr), min_rel_x(0), max_rel_x(0), uses_x(false),
+      uses_y(false) {
 
     for (const auto& token : tokens) {
-        if (token.type == TokenType::CONSTANT_X)
+        if (token.type == TokenType::CONSTANT_X) {
             uses_x = true;
-        if (token.type == TokenType::CONSTANT_Y)
+        }
+        if (token.type == TokenType::CONSTANT_Y) {
             uses_y = true;
-        if (uses_x && uses_y)
+        }
+        if (uses_x && uses_y) {
             break;
+        }
     }
 }
 
@@ -98,7 +102,7 @@ void IRGeneratorBase::collect_rel_y_accesses() {
             bool use_mirror =
                 payload.has_mode ? payload.use_mirror : mirror_boundary;
             RelYAccess access{payload.clip_idx, payload.rel_y, use_mirror};
-            if (seen.find(access) == seen.end()) {
+            if (!seen.contains(access)) {
                 seen.insert(access);
                 unique_rel_y_accesses.push_back(access);
             }
@@ -106,7 +110,7 @@ void IRGeneratorBase::collect_rel_y_accesses() {
             const auto& payload =
                 std::get<TokenPayload_ClipAccess>(token.payload);
             RelYAccess access{payload.clip_idx, 0, mirror_boundary};
-            if (seen.find(access) == seen.end()) {
+            if (!seen.contains(access)) {
                 seen.insert(access);
                 unique_rel_y_accesses.push_back(access);
             }
@@ -131,33 +135,33 @@ llvm::Value* IRGeneratorBase::get_final_coord(llvm::Value* coord,
     llvm::Value* zero = builder.getInt32(0);
     llvm::Value* one = builder.getInt32(1);
 
-    llvm::Value* result;
+    llvm::Value* result = nullptr;
     if (use_mirror) {
-        auto period = builder.CreateMul(max_dim, builder.getInt32(2));
+        auto* period = builder.CreateMul(max_dim, builder.getInt32(2));
 
-        auto modulo_coord = builder.CreateSRem(coord, period);
+        auto* modulo_coord = builder.CreateSRem(coord, period);
 
-        auto is_negative = builder.CreateICmpSLT(modulo_coord, zero);
-        auto adjusted_modulo = builder.CreateAdd(modulo_coord, period);
+        auto* is_negative = builder.CreateICmpSLT(modulo_coord, zero);
+        auto* adjusted_modulo = builder.CreateAdd(modulo_coord, period);
         modulo_coord =
             builder.CreateSelect(is_negative, adjusted_modulo, modulo_coord);
 
-        auto in_first_half = builder.CreateICmpSLT(modulo_coord, max_dim);
-        auto period_minus_1 = builder.CreateSub(period, one);
-        auto mirrored_coord = builder.CreateSub(period_minus_1, modulo_coord);
+        auto* in_first_half = builder.CreateICmpSLT(modulo_coord, max_dim);
+        auto* period_minus_1 = builder.CreateSub(period, one);
+        auto* mirrored_coord = builder.CreateSub(period_minus_1, modulo_coord);
 
         result =
             builder.CreateSelect(in_first_half, modulo_coord, mirrored_coord);
     } else { // Clamping
         // clamp(coord, 0, max_dim - 1)
-        auto dim_minus_1 = builder.CreateSub(max_dim, one);
+        auto* dim_minus_1 = builder.CreateSub(max_dim, one);
 
         llvm::Function* smax_func = llvm::Intrinsic::getOrInsertDeclaration(
             &module, llvm::Intrinsic::smax, {builder.getInt32Ty()});
         llvm::Function* smin_func = llvm::Intrinsic::getOrInsertDeclaration(
             &module, llvm::Intrinsic::smin, {builder.getInt32Ty()});
 
-        auto clamped_at_zero = builder.CreateCall(smax_func, {coord, zero});
+        auto* clamped_at_zero = builder.CreateCall(smax_func, {coord, zero});
         result = builder.CreateCall(smin_func, {clamped_at_zero, dim_minus_1});
     }
 
@@ -169,7 +173,7 @@ llvm::Value* IRGeneratorBase::generate_load_from_row_ptr(
     bool use_mirror, bool no_x_bounds_check) {
     const VSVideoInfo* vinfo = vi[clip_idx];
     llvm::Value* coord_x = builder.CreateAdd(x, builder.getInt32(rel_x));
-    llvm::Value* final_x;
+    llvm::Value* final_x = nullptr;
     if (no_x_bounds_check) {
         final_x = coord_x;
     } else {
@@ -184,51 +188,55 @@ llvm::Value* IRGeneratorBase::generate_load_from_row_ptr(
     llvm::Value* pixel_addr =
         builder.CreateGEP(builder.getInt8Ty(), row_ptr, x_offset);
 
-    int pixel_align = std::gcd(ALIGNMENT, bpp);
-    assumeAligned(pixel_addr, static_cast<unsigned>(pixel_align));
+    unsigned pixel_align = std::gcd(ALIGNMENT, bpp);
+    assumeAligned(pixel_addr, pixel_align);
 
-    llvm::Value* loaded_val;
+    llvm::Value* loaded_val = nullptr;
     if (format.sampleType == stInteger) {
-        llvm::Type* load_type =
-            bpp == 1 ? builder.getInt8Ty()
-                     : (bpp == 2 ? builder.getInt16Ty() : builder.getInt32Ty());
+        llvm::Type* load_type = nullptr;
+        if (bpp == 1) {
+            load_type = builder.getInt8Ty();
+        } else if (bpp == 2) {
+            load_type = builder.getInt16Ty();
+        } else {
+            load_type = builder.getInt32Ty();
+        }
         llvm::LoadInst* li = builder.CreateLoad(load_type, pixel_addr);
-        setMemoryInstAttrs(li, static_cast<unsigned>(pixel_align), vs_clip_idx);
+        setMemoryInstAttrs(li, pixel_align, vs_clip_idx);
         loaded_val = builder.CreateZExtOrBitCast(li, builder.getInt32Ty());
         return builder.CreateUIToFP(loaded_val, builder.getFloatTy());
-    } else { // stFloat
-        if (bpp == 4) {
-            llvm::LoadInst* li =
-                builder.CreateLoad(builder.getFloatTy(), pixel_addr);
-            setMemoryInstAttrs(li, static_cast<unsigned>(pixel_align),
-                               vs_clip_idx);
-            return li;
-        } else if (bpp == 2) {
-            llvm::LoadInst* li =
-                builder.CreateLoad(builder.getHalfTy(), pixel_addr);
-            setMemoryInstAttrs(li, static_cast<unsigned>(pixel_align),
-                               vs_clip_idx);
-            return builder.CreateFPExt(li, builder.getFloatTy());
-        } else {
-            throw std::runtime_error("Unsupported float sample size.");
-        }
     }
+    // stFloat
+    if (bpp == 4) {
+        llvm::LoadInst* li =
+            builder.CreateLoad(builder.getFloatTy(), pixel_addr);
+        setMemoryInstAttrs(li, pixel_align, vs_clip_idx);
+        return li;
+    }
+    if (bpp == 2) {
+        llvm::LoadInst* li =
+            builder.CreateLoad(builder.getHalfTy(), pixel_addr);
+        setMemoryInstAttrs(li, pixel_align, vs_clip_idx);
+        return builder.CreateFPExt(li, builder.getFloatTy());
+    }
+    throw std::runtime_error("Unsupported float sample size.");
 }
 
-void IRGeneratorBase::add_loop_metadata(llvm::BranchInst* loop_br) {
+void IRGeneratorBase::add_loop_metadata(
+    llvm::BranchInst* loop_br) { // NOLINT(readability-non-const-parameter)
     llvm::StringMap<bool> host_features = llvm::sys::getHostCPUFeatures();
     unsigned simd_width = 4;
     if (!host_features.empty()) {
         if (host_features["avx512f"]) {
-            simd_width = 16;
+            simd_width = 16; // NOLINT(cppcoreguidelines-avoid-magic-numbers)
         } else if (host_features["avx2"]) {
-            simd_width = 8;
+            simd_width = 8; // NOLINT(cppcoreguidelines-avoid-magic-numbers)
         }
     }
 
     auto create_md_node = [this](const char* name, llvm::Type* type,
                                  uint64_t value) -> llvm::MDNode* {
-        llvm::Metadata* md[] = {
+        std::array<llvm::Metadata*, 2> md = {
             llvm::MDString::get(context, name),
             llvm::ConstantAsMetadata::get(llvm::ConstantInt::get(type, value))};
         return llvm::MDNode::get(context, md);
@@ -244,7 +252,9 @@ void IRGeneratorBase::add_loop_metadata(llvm::BranchInst* loop_br) {
     llvm::MDNode* interleave_node = create_md_node(
         "llvm.loop.interleave.count", llvm::Type::getInt32Ty(context), 4);
 
-    llvm::SmallVector<llvm::Metadata*, 5> loop_md_elems;
+    llvm::SmallVector<llvm::Metadata*,
+                      5> // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+        loop_md_elems;
     loop_md_elems.push_back(nullptr); // to be replaced with self reference
     loop_md_elems.push_back(enable_vec_node);
     loop_md_elems.push_back(vec_width_node);
@@ -287,10 +297,10 @@ void IRGeneratorBase::generate_pixel_store(llvm::Value* value_to_store,
     llvm::Value* pixel_addr =
         builder.CreateGEP(builder.getInt8Ty(), base_ptr, total_offset);
 
-    int pixel_align = std::gcd(ALIGNMENT, bpp);
-    assumeAligned(pixel_addr, static_cast<unsigned>(pixel_align));
+    unsigned pixel_align = std::gcd(ALIGNMENT, bpp);
+    assumeAligned(pixel_addr, pixel_align);
 
-    llvm::Value* final_val;
+    llvm::Value* final_val = nullptr;
     if (format.sampleType == stInteger) {
         int max_val = (1 << format.bitsPerSample) - 1;
         llvm::Value* zero_f = llvm::ConstantFP::get(builder.getFloatTy(), 0.0);
@@ -305,23 +315,28 @@ void IRGeneratorBase::generate_pixel_store(llvm::Value* value_to_store,
         llvm::Value* rounded_f =
             createIntrinsicCall(llvm::Intrinsic::roundeven, clamped_f);
 
-        llvm::Type* store_type =
-            bpp == 1 ? builder.getInt8Ty()
-                     : (bpp == 2 ? builder.getInt16Ty() : builder.getInt32Ty());
+        llvm::Type* store_type = nullptr;
+        if (bpp == 1) {
+            store_type = builder.getInt8Ty();
+        } else if (bpp == 2) {
+            store_type = builder.getInt16Ty();
+        } else {
+            store_type = builder.getInt32Ty();
+        }
         final_val = builder.CreateFPToUI(rounded_f, store_type);
         llvm::StoreInst* si = builder.CreateStore(final_val, pixel_addr);
-        setMemoryInstAttrs(si, static_cast<unsigned>(pixel_align), dst_idx);
+        setMemoryInstAttrs(si, pixel_align, dst_idx);
     } else {
         if (bpp == 4) {
             llvm::StoreInst* si =
                 builder.CreateStore(value_to_store, pixel_addr);
-            setMemoryInstAttrs(si, static_cast<unsigned>(pixel_align), dst_idx);
+            setMemoryInstAttrs(si, pixel_align, dst_idx);
         } else if (bpp == 2) {
             llvm::Value* truncated_val =
                 builder.CreateFPTrunc(value_to_store, builder.getHalfTy());
             llvm::StoreInst* si =
                 builder.CreateStore(truncated_val, pixel_addr);
-            setMemoryInstAttrs(si, static_cast<unsigned>(pixel_align), dst_idx);
+            setMemoryInstAttrs(si, pixel_align, dst_idx);
         } else {
             throw std::runtime_error("Unsupported float sample size.");
         }
@@ -334,9 +349,9 @@ bool IRGeneratorBase::process_common_token(const Token& token,
                                            llvm::Type* i32_ty,
                                            bool use_approx_math) {
     auto applyStackOp = [&]<size_t ARITY>(auto&& op) {
-        std::array<llvm::Value*, ARITY> args;
+        std::array<llvm::Value*, ARITY> args{};
         for (size_t i = ARITY; i > 0; --i) {
-            args[i - 1] = rpn_stack.back();
+            args.at(i - 1) = rpn_stack.back();
             rpn_stack.pop_back();
         }
         rpn_stack.push_back(std::apply(op, args));
@@ -388,9 +403,9 @@ bool IRGeneratorBase::process_common_token(const Token& token,
             static_assert(ARITY == 1 || ARITY == 2,
                           "Only unary or binary operations supported");
 
-            std::array<llvm::Value*, ARITY> args;
-            for (size_t i = ARITY; i > 0; --i) {
-                args[i - 1] = rpn_stack.back();
+            std::array<llvm::Value*, ARITY> args{};
+            for (size_t i = 0; i < ARITY; ++i) {
+                args.at(ARITY - 1 - i) = rpn_stack.back();
                 rpn_stack.pop_back();
             }
 
@@ -516,10 +531,10 @@ bool IRGeneratorBase::process_common_token(const Token& token,
 
     // Unary Operators
     case TokenType::SQRT: {
-        auto a = rpn_stack.back();
+        auto* a = rpn_stack.back();
         rpn_stack.pop_back();
-        auto zero = llvm::ConstantFP::get(float_ty, 0.0);
-        auto max_val = createIntrinsicCall(llvm::Intrinsic::maxnum, a, zero);
+        auto* zero = llvm::ConstantFP::get(float_ty, 0.0);
+        auto* max_val = createIntrinsicCall(llvm::Intrinsic::maxnum, a, zero);
         rpn_stack.push_back(
             createIntrinsicCall(llvm::Intrinsic::sqrt, max_val));
         return true;
@@ -582,12 +597,12 @@ bool IRGeneratorBase::process_common_token(const Token& token,
         applyIntrinsic.operator()<1>(llvm::Intrinsic::tanh);
         return true;
     case TokenType::SGN: {
-        auto x = rpn_stack.back();
+        auto* x = rpn_stack.back();
         rpn_stack.pop_back();
-        auto zero = llvm::ConstantFP::get(float_ty, 0.0);
-        auto one = llvm::ConstantFP::get(float_ty, 1.0);
-        auto nonzero = builder.CreateFCmpONE(x, zero);
-        auto sign = builder.CreateCall(
+        auto* zero = llvm::ConstantFP::get(float_ty, 0.0);
+        auto* one = llvm::ConstantFP::get(float_ty, 1.0);
+        auto* nonzero = builder.CreateFCmpONE(x, zero);
+        auto* sign = builder.CreateCall(
             llvm::Intrinsic::getOrInsertDeclaration(
                 &module, llvm::Intrinsic::copysign, {float_ty}),
             {one, x});
@@ -595,13 +610,13 @@ bool IRGeneratorBase::process_common_token(const Token& token,
         return true;
     }
     case TokenType::NEG: {
-        auto a = rpn_stack.back();
+        auto* a = rpn_stack.back();
         rpn_stack.pop_back();
         rpn_stack.push_back(builder.CreateFNeg(a));
         return true;
     }
     case TokenType::NOT: {
-        auto a = rpn_stack.back();
+        auto* a = rpn_stack.back();
         rpn_stack.pop_back();
         rpn_stack.push_back(builder.CreateSelect(
             builder.CreateFCmpOLE(a, llvm::ConstantFP::get(float_ty, 0.0)),
@@ -610,7 +625,7 @@ bool IRGeneratorBase::process_common_token(const Token& token,
         return true;
     }
     case TokenType::BITNOT: {
-        auto a = rpn_stack.back();
+        auto* a = rpn_stack.back();
         rpn_stack.pop_back();
         rpn_stack.push_back(builder.CreateSIToFP(
             builder.CreateNot(builder.CreateFPToSI(a, i32_ty)), float_ty));
@@ -619,11 +634,11 @@ bool IRGeneratorBase::process_common_token(const Token& token,
 
     // Ternary and other multi-arg
     case TokenType::TERNARY: {
-        auto c = rpn_stack.back();
+        auto* c = rpn_stack.back();
         rpn_stack.pop_back();
-        auto b = rpn_stack.back();
+        auto* b = rpn_stack.back();
         rpn_stack.pop_back();
-        auto a = rpn_stack.back();
+        auto* a = rpn_stack.back();
         rpn_stack.pop_back();
         rpn_stack.push_back(builder.CreateSelect(
             builder.CreateFCmpOGT(a, llvm::ConstantFP::get(float_ty, 0.0)), b,
@@ -632,24 +647,24 @@ bool IRGeneratorBase::process_common_token(const Token& token,
     }
     case TokenType::CLIP:
     case TokenType::CLAMP: {
-        auto max_val = rpn_stack.back();
+        auto* max_val = rpn_stack.back();
         rpn_stack.pop_back();
-        auto min_val = rpn_stack.back();
+        auto* min_val = rpn_stack.back();
         rpn_stack.pop_back();
-        auto val = rpn_stack.back();
+        auto* val = rpn_stack.back();
         rpn_stack.pop_back();
-        auto temp = createIntrinsicCall(llvm::Intrinsic::maxnum, val, min_val);
-        auto clamped =
+        auto* temp = createIntrinsicCall(llvm::Intrinsic::maxnum, val, min_val);
+        auto* clamped =
             createIntrinsicCall(llvm::Intrinsic::minnum, temp, max_val);
         rpn_stack.push_back(clamped);
         return true;
     }
     case TokenType::FMA: {
-        auto c = rpn_stack.back();
+        auto* c = rpn_stack.back();
         rpn_stack.pop_back();
-        auto b = rpn_stack.back();
+        auto* b = rpn_stack.back();
         rpn_stack.pop_back();
-        auto a = rpn_stack.back();
+        auto* a = rpn_stack.back();
         rpn_stack.pop_back();
         rpn_stack.push_back(builder.CreateCall(
             llvm::Intrinsic::getOrInsertDeclaration(
@@ -680,8 +695,9 @@ bool IRGeneratorBase::process_common_token(const Token& token,
     case TokenType::SORTN: {
         const auto& payload = std::get<TokenPayload_StackOp>(token.payload);
         int n = payload.n;
-        if (n < 2)
+        if (n < 2) {
             return true;
+        }
 
         std::vector<llvm::Value*> values;
         values.reserve(n);
@@ -757,11 +773,12 @@ void IRGeneratorBase::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
     }
 
     std::map<int, llvm::BasicBlock*> llvm_blocks;
-    for (size_t i = 0; i < analysis_results.cfg_blocks.size(); ++i) {
+    for (int i = 0; i < static_cast<int>(analysis_results.cfg_blocks.size());
+         ++i) {
         std::string name = std::format("b{}", i);
         for (const auto& [label_name, block_idx] :
              analysis_results.label_to_block_idx) {
-            if (block_idx == static_cast<int>(i)) {
+            if (block_idx == i) {
                 name = label_name;
                 break;
             }
@@ -776,11 +793,13 @@ void IRGeneratorBase::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
 
     // Initial PHI generation for merge blocks
     std::map<int, std::vector<llvm::Value*>> block_initial_stacks;
-    for (size_t i = 0; i < analysis_results.cfg_blocks.size(); ++i) {
+    for (int i = 0; i < static_cast<int>(analysis_results.cfg_blocks.size());
+         ++i) {
         if (analysis_results.cfg_blocks[i].predecessors.size() > 1) {
             builder.SetInsertPoint(llvm_blocks[i]);
             std::vector<llvm::Value*> initial_stack;
             int depth = analysis_results.stack_depth_in[i];
+            initial_stack.reserve(depth);
             for (int j = 0; j < depth; ++j) {
                 initial_stack.push_back(builder.CreatePHI(
                     float_ty,
@@ -793,7 +812,8 @@ void IRGeneratorBase::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
     // Process blocks
     std::map<int, std::vector<llvm::Value*>> block_final_stacks;
 
-    for (size_t i = 0; i < analysis_results.cfg_blocks.size(); ++i) {
+    for (int i = 0; i < static_cast<int>(analysis_results.cfg_blocks.size());
+         ++i) {
         const auto& block_info = analysis_results.cfg_blocks[i];
         builder.SetInsertPoint(llvm_blocks[i]);
 
@@ -802,7 +822,7 @@ void IRGeneratorBase::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
             // Entry block, empty stack
         } else if (block_info.predecessors.size() == 1) {
             int pred_idx = block_info.predecessors[0];
-            if (block_final_stacks.count(pred_idx)) {
+            if (block_final_stacks.contains(pred_idx)) {
                 rpn_stack = block_final_stacks.at(pred_idx);
             }
         } else {
@@ -861,7 +881,8 @@ void IRGeneratorBase::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
     }
 
     // Populate PHI nodes
-    for (size_t i = 0; i < analysis_results.cfg_blocks.size(); ++i) {
+    for (int i = 0; i < static_cast<int>(analysis_results.cfg_blocks.size());
+         ++i) {
         if (analysis_results.cfg_blocks[i].predecessors.size() > 1) {
             auto& phis = block_initial_stacks.at(i);
             for (int pred_idx : analysis_results.cfg_blocks[i].predecessors) {
@@ -869,7 +890,7 @@ void IRGeneratorBase::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
                 auto* incoming_block = llvm_blocks.at(pred_idx);
                 for (size_t j = 0; j < phis.size(); ++j) {
                     if (j < incoming_stack.size()) {
-                        static_cast<llvm::PHINode*>(phis[j])->addIncoming(
+                        llvm::cast<llvm::PHINode>(phis[j])->addIncoming(
                             incoming_stack[j], incoming_block);
                     }
                 }
@@ -880,16 +901,17 @@ void IRGeneratorBase::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
     // Final Result PHI
     builder.SetInsertPoint(exit_bb);
     std::vector<std::pair<llvm::Value*, llvm::BasicBlock*>> final_values;
-    for (size_t i = 0; i < analysis_results.cfg_blocks.size(); ++i) {
+    for (int i = 0; i < static_cast<int>(analysis_results.cfg_blocks.size());
+         ++i) {
         if (analysis_results.cfg_blocks[i].successors.empty()) {
             auto& stack = block_final_stacks.at(i);
             if (!stack.empty()) {
-                final_values.push_back({stack.back(), llvm_blocks.at(i)});
+                final_values.emplace_back(stack.back(), llvm_blocks.at(i));
             }
         }
     }
 
-    llvm::Value* result_val;
+    llvm::Value* result_val = nullptr;
     if (final_values.empty()) {
         result_val = llvm::UndefValue::get(float_ty);
     } else if (final_values.size() == 1) {

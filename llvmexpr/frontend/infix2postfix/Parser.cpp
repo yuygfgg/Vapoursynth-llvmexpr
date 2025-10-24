@@ -1,5 +1,6 @@
 #include "Parser.hpp"
 #include "Builtins.hpp"
+#include <algorithm>
 #include <cctype>
 #include <format>
 #include <utility>
@@ -30,7 +31,7 @@ ParseResult Parser::parse() {
         }
     }
 
-    return ParseResult{std::move(program), std::move(errors)};
+    return ParseResult{.ast = std::move(program), .errors = std::move(errors)};
 }
 
 std::unique_ptr<Stmt> Parser::parseDeclaration() {
@@ -58,8 +59,10 @@ std::unique_ptr<Stmt> Parser::parseDeclaration() {
     }
 
     // Block statements are not followed by a terminator here.
-    if (get_if<FunctionDef>(stmt.get()) || get_if<IfStmt>(stmt.get()) ||
-        get_if<WhileStmt>(stmt.get()) || get_if<BlockStmt>(stmt.get())) {
+    if ((get_if<FunctionDef>(stmt.get()) != nullptr) ||
+        (get_if<IfStmt>(stmt.get()) != nullptr) ||
+        (get_if<WhileStmt>(stmt.get()) != nullptr) ||
+        (get_if<BlockStmt>(stmt.get()) != nullptr)) {
         return stmt;
     }
 
@@ -81,20 +84,24 @@ std::unique_ptr<Stmt> Parser::parseDeclaration() {
 }
 
 std::unique_ptr<Stmt> Parser::parseStatement() {
-    if (peek().type == TokenType::If)
+    if (peek().type == TokenType::If) {
         return parseIfStatement();
-    if (peek().type == TokenType::While)
+    }
+    if (peek().type == TokenType::While) {
         return parseWhileStatement();
+    }
     if (peek().type == TokenType::LBrace) {
         error(peek(), "Standalone blocks are not allowed. Braces can only be "
                       "used for function, if, else, or while bodies.");
         synchronize();
         return nullptr;
     }
-    if (peek().type == TokenType::Goto)
+    if (peek().type == TokenType::Goto) {
         return parseGotoStatement();
-    if (peek().type == TokenType::Return)
+    }
+    if (peek().type == TokenType::Return) {
         return parseReturnStatement();
+    }
     if (peek().type == TokenType::Identifier &&
         peek(1).type == TokenType::Colon) {
         return parseLabelStatement();
@@ -149,7 +156,7 @@ std::unique_ptr<Stmt> Parser::parseGotoStatement() {
     Token keyword = consume(TokenType::Goto, "Expect 'goto'.");
     Token label =
         consume(TokenType::Identifier, "Expect label name after 'goto'.");
-    if (label.value.rfind("__internal_", 0) == 0) {
+    if (label.value.starts_with("__internal_")) {
         error(label, "goto target cannot start with '__internal_'.");
     }
     return make_node<Stmt, GotoStmt>(keyword, label, nullptr);
@@ -157,7 +164,7 @@ std::unique_ptr<Stmt> Parser::parseGotoStatement() {
 
 std::unique_ptr<Stmt> Parser::parseLabelStatement() {
     Token name = consume(TokenType::Identifier, "Expect label name.");
-    if (name.value.rfind("__internal_", 0) == 0) {
+    if (name.value.starts_with("__internal_")) {
         error(name, "Label name cannot start with '__internal_'.");
     }
     consume(TokenType::Colon, "Expect ':' after label name.");
@@ -212,7 +219,7 @@ std::unique_ptr<Stmt> Parser::parseExprStatement() {
     if (peek().type == TokenType::Identifier &&
         peek(1).type == TokenType::Assign) {
         Token name = advance(); // identifier
-        if (name.value.rfind("__internal_", 0) == 0) {
+        if (name.value.starts_with("__internal_")) {
             error(name, "Variable name cannot start with '__internal_'.");
         }
         advance(); // '='
@@ -227,12 +234,11 @@ std::unique_ptr<Stmt> Parser::parseExprStatement() {
         if (match({TokenType::Assign})) {
             auto right_expr = parseTernary();
 
-            if (get_if<ArrayAccessExpr>(left_expr.get())) {
+            if (get_if<ArrayAccessExpr>(left_expr.get()) != nullptr) {
                 return make_node<Stmt, ArrayAssignStmt>(std::move(left_expr),
                                                         std::move(right_expr));
-            } else {
-                error(peek(), "Invalid assignment target.");
             }
+            error(peek(), "Invalid assignment target.");
         }
 
         return make_node<Stmt, ExprStmt>(std::move(left_expr));
@@ -245,13 +251,13 @@ std::unique_ptr<Stmt> Parser::parseExprStatement() {
 std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
     consume(TokenType::Function, "Expect 'function'.");
     Token name = consume(TokenType::Identifier, "Expect function name.");
-    if (name.value.rfind("__internal_", 0) == 0) {
+    if (name.value.starts_with("__internal_")) {
         error(name, "Function name cannot start with '__internal_'.");
     }
 
     const auto& builtins = get_builtin_functions();
     // TODO: resize is not a built-in function in Expr mode.
-    if (builtins.count(name.value) || name.value.starts_with("nth_") ||
+    if ((builtins.contains(name.value)) || name.value.starts_with("nth_") ||
         name.value == "new" || name.value == "resize") {
         error(name,
               std::format(
@@ -265,7 +271,8 @@ std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
     std::vector<Parameter> params;
     if (peek().type != TokenType::RParen) {
         do {
-            Token type_token, name_token;
+            Token type_token;
+            Token name_token;
             Type param_type = Type::VALUE;
 
             if (peek().type == TokenType::Identifier &&
@@ -290,14 +297,16 @@ std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
                 // Untyped parameter, default to Value
                 name_token =
                     consume(TokenType::Identifier, "Expect parameter name.");
-                type_token = {TokenType::Identifier, "Value", name_token.range};
+                type_token = {.type = TokenType::Identifier,
+                              .value = "Value",
+                              .range = name_token.range};
                 param_type = Type::VALUE;
             } else {
                 error(peek(), "Expect a parameter declaration.");
                 break; // Avoid infinite loop on error
             }
             if (name_token.type == TokenType::Identifier &&
-                name_token.value.rfind("__internal_", 0) == 0) {
+                name_token.value.starts_with("__internal_")) {
                 error(name_token,
                       "Parameter name cannot start with '__internal_'.");
             }
@@ -316,75 +325,75 @@ std::unique_ptr<GlobalDecl> Parser::parseGlobalDecl() {
     if (content == "global.all") {
         return std::make_unique<GlobalDecl>(
             GlobalDecl(keyword, GlobalMode::ALL));
-    } else if (content == "global.none") {
+    }
+    if (content == "global.none") {
         return std::make_unique<GlobalDecl>(
             GlobalDecl(keyword, GlobalMode::NONE));
-    } else {
-        // <global<var1><var2>...>
-        std::vector<Token> globals;
-
-        // Skip "global" prefix
-        size_t pos = 0;
-        if (content.substr(0, 6) == "global") {
-            pos = 6;
-        } else {
-            error(keyword, "Invalid global declaration format.");
-        }
-
-        // Parse each <varname>
-        while (pos < content.length()) {
-            if (content[pos] != '<') {
-                error(keyword, "Expected '<' in global variable list.");
-            }
-            pos++; // '<'
-
-            size_t start = pos;
-            while (pos < content.length() && content[pos] != '>') {
-                pos++;
-            }
-
-            if (pos >= content.length()) {
-                error(keyword, "Unclosed '<' in global variable list.");
-            }
-
-            std::string var_name = content.substr(start, pos - start);
-
-            if (var_name.empty()) {
-                error(keyword, "Empty variable name in global declaration.");
-            }
-
-            if (var_name.rfind("__internal_", 0) == 0) {
-                error(keyword, std::format("Invalid identifier '{}': cannot "
-                                           "start with '__internal_'.",
-                                           var_name));
-            }
-
-            if (!std::isalpha(var_name[0]) && var_name[0] != '_') {
-                error(keyword, std::format("Invalid identifier '{}': must "
-                                           "start with letter or underscore.",
-                                           var_name));
-            }
-
-            for (size_t i = 1; i < var_name.length(); i++) {
-                if (!std::isalnum(var_name[i]) && var_name[i] != '_') {
-                    error(keyword, std::format("Invalid identifier '{}': "
-                                               "contains invalid character.",
-                                               var_name));
-                }
-            }
-
-            globals.push_back({TokenType::Identifier, var_name, keyword.range});
-            pos++; // '>'
-        }
-
-        if (globals.empty()) {
-            error(keyword,
-                  "Global declaration must specify at least one variable.");
-        }
-
-        return std::make_unique<GlobalDecl>(
-            GlobalDecl(keyword, GlobalMode::SPECIFIC, globals));
     }
+
+    // <global<var1><var2>...>
+    std::vector<Token> globals;
+
+    size_t pos = 0;
+    if (content.starts_with("global")) {
+        pos = std::string("global").length();
+    } else {
+        error(keyword, "Invalid global declaration format.");
+    }
+
+    // Parse each <varname>
+    while (pos < content.length()) {
+        if (content[pos] != '<') {
+            error(keyword, "Expected '<' in global variable list.");
+        }
+        pos++; // '<'
+
+        size_t start = pos;
+        while (pos < content.length() && content[pos] != '>') {
+            pos++;
+        }
+
+        if (pos >= content.length()) {
+            error(keyword, "Unclosed '<' in global variable list.");
+        }
+
+        std::string var_name = content.substr(start, pos - start);
+
+        if (var_name.empty()) {
+            error(keyword, "Empty variable name in global declaration.");
+        }
+
+        if (var_name.starts_with("__internal_")) {
+            error(keyword, std::format("Invalid identifier '{}': cannot "
+                                       "start with '__internal_'.",
+                                       var_name));
+        }
+
+        if ((std::isalpha(var_name[0]) == 0) && var_name[0] != '_') {
+            error(keyword, std::format("Invalid identifier '{}': must "
+                                       "start with letter or underscore.",
+                                       var_name));
+        }
+
+        for (size_t i = 1; i < var_name.length(); i++) {
+            if ((std::isalnum(var_name[i]) == 0) && var_name[i] != '_') {
+                error(keyword, std::format("Invalid identifier '{}': "
+                                           "contains invalid character.",
+                                           var_name));
+            }
+        }
+
+        globals.push_back({TokenType::Identifier, var_name, keyword.range});
+        pos++; // '>'
+    }
+
+    if (globals.empty()) {
+        error(keyword,
+              "Global declaration must specify at least one variable.");
+    }
+
+    return std::make_unique<GlobalDecl>(
+        GlobalDecl(keyword, GlobalMode::SPECIFIC, globals));
 }
 
 std::unique_ptr<Expr> Parser::parseTernary() {
@@ -512,7 +521,7 @@ std::unique_ptr<Expr> Parser::parsePostfix() {
                     Token* x_tok = get_constant_token(index1.get());
                     Token* y_tok = get_constant_token(index2.get());
 
-                    if (x_tok && y_tok) {
+                    if ((x_tok != nullptr) && (y_tok != nullptr)) {
                         return make_node<Expr, StaticRelPixelAccessExpr>(
                             var->name, *x_tok, *y_tok, suffix);
                     }
@@ -561,46 +570,51 @@ std::unique_ptr<Expr> Parser::finishCall(std::unique_ptr<Expr> callee) {
         return make_node<Expr, CallExpr>(var->name, std::move(args));
     }
     error(peek(), "Invalid call target.");
-    Token placeholder{TokenType::Identifier, "error", peek().range};
+    Token placeholder{
+        .type = TokenType::Identifier, .value = "error", .range = peek().range};
     return make_node<Expr, CallExpr>(placeholder,
                                      std::vector<std::unique_ptr<Expr>>{});
 }
 
 std::unique_ptr<Expr> Parser::parsePrimary() {
-    if (match({TokenType::Number}))
+    if (match({TokenType::Number})) {
         return make_node<Expr, NumberExpr>(previous());
-    if (match({TokenType::Identifier}))
+    }
+    if (match({TokenType::Identifier})) {
         return make_node<Expr, VariableExpr>(previous());
+    }
     if (match({TokenType::LParen})) {
         auto expr = parseTernary();
         consume(TokenType::RParen, "Expect ')' after expression.");
         return expr;
     }
     error(peek(), "Expect expression.");
-    Token placeholder{TokenType::Number, "0", peek().range};
+    Token placeholder{
+        .type = TokenType::Number, .value = "0", .range = peek().range};
     return make_node<Expr, NumberExpr>(placeholder);
 }
 
 bool Parser::match(const std::vector<TokenType>& types) {
-    for (TokenType type : types) {
-        if (peek().type == type) {
-            advance();
-            return true;
-        }
+    if (std::ranges::any_of(
+            types, [this](TokenType type) { return peek().type == type; })) {
+        advance();
+        return true;
     }
     return false;
 }
 
 Token Parser::consume(TokenType type, const std::string& message) {
-    if (peek().type == type)
+    if (peek().type == type) {
         return advance();
+    }
     error(peek(), message);
     return peek();
 }
 
 Token Parser::advance() {
-    if (!isAtEnd())
+    if (!isAtEnd()) {
         current++;
+    }
     return previous();
 }
 

@@ -39,11 +39,16 @@ int64_t llvmexpr_get_buffer_size(const char*);
 
 OrcJit::OrcJit(bool no_nans_fp_math) {
     static struct LLVMInitializer {
-        LLVMInitializer() {
+        LLVMInitializer() { // NOLINT(modernize-use-equals-default)
             llvm::InitializeNativeTarget();
             llvm::InitializeNativeTargetAsmPrinter();
             llvm::InitializeNativeTargetAsmParser();
         }
+        LLVMInitializer(const LLVMInitializer&) = delete;
+        LLVMInitializer& operator=(const LLVMInitializer&) = delete;
+        LLVMInitializer(LLVMInitializer&&) = delete;
+        LLVMInitializer& operator=(LLVMInitializer&&) = delete;
+        ~LLVMInitializer() = default;
     } initializer;
 
     auto jtmb =
@@ -161,6 +166,7 @@ void* OrcJit::getFunctionAddress(const std::string& name) {
     return sym->toPtr<void*>();
 }
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Global JIT instances
 OrcJit global_jit_fast(true);
 OrcJit global_jit_nan_safe(false);
@@ -168,3 +174,4 @@ OrcJit global_jit_nan_safe(false);
 // JIT cache
 std::unordered_map<std::string, CompiledFunction> jit_cache;
 std::mutex cache_mutex;
+// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)

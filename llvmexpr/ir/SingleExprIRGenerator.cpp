@@ -41,7 +41,7 @@ SingleExprIRGenerator::SingleExprIRGenerator(
       output_props_list(output_props) {
 
     for (size_t i = 0; i < output_props_list.size(); ++i) {
-        output_prop_map[output_props_list[i]] = i;
+        output_prop_map[output_props_list[i]] = static_cast<int>(i);
     }
 }
 
@@ -61,14 +61,13 @@ void SingleExprIRGenerator::define_function_signature() {
                                   func_name, &module);
     func->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
 
-    auto args = func->arg_begin();
-    context_arg = &*args++;
+    context_arg = func->getArg(0);
     context_arg->setName("context");
-    rwptrs_arg = &*args++;
+    rwptrs_arg = func->getArg(1);
     rwptrs_arg->setName("rwptrs");
-    strides_arg = &*args++;
+    strides_arg = func->getArg(2);
     strides_arg->setName("strides");
-    props_arg = &*args++;
+    props_arg = func->getArg(3);
     props_arg->setName("props");
 
     func->addParamAttr(2, llvm::Attribute::ReadOnly); // strides (int32_t*)
@@ -101,12 +100,13 @@ void SingleExprIRGenerator::
     // Pre-load all plane pointers and strides
     plane_base_ptrs.resize(num_inputs + 1);
     plane_strides.resize(num_inputs + 1);
-    int num_planes = vo->format.numPlanes;
+    const int num_planes = // NOLINT(cppcoreguidelines-init-variables)
+        vo->format.numPlanes;
     for (int i = 0; i <= num_inputs; ++i) {
         plane_base_ptrs[i].resize(num_planes);
         plane_strides[i].resize(num_planes);
         for (int p = 0; p < num_planes; ++p) {
-            int flat_idx = i * num_planes + p;
+            int flat_idx = (i * num_planes) + p;
             llvm::Value* base_ptr_i = builder.CreateLoad(
                 llvm::PointerType::get(context, 0),
                 builder.CreateGEP(llvm::PointerType::get(context, 0),
@@ -132,7 +132,7 @@ void SingleExprIRGenerator::
         prop_allocas[key.second] = alloca;
     }
     for (const auto& prop_name : output_props_list) {
-        if (prop_allocas.find(prop_name) == prop_allocas.end()) {
+        if (!prop_allocas.contains(prop_name)) {
             prop_allocas[prop_name] =
                 createAllocaInEntry(builder.getFloatTy(), prop_name);
         }
@@ -183,25 +183,29 @@ llvm::Value* SingleExprIRGenerator::generate_pixel_load_plane(int clip_idx,
     llvm::Value* pixel_addr =
         builder.CreateGEP(builder.getInt8Ty(), row_ptr, x_offset);
 
-    llvm::Value* loaded_val;
+    llvm::Value* loaded_val = nullptr;
     if (format.sampleType == stInteger) {
-        llvm::Type* load_type =
-            bpp == 1 ? builder.getInt8Ty()
-                     : (bpp == 2 ? builder.getInt16Ty() : builder.getInt32Ty());
+        llvm::Type* load_type = nullptr;
+        if (bpp == 1) {
+            load_type = builder.getInt8Ty();
+        } else if (bpp == 2) {
+            load_type = builder.getInt16Ty();
+        } else {
+            load_type = builder.getInt32Ty();
+        }
         llvm::LoadInst* li = builder.CreateLoad(load_type, pixel_addr);
         loaded_val = builder.CreateZExtOrBitCast(li, builder.getInt32Ty());
         return builder.CreateUIToFP(loaded_val, builder.getFloatTy());
-    } else { // stFloat
-        if (bpp == 4) {
-            return builder.CreateLoad(builder.getFloatTy(), pixel_addr);
-        } else if (bpp == 2) {
-            llvm::Value* half_val =
-                builder.CreateLoad(builder.getHalfTy(), pixel_addr);
-            return builder.CreateFPExt(half_val, builder.getFloatTy());
-        } else {
-            throw std::runtime_error("Unsupported float sample size.");
-        }
+    } // stFloat
+    if (bpp == 4) {
+        return builder.CreateLoad(builder.getFloatTy(), pixel_addr);
     }
+    if (bpp == 2) {
+        llvm::Value* half_val =
+            builder.CreateLoad(builder.getHalfTy(), pixel_addr);
+        return builder.CreateFPExt(half_val, builder.getFloatTy());
+    }
+    throw std::runtime_error("Unsupported float sample size.");
 }
 
 void SingleExprIRGenerator::generate_pixel_store_plane(
@@ -219,7 +223,7 @@ void SingleExprIRGenerator::generate_pixel_store_plane(
     llvm::Value* pixel_addr =
         builder.CreateGEP(builder.getInt8Ty(), base_ptr, total_offset);
 
-    llvm::Value* final_val;
+    llvm::Value* final_val = nullptr;
     if (format.sampleType == stInteger) {
         int max_val = (1 << format.bitsPerSample) - 1;
         llvm::Value* zero_f = llvm::ConstantFP::get(builder.getFloatTy(), 0.0);
@@ -234,9 +238,14 @@ void SingleExprIRGenerator::generate_pixel_store_plane(
         llvm::Value* rounded_f =
             createIntrinsicCall(llvm::Intrinsic::roundeven, clamped_f);
 
-        llvm::Type* store_type =
-            bpp == 1 ? builder.getInt8Ty()
-                     : (bpp == 2 ? builder.getInt16Ty() : builder.getInt32Ty());
+        llvm::Type* store_type = nullptr;
+        if (bpp == 1) {
+            store_type = builder.getInt8Ty();
+        } else if (bpp == 2) {
+            store_type = builder.getInt16Ty();
+        } else {
+            store_type = builder.getInt32Ty();
+        }
         final_val = builder.CreateFPToUI(rounded_f, store_type);
         builder.CreateStore(final_val, pixel_addr);
     } else {
@@ -263,7 +272,7 @@ bool SingleExprIRGenerator::process_mode_specific_token(
     switch (token.type) {
     case TokenType::CONSTANT_PLANE_WIDTH: {
         const auto& payload = std::get<TokenPayload_PlaneDim>(token.payload);
-        int plane_w = vo->width;
+        int plane_w = vo->width; // NOLINT(cppcoreguidelines-init-variables)
         if (vo->format.colorFamily == cfYUV && payload.plane_idx > 0) {
             plane_w >>= vo->format.subSamplingW;
         }
@@ -273,7 +282,7 @@ bool SingleExprIRGenerator::process_mode_specific_token(
     }
     case TokenType::CONSTANT_PLANE_HEIGHT: {
         const auto& payload = std::get<TokenPayload_PlaneDim>(token.payload);
-        int plane_h = vo->height;
+        int plane_h = vo->height; // NOLINT(cppcoreguidelines-init-variables)
         if (vo->format.colorFamily == cfYUV && payload.plane_idx > 0) {
             plane_h >>= vo->format.subSamplingH;
         }

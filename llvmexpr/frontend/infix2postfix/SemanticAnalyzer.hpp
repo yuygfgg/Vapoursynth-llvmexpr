@@ -25,6 +25,8 @@ class SemanticAnalyzer {
         ~ScopeGuard() { analyzer->exitScope(); }
         ScopeGuard(const ScopeGuard&) = delete;
         ScopeGuard& operator=(const ScopeGuard&) = delete;
+        ScopeGuard(ScopeGuard&&) = delete;
+        ScopeGuard& operator=(ScopeGuard&&) = delete;
 
       private:
         SemanticAnalyzer* analyzer;
@@ -32,18 +34,18 @@ class SemanticAnalyzer {
 
     bool analyze(Program* program);
 
-    const std::vector<Diagnostic>& getDiagnostics() const {
+    [[nodiscard]] const std::vector<Diagnostic>& getDiagnostics() const {
         return diagnostics;
     }
 
-    bool hasErrors() const;
+    [[nodiscard]] bool hasErrors() const;
 
-    const std::map<std::string, std::vector<FunctionSignature>>&
+    [[nodiscard]] const std::map<std::string, std::vector<FunctionSignature>>&
     getFunctionSignatures() const {
         return function_signatures;
     }
 
-    const std::map<std::string, std::vector<FunctionDef*>>&
+    [[nodiscard]] const std::map<std::string, std::vector<FunctionDef*>>&
     getFunctionDefs() const {
         return function_defs;
     }

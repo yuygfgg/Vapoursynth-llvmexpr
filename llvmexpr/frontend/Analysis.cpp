@@ -48,7 +48,7 @@ void ExpressionAnalyser::validate_and_build_cfg() {
 
     int current_token_idx = 0;
     while (static_cast<size_t>(current_token_idx) < tokens.size()) {
-        int block_idx = results.cfg_blocks.size();
+        int block_idx = static_cast<int>(results.cfg_blocks.size());
         CFGBlock block;
         block.start_token_idx = current_token_idx;
 
@@ -58,7 +58,7 @@ void ExpressionAnalyser::validate_and_build_cfg() {
         if (tokens[current_token_idx].type == TokenType::LABEL_DEF) {
             const auto& payload =
                 std::get<TokenPayload_Label>(tokens[current_token_idx].payload);
-            if (results.label_to_block_idx.count(payload.name)) {
+            if (results.label_to_block_idx.contains(payload.name)) {
                 throw std::runtime_error(
                     std::format("Duplicate label: {} (idx {})", payload.name,
                                 current_token_idx));
@@ -107,22 +107,22 @@ void ExpressionAnalyser::validate_and_build_cfg() {
         if (last_token.type == TokenType::JUMP) {
             const auto& payload =
                 std::get<TokenPayload_Label>(last_token.payload);
-            if (results.label_to_block_idx.find(payload.name) ==
-                results.label_to_block_idx.end()) {
+            if (!results.label_to_block_idx.contains(payload.name)) {
                 throw std::runtime_error(
                     std::format("Undefined label for jump: {} (idx {})",
                                 payload.name, block.end_token_idx - 1));
             }
             int target_block_idx = results.label_to_block_idx.at(payload.name);
             block.successors.push_back(target_block_idx);
-            results.cfg_blocks[target_block_idx].predecessors.push_back(i);
+            results.cfg_blocks[target_block_idx].predecessors.push_back(
+                static_cast<int>(i));
 
             if (static_cast<size_t>(block.end_token_idx) < tokens.size()) {
                 int fallthrough_block_idx =
                     token_idx_to_block_idx.at(block.end_token_idx);
                 block.successors.push_back(fallthrough_block_idx);
                 results.cfg_blocks[fallthrough_block_idx]
-                    .predecessors.push_back(i);
+                    .predecessors.push_back(static_cast<int>(i));
             }
         } else {
             if (static_cast<size_t>(block.end_token_idx) < tokens.size()) {
@@ -130,7 +130,7 @@ void ExpressionAnalyser::validate_and_build_cfg() {
                     token_idx_to_block_idx.at(block.end_token_idx);
                 block.successors.push_back(fallthrough_block_idx);
                 results.cfg_blocks[fallthrough_block_idx]
-                    .predecessors.push_back(i);
+                    .predecessors.push_back(static_cast<int>(i));
             }
         }
     }
@@ -262,8 +262,7 @@ void ExpressionAnalyser::validate_and_build_cfg() {
             const auto& token = tokens[j];
             if (token.type == TokenType::VAR_LOAD) {
                 const auto& payload = std::get<TokenPayload_Var>(token.payload);
-                if (defined_in_block.find(payload.name) ==
-                    defined_in_block.end()) {
+                if (!defined_in_block.contains(payload.name)) {
                     throw std::runtime_error(
                         std::format("Variable is uninitialized: {} (idx {})",
                                     payload.name, j));
@@ -276,8 +275,7 @@ void ExpressionAnalyser::validate_and_build_cfg() {
                 const auto& payload =
                     std::get<TokenPayload_ArrayOp>(token.payload);
                 std::string array_name = payload.name + "{}";
-                if (defined_in_block.find(array_name) ==
-                    defined_in_block.end()) {
+                if (!defined_in_block.contains(array_name)) {
                     throw std::runtime_error(std::format(
                         "Array is uninitialized: {} (idx {})", array_name, j));
                 }
@@ -286,7 +284,7 @@ void ExpressionAnalyser::validate_and_build_cfg() {
                 const auto& payload =
                     std::get<TokenPayload_ArrayOp>(token.payload);
                 std::string array_name = payload.name + "{}";
-                if (static_in_block.count(array_name)) {
+                if (static_in_block.contains(array_name)) {
                     throw std::runtime_error(
                         std::format("Statically allocated array cannot be "
                                     "reallocated: {} (idx {})",

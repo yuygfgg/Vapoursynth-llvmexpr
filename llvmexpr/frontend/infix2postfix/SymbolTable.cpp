@@ -4,8 +4,8 @@ namespace infix2postfix {
 
 SymbolTable::SymbolTable(SymbolTable* parent) : parent(parent) {}
 
-bool SymbolTable::define(std::shared_ptr<Symbol> symbol) {
-    if (symbols.count(symbol->name)) {
+bool SymbolTable::define(const std::shared_ptr<Symbol>& symbol) {
+    if (symbols.contains(symbol->name)) {
         return false;
     }
     symbols[symbol->name] = symbol;
@@ -17,7 +17,7 @@ std::shared_ptr<Symbol> SymbolTable::resolve(const std::string& name) const {
     if (it != symbols.end()) {
         return it->second;
     }
-    if (parent) {
+    if (parent != nullptr) {
         return parent->resolve(name);
     }
     return nullptr;

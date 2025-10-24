@@ -22,8 +22,8 @@
 
 #include <map>
 #include <optional>
-#include <string>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace infix2postfix {
@@ -64,10 +64,9 @@ struct PreprocessResult {
 
 class Preprocessor {
   public:
-    explicit Preprocessor(const std::string& source);
+    explicit Preprocessor(std::string source);
 
-    void addPredefinedMacro(const std::string& name,
-                            const std::string& value = "");
+    void addPredefinedMacro(std::string name, std::string value = "");
 
     PreprocessResult process();
 
@@ -87,11 +86,12 @@ class Preprocessor {
 
         explicit LineParser(const std::string& s) : str(s) {}
 
-        bool eof() const { return pos >= str.length(); }
-        char peek() const { return eof() ? '\0' : str[pos]; }
+        [[nodiscard]] bool eof() const { return pos >= str.length(); }
+        [[nodiscard]] char peek() const { return eof() ? '\0' : str[pos]; }
         void consume() {
-            if (!eof())
+            if (!eof()) {
                 pos++;
+            }
         }
         char consume_one() { return eof() ? '\0' : str[pos++]; }
         void skipWhitespace();
@@ -105,7 +105,7 @@ class Preprocessor {
     };
 
     void processLine(const std::string& line, int line_number);
-    bool isDirective(const std::string& line) const;
+    [[nodiscard]] bool isDirective(const std::string& line) const;
     void handleDirective(const std::string& line, int line_number);
     void handleDefine(const std::string& line, int line_number);
     void handleUndef(const std::string& line, int line_number);
@@ -127,7 +127,7 @@ class Preprocessor {
                                  std::vector<MacroExpansion>* expansions_out);
     std::string expandDefinedOperator(const std::string& text);
     std::string evaluateIfPossible(const std::string& text);
-    bool isCurrentBlockActive() const;
+    [[nodiscard]] bool isCurrentBlockActive() const;
 
     void addError(const std::string& message, int line);
     void addOutputLine(const std::string& line, int original_line,

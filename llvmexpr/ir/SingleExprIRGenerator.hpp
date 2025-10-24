@@ -59,7 +59,7 @@ class SingleExprIRGenerator : public IRGeneratorBase {
     const std::vector<std::string>& output_props_list;
     std::map<std::string, int> output_prop_map;
 
-    // Array support
+    // Array
     llvm::Value* context_arg;
     llvm::Function* llvmexpr_ensure_buffer_func;
     llvm::Function* llvmexpr_get_buffer_size_func;

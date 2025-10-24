@@ -26,28 +26,30 @@ std::string CodeGenerator::generate(Program* program) {
 }
 
 CodeGenerator::ExprResult CodeGenerator::generate(Expr* expr) {
-    if (!expr)
-        return {{}, Type::VALUE};
+    if (expr == nullptr) {
+        return {.postfix = {}, .type = Type::VALUE};
+    }
     return std::visit([this](auto& e) { return this->handle(e); }, expr->value);
 }
 
 PostfixBuilder CodeGenerator::generate(Stmt* stmt) {
-    if (!stmt)
+    if (stmt == nullptr) {
         return {};
+    }
     return std::visit([this](auto& s) { return this->handle(s); }, stmt->value);
 }
 
 CodeGenerator::ExprResult CodeGenerator::handle(const NumberExpr& expr) {
     PostfixBuilder b;
     b.add_number(expr.value.value);
-    return {b, Type::LITERAL};
+    return {.postfix = b, .type = Type::LITERAL};
 }
 
 CodeGenerator::ExprResult CodeGenerator::handle(const VariableExpr& expr) {
     PostfixBuilder b;
     std::string name = expr.name.value;
 
-    if (param_substitutions.count(name)) {
+    if (param_substitutions.contains(name)) {
         return generate(param_substitutions.at(name));
     }
 
@@ -56,13 +58,13 @@ CodeGenerator::ExprResult CodeGenerator::handle(const VariableExpr& expr) {
         b.add_constant(base_name);
 
         if (is_clip_name(base_name)) {
-            return {b, Type::CLIP};
+            return {.postfix = b, .type = Type::CLIP};
         }
-        return {b, Type::VALUE};
+        return {.postfix = b, .type = Type::VALUE};
     }
 
     std::string var_name = name;
-    if (var_rename_map.count(name)) {
+    if (var_rename_map.contains(name)) {
         var_name = var_rename_map.at(name);
     } else if (expr.symbol) {
         var_name = expr.symbol->name;
@@ -71,10 +73,10 @@ CodeGenerator::ExprResult CodeGenerator::handle(const VariableExpr& expr) {
     b.add_variable_load(var_name);
 
     if (expr.symbol) {
-        return {b, expr.symbol->type};
+        return {.postfix = b, .type = expr.symbol->type};
     }
 
-    return {b, Type::VALUE};
+    return {.postfix = b, .type = Type::VALUE};
 }
 
 CodeGenerator::ExprResult CodeGenerator::handle(const UnaryExpr& expr) {
@@ -86,14 +88,14 @@ CodeGenerator::ExprResult CodeGenerator::handle(const UnaryExpr& expr) {
             }
             PostfixBuilder b;
             b.add_number(val);
-            return {b, Type::LITERAL};
+            return {.postfix = b, .type = Type::LITERAL};
         }
     }
 
     auto right = generate(expr.right.get());
     PostfixBuilder b = right.postfix;
     b.add_unary_op(expr.op.type);
-    return {b, Type::VALUE};
+    return {.postfix = b, .type = Type::VALUE};
 }
 
 CodeGenerator::ExprResult CodeGenerator::handle(const BinaryExpr& expr) {
@@ -104,7 +106,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const BinaryExpr& expr) {
     b.append(left.postfix);
     b.append(right.postfix);
     b.add_op(expr.op.type);
-    return {b, Type::VALUE};
+    return {.postfix = b, .type = Type::VALUE};
 }
 
 CodeGenerator::ExprResult CodeGenerator::handle(const TernaryExpr& expr) {
@@ -117,7 +119,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const TernaryExpr& expr) {
     b.append(true_branch.postfix);
     b.append(false_branch.postfix);
     b.add_ternary_op();
-    return {b, Type::VALUE};
+    return {.postfix = b, .type = Type::VALUE};
 }
 
 CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
@@ -128,7 +130,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
 
         PostfixBuilder b =
             inline_function_call(sig, func_def, expr.args, expr.range);
-        return {b, Type::VALUE};
+        return {.postfix = b, .type = Type::VALUE};
     }
 
     // Built-in functions
@@ -136,7 +138,8 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
         const BuiltinFunction* builtin = expr.resolved_builtin;
 
         if (builtin->special_handler) {
-            return {builtin->special_handler(this, expr), Type::VALUE};
+            return {.postfix = builtin->special_handler(this, expr),
+                    .type = Type::VALUE};
         }
 
         PostfixBuilder b;
@@ -147,14 +150,14 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
             }
         }
         b.add_function_call(expr.callee);
-        return {b, Type::VALUE};
+        return {.postfix = b, .type = Type::VALUE};
     }
 
     // nth_N functions
     if (expr.callee.starts_with("nth_")) {
         std::string n_str = expr.callee.substr(4);
         int n = std::stoi(n_str);
-        int arg_count = expr.args.size();
+        int arg_count = static_cast<int>(expr.args.size());
         PostfixBuilder b;
         for (const auto& arg : expr.args) {
             auto res = generate(arg.get());
@@ -165,7 +168,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
         b.add_swapN(arg_count - n);
         b.add_dropN(arg_count - n);
 
-        return {b, Type::VALUE};
+        return {.postfix = b, .type = Type::VALUE};
     }
 
     std::unreachable();
@@ -174,7 +177,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
 CodeGenerator::ExprResult CodeGenerator::handle(const PropAccessExpr& expr) {
     PostfixBuilder b;
     std::string clip_name = expr.clip.value;
-    if (param_substitutions.count(clip_name)) {
+    if (param_substitutions.contains(clip_name)) {
         auto* subst_expr = param_substitutions.at(clip_name);
         auto res = generate(subst_expr);
         clip_name = res.postfix.get_expression();
@@ -183,13 +186,13 @@ CodeGenerator::ExprResult CodeGenerator::handle(const PropAccessExpr& expr) {
     }
 
     b.add_prop_access(clip_name, expr.prop.value);
-    return {b, Type::VALUE};
+    return {.postfix = b, .type = Type::VALUE};
 }
 
 CodeGenerator::ExprResult
 CodeGenerator::handle(const StaticRelPixelAccessExpr& expr) {
     std::string clip_name = expr.clip.value;
-    if (param_substitutions.count(clip_name)) {
+    if (param_substitutions.contains(clip_name)) {
         auto* subst_expr = param_substitutions.at(clip_name);
         auto res = generate(subst_expr);
         clip_name = res.postfix.get_expression();
@@ -200,7 +203,7 @@ CodeGenerator::handle(const StaticRelPixelAccessExpr& expr) {
     PostfixBuilder b;
     b.add_static_pixel_access(clip_name, expr.offsetX.value, expr.offsetY.value,
                               expr.boundary_suffix);
-    return {b, Type::VALUE};
+    return {.postfix = b, .type = Type::VALUE};
 }
 
 CodeGenerator::ExprResult
@@ -210,17 +213,17 @@ CodeGenerator::handle(const FrameDimensionExpr& expr) {
 
     PostfixBuilder b;
     b.add_frame_dimension(expr.dimension_name, plane_idx_str);
-    return {b, Type::VALUE};
+    return {.postfix = b, .type = Type::VALUE};
 }
 
 CodeGenerator::ExprResult CodeGenerator::handle(const ArrayAccessExpr& expr) {
     // Get the array variable name
     std::string array_name;
     auto* var_expr = get_if<VariableExpr>(expr.array.get());
-    if (var_expr) {
+    if (var_expr != nullptr) {
         array_name = var_expr->name.value;
 
-        if (var_rename_map.count(array_name)) {
+        if (var_rename_map.contains(array_name)) {
             array_name = var_rename_map.at(array_name);
         } else if (expr.array_symbol) {
             array_name = expr.array_symbol->name;
@@ -235,7 +238,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const ArrayAccessExpr& expr) {
     b.append(index_result.postfix);
     b.add_array_load(array_name);
 
-    return {b, Type::VALUE};
+    return {.postfix = b, .type = Type::VALUE};
 }
 
 PostfixBuilder CodeGenerator::handle(const ExprStmt& stmt) {
@@ -248,7 +251,7 @@ PostfixBuilder CodeGenerator::handle(const AssignStmt& stmt) {
     std::string name = stmt.name.value;
 
     std::string var_name = name;
-    if (var_rename_map.count(name)) {
+    if (var_rename_map.contains(name)) {
         var_name = var_rename_map.at(name);
     } else if (stmt.symbol) {
         var_name = stmt.symbol->name;
@@ -267,7 +270,7 @@ PostfixBuilder CodeGenerator::handle(const AssignStmt& stmt) {
                     size_value = num_expr->value.value;
                 } else if (auto* var_expr = get_if<VariableExpr>(arg_expr)) {
                     std::string var_name_arg = var_expr->name.value;
-                    if (param_substitutions.count(var_name_arg)) {
+                    if (param_substitutions.contains(var_name_arg)) {
                         auto* subst_expr = param_substitutions.at(var_name_arg);
                         if (auto* subst_num = get_if<NumberExpr>(subst_expr)) {
                             size_value = subst_num->value.value;
@@ -303,10 +306,10 @@ PostfixBuilder CodeGenerator::handle(const ArrayAssignStmt& stmt) {
 
     std::string array_name;
     auto* var_expr = get_if<VariableExpr>(array_access->array.get());
-    if (var_expr) {
+    if (var_expr != nullptr) {
         array_name = var_expr->name.value;
 
-        if (var_rename_map.count(array_name)) {
+        if (var_rename_map.contains(array_name)) {
             array_name = var_rename_map.at(array_name);
         } else if (array_access->array_symbol) {
             array_name = array_access->array_symbol->name;
@@ -476,7 +479,7 @@ PostfixBuilder CodeGenerator::inline_function_call(
     // Save current state
     auto saved_param_substitutions = param_substitutions;
     auto saved_var_rename_map = var_rename_map;
-    auto saved_current_function = current_function;
+    const auto* saved_current_function = current_function;
 
     param_substitutions.clear();
     std::map<std::string, std::string> param_map;
@@ -494,9 +497,9 @@ PostfixBuilder CodeGenerator::inline_function_call(
             param_substitutions[param_name] = arg_expr;
         } else if (param_type == Type::ARRAY) {
             auto* var_expr = get_if<VariableExpr>(arg_expr);
-            if (var_expr) {
+            if (var_expr != nullptr) {
                 std::string arg_var_name = var_expr->name.value;
-                if (saved_var_rename_map.count(arg_var_name)) {
+                if (saved_var_rename_map.contains(arg_var_name)) {
                     param_map[param_name] =
                         saved_var_rename_map.at(arg_var_name);
                 } else if (var_expr->symbol) {
@@ -518,11 +521,12 @@ PostfixBuilder CodeGenerator::inline_function_call(
 
     // Collect local variables from function body
     std::function<void(Stmt*)> collect_locals = [&](Stmt* stmt) {
-        if (!stmt)
+        if (!stmt) {
             return;
+        }
         if (auto* assign = get_if<AssignStmt>(stmt)) {
             std::string var_name = assign->name.value;
-            if (!param_map.count(var_name)) {
+            if (!param_map.contains(var_name)) {
                 std::string renamed_var = std::format(
                     "__internal_func_{}_{}_{}", func_name, call_id, var_name);
                 param_map[var_name] = renamed_var;

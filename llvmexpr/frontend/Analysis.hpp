@@ -60,11 +60,11 @@ class ExpressionAnalyser {
     ExpressionAnalyser(const std::vector<Token>& tokens,
                        int expected_final_depth = 1);
 
-    // Run the analysis
     void run();
 
-    // Getter for results
-    const ExpressionAnalysisResults& getResults() const { return results; }
+    [[nodiscard]] const ExpressionAnalysisResults& getResults() const {
+        return results;
+    }
 
   private:
     const std::vector<Token>& tokens;

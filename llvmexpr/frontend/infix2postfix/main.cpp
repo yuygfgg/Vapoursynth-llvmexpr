@@ -1,6 +1,7 @@
 #include <format>
 #include <fstream>
 #include <iostream>
+#include <span>
 #include <sstream>
 #include <string>
 
@@ -14,7 +15,7 @@ using namespace infix2postfix;
 void print_usage() {
     std::cerr << "Usage: infix2postfix <in.expr> -m [expr/single] -o "
                  "<out.expr> [-D MACRO[=value]] [--dump-ast] [-E]"
-              << std::endl;
+              << '\n';
     std::cerr << "Options:\n";
     std::cerr << "  -m MODE         Set mode (expr or single)\n";
     std::cerr << "  -o FILE         Output file\n";
@@ -32,19 +33,22 @@ int main(int argc, char* argv[]) {
     bool preprocess_only = false;
     std::vector<std::pair<std::string, std::string>> predefined_macros;
 
+    auto args = std::span(argv, argc);
+
     if (argc < 2) {
         print_usage();
         return 1;
     }
 
     for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
+        std::string arg = args[i];
         if (arg == "-o") {
-            if (i + 1 < argc)
-                output_file = argv[++i];
+            if (i + 1 < argc) {
+                output_file = args[++i];
+            }
         } else if (arg == "-m") {
             if (i + 1 < argc) {
-                std::string mode_str = argv[++i];
+                std::string mode_str = args[++i];
                 if (mode_str == "single") {
                     mode = Mode::Single;
                 } else if (mode_str != "expr") {
@@ -56,7 +60,7 @@ int main(int argc, char* argv[]) {
             }
         } else if (arg == "-D") {
             if (i + 1 < argc) {
-                std::string macro_def = argv[++i];
+                std::string macro_def = args[++i];
                 size_t eq_pos = macro_def.find('=');
                 if (eq_pos != std::string::npos) {
                     std::string name = macro_def.substr(0, eq_pos);
@@ -150,7 +154,10 @@ int main(int argc, char* argv[]) {
         Tokenizer tokenizer(preprocess_result.source);
         auto tokens = tokenizer.tokenize();
 
-        AnalysisEngine engine(tokens, mode, 114514, preprocess_result.line_map);
+        AnalysisEngine engine(
+            tokens, mode,
+            114514, // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+            preprocess_result.line_map);
 
         bool success = engine.runAnalysis();
 
@@ -166,7 +173,8 @@ int main(int argc, char* argv[]) {
         if (!success) {
             std::cerr << std::format("Analysis errors:\n{}\n", diagnostics);
             return 1;
-        } else if (!diagnostics.empty()) {
+        }
+        if (!diagnostics.empty()) {
             std::cerr << std::format("Analysis warnings:\n{}\n", diagnostics);
         }
 
@@ -178,7 +186,7 @@ int main(int argc, char* argv[]) {
                                      output_file);
             return 1;
         }
-        out_stream << postfix_code << std::endl;
+        out_stream << postfix_code << '\n';
 
         std::cout << std::format("Successfully converted '{}' to '{}'\n",
                                  input_file, output_file);

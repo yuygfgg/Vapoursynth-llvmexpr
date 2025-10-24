@@ -59,10 +59,10 @@ class Parser {
     bool match(const std::vector<TokenType>& types);
     Token consume(TokenType type, const std::string& message);
     Token advance();
-    Token peek() const;
-    Token peek(int offset) const;
-    Token previous() const;
-    bool isAtEnd() const;
+    [[nodiscard]] Token peek() const;
+    [[nodiscard]] Token peek(int offset) const;
+    [[nodiscard]] Token previous() const;
+    [[nodiscard]] bool isAtEnd() const;
     void error(const Token& token, const std::string& message);
     void synchronize();
     void report_error(const Token& token, const std::string& message);

@@ -58,7 +58,7 @@ template <auto value> consteval std::string_view enum_name() {
     constexpr std::string_view name = __PRETTY_FUNCTION__;
     constexpr auto start = name.find('=') + 2;
     constexpr auto end = name.size() - 1;
-    constexpr auto full = std::string_view{name.data() + start, end - start};
+    constexpr auto full = name.substr(start, end - start);
     constexpr auto last_colon = full.rfind("::");
     return last_colon == std::string_view::npos ? full
                                                 : full.substr(last_colon + 2);
@@ -83,7 +83,7 @@ consteval std::size_t binary_search_count() {
     if constexpr (High - Low <= 1) {
         return is_valid_enum<T, Low>() ? High : Low;
     } else {
-        constexpr std::size_t Mid = Low + (High - Low) / 2;
+        constexpr std::size_t Mid = Low + ((High - Low) / 2);
         if constexpr (is_valid_enum<T, Mid>()) {
             return binary_search_count<T, Mid, High>();
         } else {
@@ -98,7 +98,7 @@ template <typename T> consteval std::size_t enum_count() {
 }
 
 template <typename T, std::size_t... Is>
-consteval auto make_names_impl(std::index_sequence<Is...>) {
+consteval auto make_names_impl(std::index_sequence<Is...> /*unused*/) {
     return std::array{enum_name<static_cast<T>(Is)>()...};
 }
 

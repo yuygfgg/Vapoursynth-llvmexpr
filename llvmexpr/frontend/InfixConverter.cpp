@@ -32,7 +32,7 @@ std::string convertInfixToPostfix(const std::string& infix_expr, int num_inputs,
         std::string preprocessed_source = infix_expr;
         std::vector<infix2postfix::LineMapping> line_map;
 
-        if (context) {
+        if (context != nullptr) {
             infix2postfix::Preprocessor preprocessor(infix_expr);
 
             if (mode == infix2postfix::Mode::Expr) {

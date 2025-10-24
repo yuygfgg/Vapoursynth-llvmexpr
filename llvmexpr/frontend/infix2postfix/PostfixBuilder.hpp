@@ -17,9 +17,9 @@ class PostfixBuilder {
     void add_ternary_op();
     void add_function_call(const std::string& func_name);
     void append(const PostfixBuilder& other);
-    std::string get_expression() const;
+    [[nodiscard]] std::string get_expression() const;
     void clear();
-    bool empty() const;
+    [[nodiscard]] bool empty() const;
 
     // Literals & Variables
     void add_number(const std::string& num_literal);

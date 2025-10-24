@@ -46,9 +46,9 @@ class OrcJit {
   public:
     explicit OrcJit(bool no_nans_fp_math);
 
-    const llvm::DataLayout& getDataLayout() const;
+    [[nodiscard]] const llvm::DataLayout& getDataLayout() const;
 
-    const llvm::Triple& getTargetTriple() const;
+    [[nodiscard]] const llvm::Triple& getTargetTriple() const;
 
     void addModule(std::unique_ptr<llvm::Module> M,
                    std::unique_ptr<llvm::LLVMContext> Ctx);
@@ -56,6 +56,7 @@ class OrcJit {
     void* getFunctionAddress(const std::string& name);
 };
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Global JIT instances
 extern OrcJit global_jit_fast;
 extern OrcJit global_jit_nan_safe;
@@ -63,5 +64,6 @@ extern OrcJit global_jit_nan_safe;
 // JIT cache
 extern std::unordered_map<std::string, CompiledFunction> jit_cache;
 extern std::mutex cache_mutex;
+// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 #endif // LLVMEXPR_JIT_HPP

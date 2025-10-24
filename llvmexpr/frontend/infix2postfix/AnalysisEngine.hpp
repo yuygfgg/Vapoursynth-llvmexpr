@@ -4,13 +4,14 @@
 #include "AST.hpp"
 #include "Preprocessor.hpp"
 #include "types.hpp"
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
 namespace infix2postfix {
 
-enum class DiagnosticSeverity {
+enum class DiagnosticSeverity : std::uint8_t {
     ERROR,
     WARNING,
 };
@@ -32,20 +33,25 @@ class AnalysisEngine {
                    const std::vector<LineMapping>& line_map);
     ~AnalysisEngine();
 
+    AnalysisEngine(const AnalysisEngine&) = delete;
+    AnalysisEngine& operator=(const AnalysisEngine&) = delete;
+    AnalysisEngine(AnalysisEngine&&) = delete;
+    AnalysisEngine& operator=(AnalysisEngine&&) = delete;
+
     bool runAnalysis();
 
     std::string generateCode();
 
-    const Program* getAST() const { return ast.get(); }
+    [[nodiscard]] const Program* getAST() const { return ast.get(); }
     Program* getAST() { return ast.get(); }
 
-    const std::vector<Diagnostic>& getDiagnostics() const {
+    [[nodiscard]] const std::vector<Diagnostic>& getDiagnostics() const {
         return diagnostics;
     }
 
-    bool hasErrors() const;
+    [[nodiscard]] bool hasErrors() const;
 
-    std::string formatDiagnostics() const;
+    [[nodiscard]] std::string formatDiagnostics() const;
 
   private:
     std::vector<Token> tokens;

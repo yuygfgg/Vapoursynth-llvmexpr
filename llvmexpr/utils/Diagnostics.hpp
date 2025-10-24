@@ -35,7 +35,7 @@ class VectorizationDiagnosticHandler {
 
     void handleDiagnostic(const llvm::DiagnosticInfo& DI);
 
-    bool hasVectorizationFailed() const;
+    [[nodiscard]] bool hasVectorizationFailed() const;
 
     void reset();
 

@@ -222,8 +222,9 @@ void PostfixBuilder::append(const PostfixBuilder& other) {
 
 void PostfixBuilder::prefix_labels(const std::string& prefix) {
     for (auto& token : tokens) {
-        if (token.empty())
+        if (token.empty()) {
             continue;
+        }
 
         bool is_label_def = token.front() == '#';
         bool is_jump = token.back() == '#';
@@ -233,10 +234,11 @@ void PostfixBuilder::prefix_labels(const std::string& prefix) {
                                          ? token.substr(1)
                                          : token.substr(0, token.size() - 1);
 
-            if (label_name.empty())
+            if (label_name.empty()) {
                 continue;
+            }
 
-            if (label_name.rfind("__internal_", 0) == 0) {
+            if (label_name.starts_with("__internal_")) {
                 continue;
             }
 

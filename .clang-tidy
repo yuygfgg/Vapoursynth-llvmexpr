@@ -1,0 +1,7 @@
+Checks: "clang-diagnostic-*,clang-analyzer-*,cppcoreguidelines-*,modernize-*,llvm-*,performance-*,portability-*,readability-*,bugprone-optional-value-conversion,-modernize-use-trailing-return-type,-readability-function-cognitive-complexity,-readability-identifier-length,-llvm-header-guard,-llvm-prefer-static-over-anonymous-namespace,-cppcoreguidelines-avoid-do-while,-,-readability-magic-numbers,-cppcoreguidelines-pro-type-member-init,-readability-convert-member-functions-to-static,-cppcoreguidelines-avoid-const-or-ref-data-members,-readability-use-concise-preprocessor-directives"
+WarningsAsErrors: true
+HeaderFilterRegex: ""
+FormatStyle: LLVM
+ExtraArgs: ["-std=c++23"]
+CheckOptions:
+  modernize-use-std-numbers.DiffThreshold: '0.0000001'

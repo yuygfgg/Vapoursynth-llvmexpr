@@ -19,6 +19,7 @@
 
 #include <array>
 #include <bit>
+#include <cstdint>
 #include <format>
 #include <map>
 #include <memory>
@@ -41,7 +42,7 @@ constexpr uint32_t PROP_NAN_PAYLOAD = 0x7FC0BEEF; // qNaN with payload 0xBEEF
 
 namespace {
 
-enum PlaneOp { PO_PROCESS, PO_COPY };
+enum class PlaneOp : std::uint8_t { PO_PROCESS, PO_COPY };
 
 struct BaseExprData {
     std::vector<VSNode*> nodes;
@@ -49,7 +50,7 @@ struct BaseExprData {
     int num_inputs = 0;
     bool mirror_boundary = false;
     std::string dump_ir_path;
-    int opt_level = 5;
+    int opt_level = 5; // NOLINT(cppcoreguidelines-avoid-magic-numbers)
     int approx_math = 2;
     std::vector<std::pair<int, std::string>> required_props;
     std::map<std::pair<int, std::string>, int> prop_map;
@@ -77,14 +78,16 @@ struct SingleExprFrameData {
     std::map<std::string, DynamicArray> dynamic_arrays;
 };
 
-thread_local SingleExprFrameData g_frame_data;
+thread_local SingleExprFrameData
+    g_frame_data; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 void validateAndInitClips(BaseExprData* d, const VSMap* in,
                           const VSAPI* vsapi) {
     int err = 0;
     d->num_inputs = vsapi->mapNumElements(in, "clips");
-    if (d->num_inputs == 0)
+    if (d->num_inputs == 0) {
         throw std::runtime_error("At least one clip must be provided.");
+    }
 
     d->nodes.resize(d->num_inputs);
     for (int i = 0; i < d->num_inputs; ++i) {
@@ -94,9 +97,10 @@ void validateAndInitClips(BaseExprData* d, const VSMap* in,
     std::vector<const VSVideoInfo*> vi(d->num_inputs);
     for (int i = 0; i < d->num_inputs; ++i) {
         vi[i] = vsapi->getVideoInfo(d->nodes[i]);
-        if (!vsh::isConstantVideoFormat(vi[i]))
+        if (!vsh::isConstantVideoFormat(vi[i])) {
             throw std::runtime_error(
                 "Only constant format clips are supported.");
+        }
     }
 
     for (int i = 1; i < d->num_inputs; ++i) {
@@ -114,9 +118,9 @@ void parseFormatParam(BaseExprData* d, const VSMap* in, const VSAPI* vsapi,
     int err = 0;
     const int format_id =
         static_cast<int>(vsapi->mapGetInt(in, "format", 0, &err));
-    if (!err) {
+    if (err == 0) {
         VSVideoFormat temp_format;
-        if (vsapi->getVideoFormatByID(&temp_format, format_id, core)) {
+        if (vsapi->getVideoFormatByID(&temp_format, format_id, core) != 0) {
             if (d->vi.format.numPlanes != temp_format.numPlanes) {
                 throw std::runtime_error("The number of planes in the "
                                          "inputs and output must match.");
@@ -126,7 +130,7 @@ void parseFormatParam(BaseExprData* d, const VSMap* in, const VSAPI* vsapi,
                                         temp_format.sampleType,
                                         temp_format.bitsPerSample,
                                         d->vi.format.subSamplingW,
-                                        d->vi.format.subSamplingH, core)) {
+                                        d->vi.format.subSamplingH, core) != 0) {
                 d->vi.format = new_format;
             } else {
                 throw std::runtime_error("Failed to query new format.");
@@ -141,20 +145,21 @@ void parseCommonParams(BaseExprData* d, const VSMap* in, const VSAPI* vsapi) {
     d->mirror_boundary = vsapi->mapGetInt(in, "boundary", 0, &err) != 0;
 
     const char* dump_path = vsapi->mapGetData(in, "dump_ir", 0, &err);
-    if (!err && dump_path) {
+    if ((err == 0) && (dump_path != nullptr)) {
         d->dump_ir_path = dump_path;
     }
 
-    d->opt_level = vsapi->mapGetInt(in, "opt_level", 0, &err);
-    if (err) {
-        d->opt_level = 5;
+    d->opt_level = static_cast<int>(vsapi->mapGetInt(in, "opt_level", 0, &err));
+    if (err != 0) {
+        d->opt_level = 5; // NOLINT(cppcoreguidelines-avoid-magic-numbers)
     }
     if (d->opt_level <= 0) {
         throw std::runtime_error("opt_level must be greater than 0.");
     }
 
-    d->approx_math = vsapi->mapGetInt(in, "approx_math", 0, &err);
-    if (err) {
+    d->approx_math =
+        static_cast<int>(vsapi->mapGetInt(in, "approx_math", 0, &err));
+    if (err != 0) {
         d->approx_math = 2; // Default to auto mode
     }
     if (d->approx_math < 0 || d->approx_math > 2) {
@@ -174,7 +179,7 @@ void readFrameProperties(
         const auto& prop_info = required_props[i];
         int clip_idx = prop_info.first;
         const std::string& prop_name = prop_info.second;
-        int prop_array_idx = i + 1;
+        int prop_array_idx = static_cast<int>(i) + 1;
 
         const VSMap* props_map =
             vsapi->getFramePropertiesRO(src_frames[clip_idx]);
@@ -190,16 +195,17 @@ void readFrameProperties(
         } else if (type == ptData) {
             if (vsapi->mapGetDataSize(props_map, prop_name.c_str(), 0, &err) >
                     0 &&
-                !err)
-                props[prop_array_idx] = static_cast<float>(vsapi->mapGetData(
-                    props_map, prop_name.c_str(), 0, &err)[0]);
-            else
+                (err == 0)) {
+                props[prop_array_idx] = static_cast<float>(
+                    *vsapi->mapGetData(props_map, prop_name.c_str(), 0, &err));
+            } else {
                 err = 1;
+            }
         } else {
             err = 1;
         }
 
-        if (err) {
+        if (err != 0) {
             props[prop_array_idx] = std::bit_cast<float>(PROP_NAN_PAYLOAD);
         }
     }
@@ -208,11 +214,10 @@ void readFrameProperties(
 template <typename T>
 void genericFree(void* instanceData, [[maybe_unused]] VSCore* core,
                  const VSAPI* vsapi) {
-    T* d = static_cast<T*>(instanceData);
+    std::unique_ptr<T> d(static_cast<T*>(instanceData));
     for (auto* node : d->nodes) {
         vsapi->freeNode(node);
     }
-    delete d;
 }
 
 std::string generate_cache_key(
@@ -221,7 +226,8 @@ std::string generate_cache_key(
     const std::map<std::pair<int, std::string>, int>& prop_map, int plane_width,
     int plane_height, const std::vector<std::string>& output_props = {}) {
     auto get_vf_name = [&](const VSVideoFormat* vf) {
-        std::array<char, 32> vf_name_buffer{};
+        std::array<char, 32> // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+            vf_name_buffer{};
         if (!vsapi->getVideoFormatName(vf, vf_name_buffer.data())) {
             throw std::runtime_error("Failed to get video format name");
         }
@@ -246,12 +252,12 @@ std::string generate_cache_key(
     return result;
 }
 
-const VSFrame* VS_CC exprGetFrame(int n, int activationReason,
-                                  void* instanceData,
-                                  [[maybe_unused]] void** frameData,
-                                  VSFrameContext* frameCtx, VSCore* core,
-                                  const VSAPI* vsapi) {
-    ExprData* d = static_cast<ExprData*>(instanceData);
+const VSFrame*
+    VS_CC // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+    exprGetFrame(int n, int activationReason, void* instanceData,
+                 [[maybe_unused]] void** frameData, VSFrameContext* frameCtx,
+                 VSCore* core, const VSAPI* vsapi) {
+    auto* d = static_cast<ExprData*>(instanceData);
 
     if (activationReason == arInitial) {
         for (int i = 0; i < d->num_inputs; ++i) {
@@ -263,14 +269,14 @@ const VSFrame* VS_CC exprGetFrame(int n, int activationReason,
             src_frames[i] = vsapi->getFrameFilter(n, d->nodes[i], frameCtx);
         }
 
-        const VSFrame* plane_src[3] = {
-            d->plane_op[0] == PO_COPY ? src_frames[0] : nullptr,
-            d->plane_op[1] == PO_COPY ? src_frames[0] : nullptr,
-            d->plane_op[2] == PO_COPY ? src_frames[0] : nullptr};
-        int planes[3] = {0, 1, 2};
-        VSFrame* dst_frame =
-            vsapi->newVideoFrame2(&d->vi.format, d->vi.width, d->vi.height,
-                                  plane_src, planes, src_frames[0], core);
+        std::array<const VSFrame*, 3> plane_src = {
+            d->plane_op.at(0) == PlaneOp::PO_COPY ? src_frames[0] : nullptr,
+            d->plane_op.at(1) == PlaneOp::PO_COPY ? src_frames[0] : nullptr,
+            d->plane_op.at(2) == PlaneOp::PO_COPY ? src_frames[0] : nullptr};
+        std::array<int, 3> planes = {0, 1, 2};
+        VSFrame* dst_frame = vsapi->newVideoFrame2(
+            &d->vi.format, d->vi.width, d->vi.height, plane_src.data(),
+            planes.data(), src_frames[0], core);
 
         std::vector<uint8_t*> rwptrs(d->num_inputs + 1);
         std::vector<int> strides(d->num_inputs + 1);
@@ -279,16 +285,19 @@ const VSFrame* VS_CC exprGetFrame(int n, int activationReason,
         readFrameProperties(props, src_frames, d->required_props, n, vsapi);
 
         for (int plane = 0; plane < d->vi.format.numPlanes; ++plane) {
-            if (d->plane_op[plane] == PO_PROCESS) {
+            if (d->plane_op.at(plane) == PlaneOp::PO_PROCESS) {
                 rwptrs[0] = vsapi->getWritePtr(dst_frame, plane);
-                strides[0] = vsapi->getStride(dst_frame, plane);
+                strides[0] =
+                    static_cast<int>(vsapi->getStride(dst_frame, plane));
                 for (int i = 0; i < d->num_inputs; ++i) {
-                    rwptrs[i + 1] = const_cast<uint8_t*>(
-                        vsapi->getReadPtr(src_frames[i], plane));
-                    strides[i + 1] = vsapi->getStride(src_frames[i], plane);
+                    rwptrs[i + 1] =
+                        const_cast< // NOLINT(cppcoreguidelines-pro-type-const-cast)
+                            uint8_t*>(vsapi->getReadPtr(src_frames[i], plane));
+                    strides[i + 1] = static_cast<int>(
+                        vsapi->getStride(src_frames[i], plane));
                 }
 
-                if (!d->compiled[plane].func_ptr) {
+                if (d->compiled.at(plane).func_ptr == nullptr) {
                     int width = vsapi->getFrameWidth(dst_frame, plane);
                     int height = vsapi->getFrameHeight(dst_frame, plane);
 
@@ -298,9 +307,10 @@ const VSFrame* VS_CC exprGetFrame(int n, int activationReason,
                     }
 
                     std::string expr_str;
-                    for (const auto& token : d->tokens[plane]) {
-                        if (!expr_str.empty())
+                    for (const auto& token : d->tokens.at(plane)) {
+                        if (!expr_str.empty()) {
                             expr_str += " ";
+                        }
                         expr_str += token.text;
                     }
 
@@ -309,19 +319,19 @@ const VSFrame* VS_CC exprGetFrame(int n, int activationReason,
                         d->prop_map, width, height);
 
                     std::lock_guard<std::mutex> lock(cache_mutex);
-                    if (!jit_cache.count(key)) {
+                    if (!jit_cache.contains(key)) {
                         size_t key_hash = std::hash<std::string>{}(key);
                         std::string func_name =
                             std::format("process_plane_{}_{}", plane, key_hash);
 
                         try {
                             Compiler compiler(
-                                std::vector<Token>(d->tokens[plane]), &d->vi,
+                                std::vector<Token>(d->tokens.at(plane)), &d->vi,
                                 vi, width, height, d->mirror_boundary,
                                 d->dump_ir_path, d->prop_map, func_name,
                                 d->opt_level, d->approx_math,
                                 ExpressionAnalysisResults(
-                                    d->analysis_results[plane]));
+                                    d->analysis_results.at(plane)));
                             jit_cache[key] = compiler.compile();
                         } catch (const std::exception& e) {
                             std::string error_msg = std::format(
@@ -334,11 +344,11 @@ const VSFrame* VS_CC exprGetFrame(int n, int activationReason,
                             throw;
                         }
                     }
-                    d->compiled[plane] = jit_cache.at(key);
+                    d->compiled.at(plane) = jit_cache.at(key);
                 }
 
-                d->compiled[plane].func_ptr(nullptr, rwptrs.data(),
-                                            strides.data(), props.data());
+                d->compiled.at(plane).func_ptr(nullptr, rwptrs.data(),
+                                               strides.data(), props.data());
             }
         }
 
@@ -351,14 +361,15 @@ const VSFrame* VS_CC exprGetFrame(int n, int activationReason,
     return nullptr;
 }
 
-void VS_CC exprFree(void* instanceData, [[maybe_unused]] VSCore* core,
-                    const VSAPI* vsapi) {
+void VS_CC // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+exprFree(void* instanceData, [[maybe_unused]] VSCore* core,
+         const VSAPI* vsapi) {
     genericFree<ExprData>(instanceData, core, vsapi);
 }
 
-void VS_CC exprCreate(const VSMap* in, VSMap* out,
-                      [[maybe_unused]] void* userData, VSCore* core,
-                      const VSAPI* vsapi) {
+void VS_CC // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+exprCreate(const VSMap* in, VSMap* out, [[maybe_unused]] void* userData,
+           VSCore* core, const VSAPI* vsapi) {
     auto d = std::make_unique<ExprData>();
     int err = 0;
 
@@ -367,13 +378,14 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
         parseFormatParam(d.get(), in, vsapi, core);
 
         const int nexpr = vsapi->mapNumElements(in, "expr");
-        if (nexpr == 0)
+        if (nexpr == 0) {
             throw std::runtime_error(
                 "At least one expression must be provided.");
+        }
 
         bool use_infix = vsapi->mapGetInt(in, "infix", 0, &err) != 0;
 
-        std::string expr_strs[3];
+        std::array<std::string, 3> expr_strs;
         for (int i = 0; i < nexpr; ++i) {
             std::string input_expr = vsapi->mapGetData(in, "expr", i, &err);
             if (use_infix && !input_expr.empty()) {
@@ -391,51 +403,52 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
                         vsapi->getVideoInfo(d->nodes[j]);
                     ctx.input_bitdepths[j] = input_vi->format.bitsPerSample;
                 }
-                expr_strs[i] = convertInfixToPostfix(
+                expr_strs.at(i) = convertInfixToPostfix(
                     input_expr, d->num_inputs, infix2postfix::Mode::Expr, &ctx);
             } else {
-                expr_strs[i] = input_expr;
+                expr_strs.at(i) = input_expr;
             }
         }
         for (int i = nexpr; i < d->vi.format.numPlanes; ++i) {
-            expr_strs[i] = expr_strs[nexpr - 1];
+            expr_strs.at(i) = expr_strs.at(nexpr - 1);
         }
 
         for (int i = 0; i < d->vi.format.numPlanes; ++i) {
-            if (expr_strs[i].empty()) {
-                d->plane_op[i] = PO_COPY;
+            if (expr_strs.at(i).empty()) {
+                d->plane_op.at(i) = PlaneOp::PO_COPY;
                 continue;
             }
-            d->plane_op[i] = PO_PROCESS;
-            d->tokens[i] =
-                tokenize(expr_strs[i], d->num_inputs, ExprMode::EXPR);
+            d->plane_op.at(i) = PlaneOp::PO_PROCESS;
+            d->tokens.at(i) =
+                tokenize(expr_strs.at(i), d->num_inputs, ExprMode::EXPR);
 
-            for (const auto& token : d->tokens[i]) {
+            for (const auto& token : d->tokens.at(i)) {
                 if (token.type == TokenType::PROP_ACCESS) {
                     const auto& payload =
                         std::get<TokenPayload_PropAccess>(token.payload);
                     auto key =
                         std::make_pair(payload.clip_idx, payload.prop_name);
-                    if (d->prop_map.find(key) == d->prop_map.end()) {
-                        d->prop_map[key] =
-                            1 +
-                            d->required_props.size(); // 0 is for frame number N
+                    if (!d->prop_map.contains(key)) {
+                        d->prop_map[key] = static_cast<int>(
+                            1 + d->required_props
+                                    .size()); // 0 is for frame number N
                         d->required_props.push_back(key);
                     }
                 }
             }
 
-            ExpressionAnalyser analyser(d->tokens[i]);
+            ExpressionAnalyser analyser(d->tokens.at(i));
             analyser.run();
-            d->analysis_results[i] = analyser.getResults();
+            d->analysis_results.at(i) = analyser.getResults();
         }
 
         parseCommonParams(d.get(), in, vsapi);
 
     } catch (const std::exception& e) {
         for (auto* node : d->nodes) {
-            if (node)
+            if (node != nullptr) {
                 vsapi->freeNode(node);
+            }
         }
         vsapi->mapSetError(out, std::format("Expr: {}", e.what()).c_str());
         return;
@@ -450,21 +463,23 @@ void VS_CC exprCreate(const VSMap* in, VSMap* out,
     VSVideoInfo* vi_ptr = &d->vi;
 
     vsapi->createVideoFilter(out, "Expr", vi_ptr, exprGetFrame, exprFree,
-                             fmParallel, deps.data(), deps.size(), d.release(),
-                             core);
+                             fmParallel, deps.data(),
+                             static_cast<int>(deps.size()), d.release(), core);
 }
 
-void VS_CC singleExprFree(void* instanceData, [[maybe_unused]] VSCore* core,
-                          const VSAPI* vsapi) {
+void VS_CC // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+singleExprFree(void* instanceData, [[maybe_unused]] VSCore* core,
+               const VSAPI* vsapi) {
     genericFree<SingleExprData>(instanceData, core, vsapi);
 }
 
-const VSFrame* VS_CC singleExprGetFrame(int n, int activationReason,
-                                        void* instanceData,
-                                        [[maybe_unused]] void** frameData,
-                                        VSFrameContext* frameCtx, VSCore* core,
-                                        const VSAPI* vsapi) {
-    SingleExprData* d = static_cast<SingleExprData*>(instanceData);
+const VSFrame*
+    VS_CC // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+    singleExprGetFrame(int n, int activationReason, void* instanceData,
+                       [[maybe_unused]] void** frameData,
+                       VSFrameContext* frameCtx, VSCore* core,
+                       const VSAPI* vsapi) {
+    auto* d = static_cast<SingleExprData*>(instanceData);
 
     if (activationReason == arInitial) {
         for (int i = 0; i < d->num_inputs; ++i) {
@@ -476,12 +491,12 @@ const VSFrame* VS_CC singleExprGetFrame(int n, int activationReason,
             src_frames[i] = vsapi->getFrameFilter(n, d->nodes[i], frameCtx);
         }
 
-        const VSFrame* plane_src[3] = {src_frames[0], src_frames[0],
-                                       src_frames[0]};
-        int planes[3] = {0, 1, 2};
-        VSFrame* dst_frame =
-            vsapi->newVideoFrame2(&d->vi.format, d->vi.width, d->vi.height,
-                                  plane_src, planes, src_frames[0], core);
+        std::array<const VSFrame*, 3> plane_src = {src_frames[0], src_frames[0],
+                                                   src_frames[0]};
+        std::array<int, 3> planes = {0, 1, 2};
+        VSFrame* dst_frame = vsapi->newVideoFrame2(
+            &d->vi.format, d->vi.width, d->vi.height, plane_src.data(),
+            planes.data(), src_frames[0], core);
 
         int num_planes = d->vi.format.numPlanes;
         std::vector<uint8_t*> rwptrs((d->num_inputs + 1) * num_planes);
@@ -493,17 +508,19 @@ const VSFrame* VS_CC singleExprGetFrame(int n, int activationReason,
 
         for (int i = 0; i <= d->num_inputs; ++i) {
             for (int p = 0; p < num_planes; ++p) {
-                rwptrs[i * num_planes + p] =
-                    (i == 0) ? vsapi->getWritePtr(dst_frame, p)
-                             : const_cast<uint8_t*>(
-                                   vsapi->getReadPtr(src_frames[i - 1], p));
-                strides[i * num_planes + p] =
+                rwptrs[(i * num_planes) + p] =
+                    (i == 0)
+                        ? vsapi->getWritePtr(dst_frame, p)
+                        : const_cast< // NOLINT(cppcoreguidelines-pro-type-const-cast)
+                              uint8_t*>(
+                              vsapi->getReadPtr(src_frames[i - 1], p));
+                strides[(i * num_planes) + p] = static_cast<int>(
                     (i == 0) ? vsapi->getStride(dst_frame, p)
-                             : vsapi->getStride(src_frames[i - 1], p);
+                             : vsapi->getStride(src_frames[i - 1], p));
             }
         }
 
-        if (!d->compiled.func_ptr) {
+        if (d->compiled.func_ptr == nullptr) {
             std::vector<const VSVideoInfo*> vi(d->num_inputs);
             for (int i = 0; i < d->num_inputs; ++i) {
                 vi[i] = vsapi->getVideoInfo(d->nodes[i]);
@@ -511,8 +528,9 @@ const VSFrame* VS_CC singleExprGetFrame(int n, int activationReason,
 
             std::string expr_str;
             for (const auto& token : d->tokens) {
-                if (!expr_str.empty())
+                if (!expr_str.empty()) {
                     expr_str += " ";
+                }
                 expr_str += token.text;
             }
 
@@ -521,7 +539,7 @@ const VSFrame* VS_CC singleExprGetFrame(int n, int activationReason,
                 d->vi.width, d->vi.height, d->output_props);
 
             std::lock_guard<std::mutex> lock(cache_mutex);
-            if (!jit_cache.count(key)) {
+            if (!jit_cache.contains(key)) {
                 size_t key_hash = std::hash<std::string>{}(key);
                 std::string func_name =
                     std::format("process_single_expr_{}", key_hash);
@@ -563,9 +581,9 @@ const VSFrame* VS_CC singleExprGetFrame(int n, int activationReason,
     return nullptr;
 }
 
-void VS_CC singleExprCreate(const VSMap* in, VSMap* out,
-                            [[maybe_unused]] void* userData, VSCore* core,
-                            const VSAPI* vsapi) {
+void VS_CC // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+singleExprCreate(const VSMap* in, VSMap* out, [[maybe_unused]] void* userData,
+                 VSCore* core, const VSAPI* vsapi) {
     auto d = std::make_unique<SingleExprData>();
     int err = 0;
 
@@ -574,8 +592,9 @@ void VS_CC singleExprCreate(const VSMap* in, VSMap* out,
         parseFormatParam(d.get(), in, vsapi, core);
 
         const char* expr_str = vsapi->mapGetData(in, "expr", 0, &err);
-        if (err)
+        if (err != 0) {
             throw std::runtime_error("An expression must be provided.");
+        }
 
         bool use_infix = vsapi->mapGetInt(in, "infix", 0, &err) != 0;
 
@@ -618,18 +637,18 @@ void VS_CC singleExprCreate(const VSMap* in, VSMap* out,
                 const auto& payload =
                     std::get<TokenPayload_PropAccess>(token.payload);
                 auto key = std::make_pair(payload.clip_idx, payload.prop_name);
-                if (d->prop_map.find(key) == d->prop_map.end()) {
-                    d->prop_map[key] =
-                        1 + d->required_props.size(); // 0 is for frame number N
+                if (!d->prop_map.contains(key)) {
+                    d->prop_map[key] = static_cast<int>(
+                        1 +
+                        d->required_props.size()); // 0 is for frame number N
                     d->required_props.push_back(key);
                 }
             } else if (token.type == TokenType::PROP_STORE) {
                 const auto& payload =
                     std::get<TokenPayload_PropStore>(token.payload);
-                if (d->output_prop_map.find(payload.prop_name) ==
-                    d->output_prop_map.end()) {
+                if (!d->output_prop_map.contains(payload.prop_name)) {
                     d->output_prop_map[payload.prop_name] =
-                        d->output_props.size();
+                        static_cast<int>(d->output_props.size());
                     d->output_props.push_back(payload.prop_name);
                 }
             }
@@ -643,8 +662,9 @@ void VS_CC singleExprCreate(const VSMap* in, VSMap* out,
 
     } catch (const std::exception& e) {
         for (auto* node : d->nodes) {
-            if (node)
+            if (node != nullptr) {
                 vsapi->freeNode(node);
+            }
         }
         vsapi->mapSetError(out,
                            std::format("SingleExpr: {}", e.what()).c_str());
@@ -661,7 +681,7 @@ void VS_CC singleExprCreate(const VSMap* in, VSMap* out,
 
     vsapi->createVideoFilter(out, "SingleExpr", vi_ptr, singleExprGetFrame,
                              singleExprFree, fmParallel, deps.data(),
-                             deps.size(), d.release(), core);
+                             static_cast<int>(deps.size()), d.release(), core);
 }
 
 } // anonymous namespace
@@ -681,8 +701,9 @@ float* llvmexpr_ensure_buffer(const char* name, int64_t requested_size) {
 
 int64_t llvmexpr_get_buffer_size(const char* name) {
     auto it = g_frame_data.dynamic_arrays.find(std::string(name));
-    return (it != g_frame_data.dynamic_arrays.end()) ? it->second.buffer.size()
-                                                     : 0;
+    return (it != g_frame_data.dynamic_arrays.end())
+               ? static_cast<int64_t>(it->second.buffer.size())
+               : 0;
 }
 
 } // extern "C"

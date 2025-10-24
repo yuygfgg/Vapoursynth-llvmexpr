@@ -39,20 +39,20 @@
 #include "../ir/SingleExprIRGenerator.hpp"
 #include "../utils/Diagnostics.hpp"
 
-Compiler::Compiler(std::vector<Token>&& tokens_in, const VSVideoInfo* out_vi,
+Compiler::Compiler(std::vector<Token> tokens_in, const VSVideoInfo* out_vi,
                    const std::vector<const VSVideoInfo*>& in_vi, int width_in,
                    int height_in, bool mirror, std::string dump_path,
                    const std::map<std::pair<int, std::string>, int>& p_map,
                    std::string function_name, int opt_level_in,
                    int approx_math_in,
-                   ExpressionAnalysisResults&& analysis_results_in,
-                   ExprMode mode, const std::vector<std::string>& output_props)
+                   ExpressionAnalysisResults analysis_results_in, ExprMode mode,
+                   const std::vector<std::string>& output_props)
     : tokens(std::move(tokens_in)), vo(out_vi), vi(in_vi),
-      num_inputs(in_vi.size()), width(width_in), height(height_in),
-      mirror_boundary(mirror), dump_ir_path(std::move(dump_path)),
-      prop_map(p_map), func_name(std::move(function_name)),
-      opt_level(opt_level_in), approx_math(approx_math_in), expr_mode(mode),
-      output_props(output_props),
+      num_inputs(static_cast<int>(in_vi.size())), width(width_in),
+      height(height_in), mirror_boundary(mirror),
+      dump_ir_path(std::move(dump_path)), prop_map(p_map),
+      func_name(std::move(function_name)), opt_level(opt_level_in),
+      approx_math(approx_math_in), expr_mode(mode), output_props(output_props),
       analysis_results(std::move(analysis_results_in)) {}
 
 CompiledFunction Compiler::compile() {
@@ -114,7 +114,7 @@ CompiledFunction Compiler::compile_with_approx_math(int actual_approx_math) {
 
     // Get the generated function and set attributes
     llvm::Function* func = module->getFunction(func_name);
-    if (!func) {
+    if (func == nullptr) {
         throw std::runtime_error("Failed to find generated function");
     }
 
@@ -218,10 +218,9 @@ CompiledFunction Compiler::compile_with_approx_math(int actual_approx_math) {
             throw std::runtime_error("Could not open file: " + EC.message() +
                                      " for writing IR to " +
                                      plane_specific_dump_path);
-        } else {
-            module->print(dest, nullptr);
-            dest.flush();
         }
+        module->print(dest, nullptr);
+        dest.flush();
     }
 
     // Handle vectorization fallback
@@ -239,11 +238,13 @@ CompiledFunction Compiler::compile_with_approx_math(int actual_approx_math) {
     jit.addModule(std::move(module), std::move(context));
     void* func_addr = jit.getFunctionAddress(func_name);
 
-    if (!func_addr) {
+    if (func_addr == nullptr) {
         throw std::runtime_error("Failed to get JIT'd function address.");
     }
 
     CompiledFunction compiled;
-    compiled.func_ptr = reinterpret_cast<ProcessProc>(func_addr);
+    compiled.func_ptr =
+        reinterpret_cast< // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+            ProcessProc>(func_addr);
     return compiled;
 }

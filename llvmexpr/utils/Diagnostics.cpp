@@ -52,7 +52,7 @@ void VectorizationDiagnosticHandler::handleDiagnostic(
     }
 
     // Call original handler for all diagnostics except "loop not vectorized"
-    if (!should_suppress && original_handler) {
+    if (!should_suppress && (original_handler != nullptr)) {
         original_handler(&DI, original_context);
     }
 }

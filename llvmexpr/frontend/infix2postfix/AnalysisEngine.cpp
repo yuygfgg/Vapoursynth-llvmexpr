@@ -3,6 +3,7 @@
 #include "Parser.hpp"
 #include "SemanticAnalyzer.hpp"
 #include "llvmexpr/utils/EnumName.hpp"
+#include <algorithm>
 #include <format>
 
 namespace infix2postfix {
@@ -57,12 +58,9 @@ std::string AnalysisEngine::generateCode() {
 }
 
 bool AnalysisEngine::hasErrors() const {
-    for (const auto& diag : diagnostics) {
-        if (diag.severity == DiagnosticSeverity::ERROR) {
-            return true;
-        }
-    }
-    return false;
+    return std::ranges::any_of(diagnostics, [](const auto& diag) {
+        return diag.severity == DiagnosticSeverity::ERROR;
+    });
 }
 
 std::string AnalysisEngine::formatDiagnostics() const {
@@ -97,7 +95,7 @@ std::string AnalysisEngine::formatDiagnostics() const {
         Range range = diag.range;
         std::string message = diag.message;
 
-        if (mapping) {
+        if (mapping != nullptr) {
             range.start.line = mapping->original_line;
             range.end.line = mapping->original_line;
 

@@ -27,17 +27,17 @@
 #include "VapourSynth4.h"
 
 #include "../frontend/Analysis.hpp"
-#include "Jit.hpp"
 #include "../frontend/Tokenizer.hpp"
+#include "Jit.hpp"
 
 class Compiler {
   public:
-    Compiler(std::vector<Token>&& tokens_in, const VSVideoInfo* out_vi,
+    Compiler(std::vector<Token> tokens_in, const VSVideoInfo* out_vi,
              const std::vector<const VSVideoInfo*>& in_vi, int width_in,
              int height_in, bool mirror, std::string dump_path,
              const std::map<std::pair<int, std::string>, int>& p_map,
              std::string function_name, int opt_level_in, int approx_math_in,
-             ExpressionAnalysisResults&& analysis_results_in,
+             ExpressionAnalysisResults analysis_results_in,
              ExprMode mode = ExprMode::EXPR,
              const std::vector<std::string>& output_props = {});
 

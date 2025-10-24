@@ -60,14 +60,12 @@ void ExprIRGenerator::define_function_signature() {
                                   func_name, &module);
     func->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::None);
 
-    auto args = func->arg_begin();
-    // Context argument not used in Expr mode
-    args++;
-    rwptrs_arg = &*args++;
+    // Context argument (index 0) not used in Expr mode
+    rwptrs_arg = func->getArg(1);
     rwptrs_arg->setName("rwptrs");
-    strides_arg = &*args++;
+    strides_arg = func->getArg(2);
     strides_arg->setName("strides");
-    props_arg = &*args++;
+    props_arg = func->getArg(3);
     props_arg->setName("props");
 
     func->addParamAttr(2, llvm::Attribute::ReadOnly); // strides (int32_t*)
@@ -131,7 +129,8 @@ void ExprIRGenerator::generate_loops() {
         preloaded_base_ptrs[i] = base_ptr_i;
         preloaded_strides[i] = stride_i;
 
-        assumeAligned(base_ptr_i, 32);
+        assumeAligned(base_ptr_i,
+                      32); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
     }
 
     alias_scope_domain = llvm::MDNode::getDistinct(context, {});
@@ -153,8 +152,9 @@ void ExprIRGenerator::generate_loops() {
         alias_scope_lists[i] = llvm::MDNode::get(context, self_list);
         std::vector<llvm::Metadata*> others;
         for (int j = 0; j <= num_inputs; ++j) {
-            if (j == i)
+            if (j == i) {
                 continue;
+            }
             others.push_back(alias_scopes[j]);
         }
         noalias_scope_lists[i] = llvm::MDNode::get(context, others);
@@ -193,8 +193,10 @@ void ExprIRGenerator::generate_loops() {
     llvm::Value* start_main_x = builder.getInt32(-min_rel_x);
     llvm::Value* end_main_x = builder.getInt32(width - max_rel_x);
 
-    bool has_left_peel = min_rel_x < 0;
-    bool has_right_peel = max_rel_x > 0;
+    bool has_left_peel = // NOLINT(cppcoreguidelines-init-variables)
+        min_rel_x < 0;
+    bool has_right_peel = // NOLINT(cppcoreguidelines-init-variables)
+        max_rel_x > 0;
 
     llvm::BasicBlock* loop_x_start_bb =
         llvm::BasicBlock::Create(context, "loop_x_start", parent_func);
@@ -341,9 +343,11 @@ bool ExprIRGenerator::process_mode_specific_token(
 
     case TokenType::CLIP_REL: {
         const auto& payload = std::get<TokenPayload_ClipAccess>(token.payload);
-        bool use_mirror =
+        bool use_mirror = // NOLINT(cppcoreguidelines-init-variables)
             payload.has_mode ? payload.use_mirror : mirror_boundary;
-        RelYAccess access{payload.clip_idx, payload.rel_y, use_mirror};
+        RelYAccess access{.clip_idx = payload.clip_idx,
+                          .rel_y = payload.rel_y,
+                          .use_mirror = use_mirror};
         llvm::Value* row_ptr = row_ptr_cache.at(access);
         rpn_stack.push_back(generate_load_from_row_ptr(
             row_ptr, payload.clip_idx, x, payload.rel_x, use_mirror,
@@ -369,7 +373,7 @@ bool ExprIRGenerator::process_mode_specific_token(
                                {coord_x_f});
         coord_x = builder.CreateFPToSI(coord_x, i32_ty);
 
-        bool use_mirror_final;
+        bool use_mirror_final = false;
         if (payload.has_mode) {
             use_mirror_final = payload.use_mirror;
         } else {
@@ -399,7 +403,8 @@ bool ExprIRGenerator::process_mode_specific_token(
     case TokenType::PROP_ACCESS: {
         const auto& payload = std::get<TokenPayload_PropAccess>(token.payload);
         auto key = std::make_pair(payload.clip_idx, payload.prop_name);
-        int prop_idx = prop_map.at(key);
+        int prop_idx = // NOLINT(cppcoreguidelines-init-variables)
+            prop_map.at(key);
         llvm::Value* prop_val = builder.CreateLoad(
             float_ty,
             builder.CreateGEP(float_ty, props_arg, builder.getInt32(prop_idx)));

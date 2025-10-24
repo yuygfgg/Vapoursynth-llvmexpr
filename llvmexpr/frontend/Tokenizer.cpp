@@ -20,6 +20,7 @@
 #include "Tokenizer.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <format>
 #include <functional>
 #include <locale>
@@ -40,7 +41,7 @@ using TokenParser = std::function<std::optional<Token>(std::string_view)>;
 inline double locale_independent_stod(const std::string& s) {
     std::istringstream iss(s);
     iss.imbue(std::locale::classic());
-    double val;
+    double val = NAN;
     if (!(iss >> val) || !iss.eof()) {
         throw std::runtime_error(std::format("Failed to parse number: {}", s));
     }
@@ -56,162 +57,205 @@ struct TokenInfo {
 
 TokenInfo define_keyword(TokenType type, std::string_view keyword,
                          TokenBehavior behavior) {
-    return {type, keyword, behavior,
-            [type, keyword](std::string_view input) -> std::optional<Token> {
+    return {.type = type,
+            .name = keyword,
+            .behavior = behavior,
+            .parser = [type, keyword](
+                          std::string_view input) -> std::optional<Token> {
                 if (input == keyword) {
-                    return Token{type, std::string(input), std::monostate{}};
+                    return Token{.type = type,
+                                 .text = std::string(input),
+                                 .payload = std::monostate{}};
                 }
                 return std::nullopt;
             }};
 }
 
-TokenInfo define_regex(
-    TokenType type, std::string_view name, BehaviorResolver behavior,
-    const std::regex& re,
-    std::function<Token::PayloadVariant(const std::smatch&)> payload_builder) {
-    return {type, name, behavior,
-            [type, re,
-             payload_builder](std::string_view input) -> std::optional<Token> {
+TokenInfo
+define_regex(TokenType type, std::string_view name, BehaviorResolver behavior,
+             const std::regex& re,
+             const std::function<Token::PayloadVariant(const std::smatch&)>&
+                 payload_builder) {
+    return {.type = type,
+            .name = name,
+            .behavior = behavior,
+            .parser = [type, re, payload_builder](
+                          std::string_view input) -> std::optional<Token> {
                 std::string s(input);
                 std::smatch match;
                 if (std::regex_match(s, match, re)) {
-                    return Token{type, s, payload_builder(match)};
+                    return Token{.type = type,
+                                 .text = s,
+                                 .payload = payload_builder(match)};
                 }
                 return std::nullopt;
             }};
 }
 
-static const std::vector<TokenInfo>& get_token_definitions() {
+const std::vector<TokenInfo>& get_token_definitions() {
     static const std::vector<TokenInfo> token_definitions = {
-        define_keyword(TokenType::ADD, "+", {2, -1}),
+        define_keyword(TokenType::ADD, "+", {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::SUB, "-", {2, -1}),
+        define_keyword(TokenType::SUB, "-", {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::MUL, "*", {2, -1}),
+        define_keyword(TokenType::MUL, "*", {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::DIV, "/", {2, -1}),
+        define_keyword(TokenType::DIV, "/", {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::MOD, "%", {2, -1}),
+        define_keyword(TokenType::MOD, "%", {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::GT, ">", {2, -1}),
+        define_keyword(TokenType::GT, ">", {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::LT, "<", {2, -1}),
+        define_keyword(TokenType::LT, "<", {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::EQ, "=", {2, -1}),
+        define_keyword(TokenType::EQ, "=", {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::TERNARY, "?", {3, -2}),
+        define_keyword(TokenType::TERNARY, "?",
+                       {.arity = 3, .stack_effect = -2}),
 
-        define_keyword(TokenType::CONSTANT_X, "X", {0, 1}),
+        define_keyword(TokenType::CONSTANT_X, "X",
+                       {.arity = 0, .stack_effect = 1}),
 
-        define_keyword(TokenType::CONSTANT_Y, "Y", {0, 1}),
+        define_keyword(TokenType::CONSTANT_Y, "Y",
+                       {.arity = 0, .stack_effect = 1}),
 
-        define_keyword(TokenType::CONSTANT_N, "N", {0, 1}),
+        define_keyword(TokenType::CONSTANT_N, "N",
+                       {.arity = 0, .stack_effect = 1}),
 
-        define_keyword(TokenType::GE, ">=", {2, -1}),
+        define_keyword(TokenType::GE, ">=", {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::LE, "<=", {2, -1}),
+        define_keyword(TokenType::LE, "<=", {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::POW, "**", {2, -1}),
+        define_keyword(TokenType::POW, "**", {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::OR, "or", {2, -1}),
+        define_keyword(TokenType::OR, "or", {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::CONSTANT_PI, "pi", {0, 1}),
+        define_keyword(TokenType::CONSTANT_PI, "pi",
+                       {.arity = 0, .stack_effect = 1}),
 
-        define_keyword(TokenType::AND, "and", {2, -1}),
+        define_keyword(TokenType::AND, "and", {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::XOR, "xor", {2, -1}),
+        define_keyword(TokenType::XOR, "xor", {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::NOT, "not", {1, 0}),
+        define_keyword(TokenType::NOT, "not", {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::POW, "pow", {2, -1}),
+        define_keyword(TokenType::POW, "pow", {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::MIN, "min", {2, -1}),
+        define_keyword(TokenType::MIN, "min", {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::MAX, "max", {2, -1}),
+        define_keyword(TokenType::MAX, "max", {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::FMA, "fma", {3, -2}),
+        define_keyword(TokenType::FMA, "fma", {.arity = 3, .stack_effect = -2}),
 
-        define_keyword(TokenType::EXP, "exp", {1, 0}),
+        define_keyword(TokenType::EXP, "exp", {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::LOG, "log", {1, 0}),
+        define_keyword(TokenType::LOG, "log", {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::ABS, "abs", {1, 0}),
+        define_keyword(TokenType::ABS, "abs", {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::SIN, "sin", {1, 0}),
+        define_keyword(TokenType::SIN, "sin", {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::COS, "cos", {1, 0}),
+        define_keyword(TokenType::COS, "cos", {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::TAN, "tan", {1, 0}),
+        define_keyword(TokenType::TAN, "tan", {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::SGN, "sgn", {1, 0}),
+        define_keyword(TokenType::SGN, "sgn", {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::NEG, "neg", {1, 0}),
+        define_keyword(TokenType::NEG, "neg", {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::STORE_ABS, "@[]", {3, -3}),
+        define_keyword(TokenType::STORE_ABS, "@[]",
+                       {.arity = 3, .stack_effect = -3}),
 
-        define_keyword(TokenType::CLIP, "clip", {3, -2}),
+        define_keyword(TokenType::CLIP, "clip",
+                       {.arity = 3, .stack_effect = -2}),
 
-        define_keyword(TokenType::SQRT, "sqrt", {1, 0}),
+        define_keyword(TokenType::SQRT, "sqrt",
+                       {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::CEIL, "ceil", {1, 0}),
+        define_keyword(TokenType::CEIL, "ceil",
+                       {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::ASIN, "asin", {1, 0}),
+        define_keyword(TokenType::ASIN, "asin",
+                       {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::ACOS, "acos", {1, 0}),
+        define_keyword(TokenType::ACOS, "acos",
+                       {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::ATAN, "atan", {1, 0}),
+        define_keyword(TokenType::ATAN, "atan",
+                       {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::EXP2, "exp2", {1, 0}),
+        define_keyword(TokenType::EXP2, "exp2",
+                       {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::LOG2, "log2", {1, 0}),
+        define_keyword(TokenType::LOG2, "log2",
+                       {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::SINH, "sinh", {1, 0}),
+        define_keyword(TokenType::SINH, "sinh",
+                       {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::COSH, "cosh", {1, 0}),
+        define_keyword(TokenType::COSH, "cosh",
+                       {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::TANH, "tanh", {1, 0}),
+        define_keyword(TokenType::TANH, "tanh",
+                       {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::BITOR, "bitor", {2, -1}),
+        define_keyword(TokenType::BITOR, "bitor",
+                       {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::ATAN2, "atan2", {2, -1}),
+        define_keyword(TokenType::ATAN2, "atan2",
+                       {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::CLAMP, "clamp", {3, -2}),
+        define_keyword(TokenType::CLAMP, "clamp",
+                       {.arity = 3, .stack_effect = -2}),
 
-        define_keyword(TokenType::FLOOR, "floor", {1, 0}),
+        define_keyword(TokenType::FLOOR, "floor",
+                       {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::TRUNC, "trunc", {1, 0}),
+        define_keyword(TokenType::TRUNC, "trunc",
+                       {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::ROUND, "round", {1, 0}),
+        define_keyword(TokenType::ROUND, "round",
+                       {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::LOG10, "log10", {1, 0}),
+        define_keyword(TokenType::LOG10, "log10",
+                       {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::CONSTANT_WIDTH, "width", {0, 1}),
+        define_keyword(TokenType::CONSTANT_WIDTH, "width",
+                       {.arity = 0, .stack_effect = 1}),
 
-        define_keyword(TokenType::BITAND, "bitand", {2, -1}),
+        define_keyword(TokenType::BITAND, "bitand",
+                       {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::BITXOR, "bitxor", {2, -1}),
+        define_keyword(TokenType::BITXOR, "bitxor",
+                       {.arity = 2, .stack_effect = -1}),
 
-        define_keyword(TokenType::BITNOT, "bitnot", {1, 0}),
+        define_keyword(TokenType::BITNOT, "bitnot",
+                       {.arity = 1, .stack_effect = 0}),
 
-        define_keyword(TokenType::CONSTANT_HEIGHT, "height", {0, 1}),
+        define_keyword(TokenType::CONSTANT_HEIGHT, "height",
+                       {.arity = 0, .stack_effect = 1}),
 
         define_regex(TokenType::CONSTANT_PLANE_WIDTH, "plane_width",
-                     TokenBehavior{0, 1}, std::regex(R"(^width\^(\d+)$)"),
+                     TokenBehavior{.arity = 0, .stack_effect = 1},
+                     std::regex(R"(^width\^(\d+)$)"),
                      [](const std::smatch& m) -> Token::PayloadVariant {
                          return TokenPayload_PlaneDim{
                              .plane_idx = std::stoi(m[1].str())};
                      }),
 
         define_regex(TokenType::CONSTANT_PLANE_HEIGHT, "plane_height",
-                     TokenBehavior{0, 1}, std::regex(R"(^height\^(\d+)$)"),
+                     TokenBehavior{.arity = 0, .stack_effect = 1},
+                     std::regex(R"(^height\^(\d+)$)"),
                      [](const std::smatch& m) -> Token::PayloadVariant {
                          return TokenPayload_PlaneDim{
                              .plane_idx = std::stoi(m[1].str())};
                      }),
 
-        define_keyword(TokenType::EXIT_NO_WRITE, "^exit^", {0, 1}),
+        define_keyword(TokenType::EXIT_NO_WRITE, "^exit^",
+                       {.arity = 0, .stack_effect = 1}),
 
-        define_keyword(TokenType::COPYSIGN, "copysign", {2, -1}),
+        define_keyword(TokenType::COPYSIGN, "copysign",
+                       {.arity = 2, .stack_effect = -1}),
 
         define_regex(
             TokenType::DUP, "dupN",
@@ -222,8 +266,9 @@ static const std::vector<TokenInfo>& get_token_definitions() {
             std::regex(R"(^dup(\d*)$)"),
             [](const std::smatch& m) -> Token::PayloadVariant {
                 int n = m[1].str().empty() ? 0 : std::stoi(m[1].str());
-                if (n < 0)
+                if (n < 0) {
                     throw std::runtime_error("Invalid dupN value");
+                }
                 return TokenPayload_StackOp{n};
             }),
 
@@ -236,8 +281,9 @@ static const std::vector<TokenInfo>& get_token_definitions() {
             std::regex(R"(^drop(\d*)$)"),
             [](const std::smatch& m) -> Token::PayloadVariant {
                 int n = m[1].str().empty() ? 1 : std::stoi(m[1].str());
-                if (n < 0)
+                if (n < 0) {
                     throw std::runtime_error("Invalid dropN value");
+                }
                 return TokenPayload_StackOp{n};
             }),
 
@@ -250,8 +296,9 @@ static const std::vector<TokenInfo>& get_token_definitions() {
             std::regex(R"(^swap(\d*)$)"),
             [](const std::smatch& m) -> Token::PayloadVariant {
                 int n = m[1].str().empty() ? 1 : std::stoi(m[1].str());
-                if (n < 0)
+                if (n < 0) {
                     throw std::runtime_error("Invalid swapN value");
+                }
                 return TokenPayload_StackOp{n};
             }),
 
@@ -264,37 +311,42 @@ static const std::vector<TokenInfo>& get_token_definitions() {
             std::regex(R"(^sort(\d+)$)"),
             [](const std::smatch& m) -> Token::PayloadVariant {
                 int n = std::stoi(m[1].str());
-                if (n < 0)
+                if (n < 0) {
                     throw std::runtime_error("Invalid sortN value");
+                }
                 return TokenPayload_StackOp{n};
             }),
 
-        define_regex(TokenType::LABEL_DEF, "label_def", TokenBehavior{0, 0},
+        define_regex(TokenType::LABEL_DEF, "label_def",
+                     TokenBehavior{.arity = 0, .stack_effect = 0},
                      std::regex(R"(^#(.+)$)"),
                      [](const std::smatch& m) -> Token::PayloadVariant {
                          return TokenPayload_Label{.name = m[1].str()};
                      }),
 
-        define_regex(TokenType::JUMP, "jump", TokenBehavior{1, -1},
+        define_regex(TokenType::JUMP, "jump",
+                     TokenBehavior{.arity = 1, .stack_effect = -1},
                      std::regex(R"(^(.+)#$)"),
                      [](const std::smatch& m) -> Token::PayloadVariant {
                          return TokenPayload_Label{.name = m[1].str()};
                      }),
 
-        define_regex(TokenType::VAR_STORE, "var_store", TokenBehavior{1, -1},
+        define_regex(TokenType::VAR_STORE, "var_store",
+                     TokenBehavior{.arity = 1, .stack_effect = -1},
                      std::regex(R"(^([a-zA-Z_][a-zA-Z0-9_]*)!$)"),
                      [](const std::smatch& m) -> Token::PayloadVariant {
                          return TokenPayload_Var{.name = m[1].str()};
                      }),
 
-        define_regex(TokenType::VAR_LOAD, "var_load", TokenBehavior{0, 1},
+        define_regex(TokenType::VAR_LOAD, "var_load",
+                     TokenBehavior{.arity = 0, .stack_effect = 1},
                      std::regex(R"(^([a-zA-Z_][a-zA-Z0-9_]*)@$)"),
                      [](const std::smatch& m) -> Token::PayloadVariant {
                          return TokenPayload_Var{.name = m[1].str()};
                      }),
 
         define_regex(TokenType::ARRAY_ALLOC_STATIC, "array_alloc_static",
-                     TokenBehavior{0, 0},
+                     TokenBehavior{.arity = 0, .stack_effect = 0},
                      std::regex(R"(^([a-zA-Z_][a-zA-Z0-9_]*)\{\}\^(\d+)$)"),
                      [](const std::smatch& m) -> Token::PayloadVariant {
                          return TokenPayload_ArrayOp{.name = m[1].str(),
@@ -303,27 +355,29 @@ static const std::vector<TokenInfo>& get_token_definitions() {
                      }),
 
         define_regex(TokenType::ARRAY_ALLOC_DYN, "array_alloc_dyn",
-                     TokenBehavior{1, -1},
+                     TokenBehavior{.arity = 1, .stack_effect = -1},
                      std::regex(R"(^([a-zA-Z_][a-zA-Z0-9_]*)\{\}\^$)"),
                      [](const std::smatch& m) -> Token::PayloadVariant {
                          return TokenPayload_ArrayOp{.name = m[1].str()};
                      }),
 
         define_regex(TokenType::ARRAY_STORE, "array_store",
-                     TokenBehavior{2, -2},
+                     TokenBehavior{.arity = 2, .stack_effect = -2},
                      std::regex(R"(^([a-zA-Z_][a-zA-Z0-9_]*)\{\}!$)"),
                      [](const std::smatch& m) -> Token::PayloadVariant {
                          return TokenPayload_ArrayOp{.name = m[1].str()};
                      }),
 
-        define_regex(TokenType::ARRAY_LOAD, "array_load", TokenBehavior{1, 0},
+        define_regex(TokenType::ARRAY_LOAD, "array_load",
+                     TokenBehavior{.arity = 1, .stack_effect = 0},
                      std::regex(R"(^([a-zA-Z_][a-zA-Z0-9_]*)\{\}@$)"),
                      [](const std::smatch& m) -> Token::PayloadVariant {
                          return TokenPayload_ArrayOp{.name = m[1].str()};
                      }),
 
         define_regex(
-            TokenType::CLIP_REL, "clip_rel", TokenBehavior{0, 1},
+            TokenType::CLIP_REL, "clip_rel",
+            TokenBehavior{.arity = 0, .stack_effect = 1},
             std::regex(
                 R"(^(?:src(\d+)|([x-za-w]))\[\s*(-?\d+)\s*,\s*(-?\d+)\s*\](?::([cm]))?$)"),
             [](const std::smatch& m) -> Token::PayloadVariant {
@@ -335,15 +389,18 @@ static const std::vector<TokenInfo>& get_token_definitions() {
                 }
                 data.rel_x = std::stoi(m[3].str());
                 data.rel_y = std::stoi(m[4].str());
-                if (m[5].matched) {
+                if (m[5].matched) { // NOLINT(cppcoreguidelines-avoid-magic-numbers)
                     data.has_mode = true;
-                    data.use_mirror = (m[5].str() == "m");
+                    data.use_mirror =
+                        (m[5].str() == // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+                         "m");
                 }
                 return data;
             }),
 
         define_regex(
-            TokenType::CLIP_ABS, "clip_abs", TokenBehavior{2, -1},
+            TokenType::CLIP_ABS, "clip_abs",
+            TokenBehavior{.arity = 2, .stack_effect = -1},
             std::regex(R"(^(?:src(\d+)|([x-za-w]))\[\](?::([mcb]))?$)"),
             [](const std::smatch& m) -> Token::PayloadVariant {
                 TokenPayload_ClipAccess data;
@@ -370,7 +427,8 @@ static const std::vector<TokenInfo>& get_token_definitions() {
                 return data;
             }),
 
-        define_regex(TokenType::CLIP_CUR, "clip_cur", TokenBehavior{0, 1},
+        define_regex(TokenType::CLIP_CUR, "clip_cur",
+                     TokenBehavior{.arity = 0, .stack_effect = 1},
                      std::regex(R"(^(?:src(\d+)|([x-za-w]))$)"),
                      [](const std::smatch& m) -> Token::PayloadVariant {
                          TokenPayload_ClipAccess data;
@@ -383,7 +441,8 @@ static const std::vector<TokenInfo>& get_token_definitions() {
                      }),
 
         define_regex(
-            TokenType::PROP_ACCESS, "prop_access", TokenBehavior{0, 1},
+            TokenType::PROP_ACCESS, "prop_access",
+            TokenBehavior{.arity = 0, .stack_effect = 1},
             std::regex(
                 R"(^(?:src(\d+)|([x-za-w]))\.([a-zA-Z_][a-zA-Z0-9_]*)$)"),
             [](const std::smatch& m) -> Token::PayloadVariant {
@@ -399,7 +458,7 @@ static const std::vector<TokenInfo>& get_token_definitions() {
 
         // SingleExpr specific
         define_regex(TokenType::CLIP_ABS_PLANE, "clip_abs_plane",
-                     TokenBehavior{2, -1},
+                     TokenBehavior{.arity = 2, .stack_effect = -1},
                      std::regex(R"(^(?:src(\d+)|([x-za-w]))\^(\d+)\[\]$)"),
                      [](const std::smatch& m) -> Token::PayloadVariant {
                          TokenPayload_ClipAccessPlane data;
@@ -413,25 +472,28 @@ static const std::vector<TokenInfo>& get_token_definitions() {
                      }),
 
         define_regex(TokenType::STORE_ABS_PLANE, "store_abs_plane",
-                     TokenBehavior{3, -3}, std::regex(R"(^@\[\]\^(\d+)$)"),
+                     TokenBehavior{.arity = 3, .stack_effect = -3},
+                     std::regex(R"(^@\[\]\^(\d+)$)"),
                      [](const std::smatch& m) -> Token::PayloadVariant {
                          return TokenPayload_StoreAbsPlane{
                              .plane_idx = std::stoi(m[1].str())};
                      }),
 
-        define_regex(TokenType::PROP_STORE, "prop_store", TokenBehavior{1, -1},
+        define_regex(TokenType::PROP_STORE, "prop_store",
+                     TokenBehavior{.arity = 1, .stack_effect = -1},
                      std::regex(R"(^([a-zA-Z_][a-zA-Z0-9_]*)\$$)"),
                      [](const std::smatch& m) -> Token::PayloadVariant {
                          return TokenPayload_PropStore{.prop_name = m[1].str()};
                      }),
 
         define_regex(
-            TokenType::NUMBER, "number", TokenBehavior{0, 1},
+            TokenType::NUMBER, "number",
+            TokenBehavior{.arity = 0, .stack_effect = 1},
             std::regex(
                 R"(^(?:(0x[0-9a-fA-F]+(?:\.[0-9a-fA-F]+(?:p[+\-]?\d+)?)?)|(0[0-7]+)|([+\-]?\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?))$)"),
             [](const std::smatch& m) -> Token::PayloadVariant {
                 std::string s = m.str();
-                double val;
+                double val = NAN;
                 if (m[2].matched) { // Octal integer
                     val = static_cast<double>(std::stoll(s, nullptr, 0));
                 } else { // Hex or decimal float/integer
@@ -473,8 +535,9 @@ std::vector<Token> tokenize(const std::string& expr, int num_inputs,
             case TokenType::CLIP_CUR:
             case TokenType::EXIT_NO_WRITE:
             case TokenType::STORE_ABS:
-                if (mode == ExprMode::SINGLE_EXPR)
+                if (mode == ExprMode::SINGLE_EXPR) {
                     skip = true;
+                }
                 break;
             case TokenType::CLIP_ABS_PLANE:
             case TokenType::STORE_ABS_PLANE:
@@ -482,14 +545,16 @@ std::vector<Token> tokenize(const std::string& expr, int num_inputs,
             case TokenType::CONSTANT_PLANE_WIDTH:
             case TokenType::CONSTANT_PLANE_HEIGHT:
             case TokenType::ARRAY_ALLOC_DYN:
-                if (mode == ExprMode::EXPR)
+                if (mode == ExprMode::EXPR) {
                     skip = true;
+                }
                 break;
             default:
                 break;
             }
-            if (skip)
+            if (skip) {
                 continue;
+            }
 
             if ((parsed_token = definition.parser(str_token))) {
                 break;

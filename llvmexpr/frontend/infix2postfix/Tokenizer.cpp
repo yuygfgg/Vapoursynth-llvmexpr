@@ -9,8 +9,8 @@ namespace {
 std::map<std::string, TokenType> build_keywords_map() {
     std::map<std::string, TokenType> map;
     for (const auto& mapping : token_mappings) {
-        if (mapping.str.length() > 1 && std::isalpha(mapping.str[0])) {
-            map[std::string(mapping.str)] = mapping.type;
+        if (mapping.str.length() > 1 && (std::isalpha(mapping.str[0]) != 0)) {
+            map.emplace(mapping.str, mapping.type);
         }
     }
     return map;
@@ -21,17 +21,17 @@ using OpMap = std::map<char, std::vector<TokenMapping>>;
 OpMap build_operator_map() {
     OpMap map;
     for (const auto& mapping : token_mappings) {
-        if (!mapping.str.empty() && !std::isalpha(mapping.str[0])) {
+        if (!mapping.str.empty() && (std::isalpha(mapping.str[0]) == 0)) {
             map[mapping.str[0]].push_back(mapping);
         }
     }
 
     // Sort by length descending for greedy matching
     for (auto& pair : map) {
-        std::sort(pair.second.begin(), pair.second.end(),
-                  [](const TokenMapping& a, const TokenMapping& b) {
-                      return a.str.length() > b.str.length();
-                  });
+        std::ranges::sort(pair.second,
+                          [](const TokenMapping& a, const TokenMapping& b) {
+                              return a.str.length() > b.str.length();
+                          });
     }
     return map;
 }
@@ -42,7 +42,7 @@ const std::map<std::string, TokenType> Tokenizer::keywords =
     build_keywords_map();
 static const OpMap operator_map = build_operator_map();
 
-Tokenizer::Tokenizer(const std::string& source) : source(source) {}
+Tokenizer::Tokenizer(std::string source) : source(std::move(source)) {}
 
 std::vector<Token> Tokenizer::tokenize() {
     std::vector<Token> tokens;
@@ -58,8 +58,9 @@ Token Tokenizer::nextToken() {
     start = current;
     start_line = line;
     start_column = column;
-    if (peek() == '\0')
+    if (peek() == '\0') {
         return makeToken(TokenType::EndOfFile);
+    }
 
     char c = peek();
 
@@ -68,14 +69,16 @@ Token Tokenizer::nextToken() {
         return makeToken(TokenType::Newline);
     }
 
-    if (std::isalpha(c) || c == '_')
+    if ((std::isalpha(c) != 0) || c == '_') {
         return identifier();
-    if (std::isdigit(c))
+    }
+    if (std::isdigit(c) != 0) {
         return number();
+    }
     if (c == '$') {
-        if (std::isalpha(peek(1)) || peek(1) == '_') {
+        if ((std::isalpha(peek(1)) != 0) || peek(1) == '_') {
             advance(); // '$'
-            while (std::isalnum(peek()) || peek() == '_') {
+            while ((std::isalnum(peek()) != 0) || peek() == '_') {
                 advance();
             }
             return makeToken(TokenType::Identifier);
@@ -83,12 +86,13 @@ Token Tokenizer::nextToken() {
     }
 
     if (c == '<') {
-        if (source.substr(current, 7) == "<global") {
+        if (source.substr(current, std::string("<global").length()) ==
+            "<global") {
             return globalDeclaration();
         }
     }
 
-    if (operator_map.count(c)) {
+    if (operator_map.contains(c)) {
         const auto& possible_tokens = operator_map.at(c);
         for (const auto& mapping : possible_tokens) {
             if (source.substr(current, mapping.str.length()) == mapping.str) {
@@ -112,8 +116,9 @@ void Tokenizer::skipWhitespaceAndComments() {
             advance();
             break;
         case '#':
-            while (peek() != '\n' && peek() != '\0')
+            while (peek() != '\n' && peek() != '\0') {
                 advance();
+            }
             break;
         default:
             return;
@@ -122,8 +127,9 @@ void Tokenizer::skipWhitespaceAndComments() {
 }
 
 char Tokenizer::peek(int offset) const {
-    if (current + offset >= source.length())
+    if (current + offset >= source.length()) {
         return '\0';
+    }
     return source[current + offset];
 }
 
@@ -148,13 +154,16 @@ Token Tokenizer::makeToken(TokenType type, const std::string& value) const {
     range.end.column =
         column - 1; // column is already advanced past the last character
 
-    return {type, value.empty() ? source.substr(start, current - start) : value,
-            range};
+    return {.type = type,
+            .value =
+                value.empty() ? source.substr(start, current - start) : value,
+            .range = range};
 }
 
 Token Tokenizer::identifier() {
-    while (std::isalnum(peek()) || peek() == '_')
+    while ((std::isalnum(peek()) != 0) || peek() == '_') {
         advance();
+    }
     std::string text = source.substr(start, current - start);
     auto it = keywords.find(text);
     if (it != keywords.end()) {
@@ -171,27 +180,34 @@ Token Tokenizer::number() {
         advance(); // x
     }
 
-    while (std::isdigit(peek()) || (is_hex && std::isxdigit(peek())))
+    while ((std::isdigit(peek()) != 0) ||
+           (is_hex && (std::isxdigit(peek()) != 0))) {
         advance();
+    }
 
-    if (peek() == '.' && std::isdigit(peek(1))) {
+    if (peek() == '.' && (std::isdigit(peek(1)) != 0)) {
         advance(); // '.'
-        while (std::isdigit(peek()))
+        while (std::isdigit(peek()) != 0) {
             advance();
+        }
     }
 
     if (is_hex && (peek() == 'p' || peek() == 'P')) {
         advance(); // 'p'
-        if (peek() == '+' || peek() == '-')
+        if (peek() == '+' || peek() == '-') {
             advance(); // sign
-        while (std::isdigit(peek()))
+        }
+        while (std::isdigit(peek()) != 0) {
             advance();
+        }
     } else if (!is_hex && (peek() == 'e' || peek() == 'E')) {
         advance(); // 'e'
-        if (peek() == '+' || peek() == '-')
+        if (peek() == '+' || peek() == '-') {
             advance(); // sign
-        while (std::isdigit(peek()))
+        }
+        while (std::isdigit(peek()) != 0) {
             advance();
+        }
     }
 
     return makeToken(TokenType::Number);

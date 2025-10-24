@@ -51,6 +51,7 @@
 #include <format>
 #include <functional>
 #include <map>
+#include <numbers>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -65,7 +66,17 @@
 #include "llvm/IR/Value.h"
 #include "llvm/IR/Verifier.h"
 
-enum class MathOp { Exp, Log, Sin, Cos, Tan, Atan, Atan2, Acos, Asin };
+enum class MathOp : std::uint8_t {
+    Exp,
+    Log,
+    Sin,
+    Cos,
+    Tan,
+    Atan,
+    Atan2,
+    Acos,
+    Asin
+};
 
 struct MathOpInfo {
     int arity;
@@ -75,30 +86,35 @@ struct MathOpInfo {
 constexpr MathOpInfo getMathOpInfo(MathOp op) {
     switch (op) {
     case MathOp::Exp:
-        return {1, "fast_exp"};
+        return {.arity = 1, .name = "fast_exp"};
     case MathOp::Log:
-        return {1, "fast_log"};
+        return {.arity = 1, .name = "fast_log"};
     case MathOp::Sin:
-        return {1, "fast_sin"};
+        return {.arity = 1, .name = "fast_sin"};
     case MathOp::Cos:
-        return {1, "fast_cos"};
+        return {.arity = 1, .name = "fast_cos"};
     case MathOp::Tan:
-        return {1, "fast_tan"};
+        return {.arity = 1, .name = "fast_tan"};
     case MathOp::Atan:
-        return {1, "fast_atan"};
+        return {.arity = 1, .name = "fast_atan"};
     case MathOp::Atan2:
-        return {2, "fast_atan2"};
+        return {.arity = 2, .name = "fast_atan2"};
     case MathOp::Acos:
-        return {1, "fast_acos"};
+        return {.arity = 1, .name = "fast_acos"};
     case MathOp::Asin:
-        return {1, "fast_asin"};
+        return {.arity = 1, .name = "fast_asin"};
     }
 }
 
 #ifdef __x86_64__
-using SupportedVectorWidths = std::integer_sequence<int, 4, 8, 16>;
+using SupportedVectorWidths =
+    std::integer_sequence<int, 4,
+                          8,   // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+                          16>; // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 #elif defined(__ARM_NEON__)
-using SupportedVectorWidths = std::integer_sequence<int, 4>;
+using SupportedVectorWidths =
+    std::integer_sequence<int,
+                          4>; // NOLINT(cppcoreguidelines-avoid-magic-numbers)
 #else
 using SupportedVectorWidths = std::integer_sequence<int>;
 #endif
@@ -121,18 +137,16 @@ template <int VectorWidth> class MathFunctionGenerator {
         auto* ty = llvm::Type::getFloatTy(context);
         if (VectorWidth == 1) {
             return ty;
-        } else {
-            return llvm::VectorType::get(ty, VectorWidth, false);
         }
+        return llvm::VectorType::get(ty, VectorWidth, false);
     }
 
     llvm::Type* getInt32Type() {
         auto* ty = llvm::Type::getInt32Ty(context);
         if (VectorWidth == 1) {
             return ty;
-        } else {
-            return llvm::VectorType::get(ty, VectorWidth, false);
         }
+        return llvm::VectorType::get(ty, VectorWidth, false);
     }
 
     llvm::Value* getConstant(double val) {
@@ -154,9 +168,8 @@ template <int VectorWidth> class MathFunctionGenerator {
     std::string getFunctionName(const std::string& base_name) {
         if (VectorWidth == 1) {
             return base_name;
-        } else {
-            return base_name + "_v" + std::to_string(VectorWidth);
         }
+        return base_name + "_v" + std::to_string(VectorWidth);
     }
 
     llvm::Value* createIntrinsicCall(llvm::Intrinsic::ID intrinsic_id,
@@ -192,10 +205,12 @@ template <int VectorWidth> class MathFunctionGenerator {
         }
         if (arity > 0) {
             args[0]->setName("x");
-            if (arity > 1)
+            if (arity > 1) {
                 args[1]->setName("y");
-            if (arity > 2)
+            }
+            if (arity > 2) {
                 args[2]->setName("z");
+            }
         }
 
         llvm::Value* result = body_generator(args);
@@ -222,22 +237,24 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Exp> {
             opInfo.name, opInfo.arity,
             [gen](llvm::ArrayRef<llvm::Value*> args) -> llvm::Value* {
                 auto* x = args[0];
-                auto* exp_hi = gen->getConstant(88.3762626647949f);
-                auto* exp_lo = gen->getConstant(-88.3762626647949f);
-                auto* log2e = gen->getConstant(1.44269504088896341f);
-                auto* exp_p0 = gen->getConstant(1.9875691500E-4f);
-                auto* exp_p1 = gen->getConstant(1.3981999507E-3f);
-                auto* exp_p2 = gen->getConstant(8.3334519073E-3f);
-                auto* exp_p3 = gen->getConstant(4.1665795894E-2f);
-                auto* exp_p4 = gen->getConstant(1.6666665459E-1f);
-                auto* exp_p5 = gen->getConstant(5.0000001201E-1f);
-                auto* half = gen->getConstant(0.5f);
-                auto* one = gen->getConstant(1.0f);
-                auto* neg_exp_c1 = gen->getConstant(-0.693359375f);
-                auto* neg_exp_c2 = gen->getConstant(2.12194440e-4f);
-                auto* const_0x7f = gen->getInt32Constant(0x7f);
+                // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers)
+                auto* exp_hi = gen->getConstant(88.3762626647949F);
+                auto* exp_lo = gen->getConstant(-88.3762626647949F);
+                auto* log2e = gen->getConstant(std::numbers::log2e_v<float>);
+                auto* exp_p0 = gen->getConstant(1.9875691500E-4F);
+                auto* exp_p1 = gen->getConstant(1.3981999507E-3F);
+                auto* exp_p2 = gen->getConstant(8.3334519073E-3F);
+                auto* exp_p3 = gen->getConstant(4.1665795894E-2F);
+                auto* exp_p4 = gen->getConstant(1.6666665459E-1F);
+                auto* exp_p5 = gen->getConstant(5.0000001201E-1F);
+                auto* half = gen->getConstant(0.5F);
+                auto* one = gen->getConstant(1.0F);
+                auto* neg_exp_c1 =
+                    gen->getConstant(-0.693359375F);
+                auto* neg_exp_c2 = gen->getConstant(2.12194440e-4F);
+                auto* const_0x7f = gen->getInt32Constant(0x7F);
                 auto* const_23 = gen->getInt32Constant(23);
-
+                // NOLINTEND(cppcoreguidelines-avoid-magic-numbers)
                 x = gen->createIntrinsicCall(llvm::Intrinsic::minnum,
                                              {x, exp_hi});
                 x = gen->createIntrinsicCall(llvm::Intrinsic::maxnum,
@@ -295,24 +312,26 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Log> {
             opInfo.name, opInfo.arity,
             [gen](llvm::ArrayRef<llvm::Value*> args) -> llvm::Value* {
                 auto* x = args[0];
+                // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers)
                 auto* min_norm_pos = gen->getInt32Constant(0x00800000);
                 auto* inv_mant_mask = gen->getInt32Constant(~0x7F800000);
-                auto* sqrt_1_2 = gen->getConstant(0.707106781186547524f);
-                auto* log_p0 = gen->getConstant(7.0376836292E-2f);
-                auto* log_p1 = gen->getConstant(-1.1514610310E-1f);
-                auto* log_p2 = gen->getConstant(1.1676998740E-1f);
-                auto* log_p3 = gen->getConstant(-1.2420140846E-1f);
-                auto* log_p4 = gen->getConstant(1.4249322787E-1f);
-                auto* log_p5 = gen->getConstant(-1.6668057665E-1f);
-                auto* log_p6 = gen->getConstant(2.0000714765E-1f);
-                auto* log_p7 = gen->getConstant(-2.4999993993E-1f);
-                auto* log_p8 = gen->getConstant(3.3333331174E-1f);
-                auto* log_q2 = gen->getConstant(0.693359375f);
-                auto* log_q1 = gen->getConstant(-2.12194440e-4f);
-                auto* one = gen->getConstant(1.0f);
-                auto* neg_half = gen->getConstant(-0.5f);
-                auto* const_0x7f = gen->getInt32Constant(0x7f);
+                auto* sqrt_1_2 = gen->getConstant(0.707106781186547524F);
+                auto* log_p0 = gen->getConstant(7.0376836292E-2F);
+                auto* log_p1 = gen->getConstant(-1.1514610310E-1F);
+                auto* log_p2 = gen->getConstant(1.1676998740E-1F);
+                auto* log_p3 = gen->getConstant(-1.2420140846E-1F);
+                auto* log_p4 = gen->getConstant(1.4249322787E-1F);
+                auto* log_p5 = gen->getConstant(-1.6668057665E-1F);
+                auto* log_p6 = gen->getConstant(2.0000714765E-1F);
+                auto* log_p7 = gen->getConstant(-2.4999993993E-1F);
+                auto* log_p8 = gen->getConstant(3.3333331174E-1F);
+                auto* log_q2 = gen->getConstant(0.693359375F);
+                auto* log_q1 = gen->getConstant(-2.12194440e-4F);
+                auto* one = gen->getConstant(1.0F);
+                auto* neg_half = gen->getConstant(-0.5F);
+                auto* const_0x7f = gen->getInt32Constant(0x7F);
                 auto* const_23 = gen->getInt32Constant(23);
+                // NOLINTEND(cppcoreguidelines-avoid-magic-numbers)
                 auto* is_one = gen->builder.CreateFCmpOEQ(x, one);
                 auto* min_norm_pos_float = gen->builder.CreateBitCast(
                     min_norm_pos, gen->getFloatType());
@@ -324,7 +343,9 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Log> {
                 auto* x_masked =
                     gen->builder.CreateAnd(x_as_int, inv_mant_mask);
                 auto* half_as_int = gen->builder.CreateBitCast(
-                    gen->getConstant(0.5f), gen->getInt32Type());
+                    gen->getConstant(
+                        0.5F), // NOLINT(cppcoreguidelines-avoid-magic-numbers)
+                    gen->getInt32Type()); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
                 x_masked = gen->builder.CreateOr(x_masked, half_as_int);
                 x = gen->builder.CreateBitCast(x_masked, gen->getFloatType());
                 emm0i = gen->builder.CreateSub(emm0i, const_0x7f);
@@ -397,16 +418,19 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Sin> {
                 auto* x = args[0];
                 auto* float_ty = gen->getFloatType();
                 auto* int32_ty = gen->getInt32Type();
-                auto* float_invpi = gen->getConstant(0.31830988618f);
-                auto* float_pi1 = gen->getConstant(3.140625f);
-                auto* float_pi2 = gen->getConstant(0.0009670257568359375f);
-                auto* float_pi3 = gen->getConstant(1.984187252998352e-07f);
-                auto* float_pi4 = gen->getConstant(1.273533813134432e-11f);
-                auto* float_sinC3 = gen->getConstant(-0.1666666567325592f);
-                auto* float_sinC5 = gen->getConstant(0.00833307858556509f);
-                auto* float_sinC7 = gen->getConstant(-0.00019807418575510383f);
-                auto* float_sinC9 = gen->getConstant(2.6019030363451748e-06f);
+                auto* float_invpi =
+                    gen->getConstant(std::numbers::inv_pi_v<float>);
+                // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers)
+                auto* float_pi1 = gen->getConstant(3.140625F);
+                auto* float_pi2 = gen->getConstant(0.0009670257568359375F);
+                auto* float_pi3 = gen->getConstant(1.984187252998352e-07F);
+                auto* float_pi4 = gen->getConstant(1.273533813134432e-11F);
+                auto* float_sinC3 = gen->getConstant(-0.1666666567325592F);
+                auto* float_sinC5 = gen->getConstant(0.00833307858556509F);
+                auto* float_sinC7 = gen->getConstant(-0.00019807418575510383F);
+                auto* float_sinC9 = gen->getConstant(2.6019030363451748e-06F);
                 auto* signmask = gen->getInt32Constant(0x80000000);
+                // NOLINTEND(cppcoreguidelines-avoid-magic-numbers)
                 llvm::Value* sign = gen->builder.CreateBitCast(x, int32_ty);
                 sign = gen->builder.CreateAnd(sign, signmask);
                 llvm::Value* t1 =
@@ -416,7 +440,8 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Sin> {
                     gen->createIntrinsicCall(llvm::Intrinsic::nearbyint, {t2});
                 llvm::Value* t2i =
                     gen->builder.CreateFPToSI(t2_rounded, int32_ty);
-                llvm::Value* t4 = gen->builder.CreateShl(t2i, 31);
+                llvm::Value* t4 = gen->builder.CreateShl(
+                    t2i, 31); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
                 sign = gen->builder.CreateXor(sign, t4);
                 t2 = gen->builder.CreateSIToFP(t2i, float_ty);
                 t1 = gen->createIntrinsicCall(
@@ -460,16 +485,19 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Cos> {
                 auto* x = args[0];
                 auto* float_ty = gen->getFloatType();
                 auto* int32_ty = gen->getInt32Type();
-                auto* float_invpi = gen->getConstant(0.31830988618f);
-                auto* float_pi1 = gen->getConstant(3.140625f);
-                auto* float_pi2 = gen->getConstant(0.0009670257568359375f);
-                auto* float_pi3 = gen->getConstant(1.984187252998352e-07f);
-                auto* float_pi4 = gen->getConstant(1.273533813134432e-11f);
-                auto* float_cosC2 = gen->getConstant(-0.4999999701976776f);
-                auto* float_cosC4 = gen->getConstant(0.04166652262210846f);
-                auto* float_cosC6 = gen->getConstant(-0.001388676579343155f);
-                auto* float_cosC8 = gen->getConstant(2.4390448881604243e-05f);
-                auto* one_float = gen->getConstant(1.0f);
+                auto* float_invpi =
+                    gen->getConstant(std::numbers::inv_pi_v<float>);
+                // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers)
+                auto* float_pi1 = gen->getConstant(3.140625F);
+                auto* float_pi2 = gen->getConstant(0.0009670257568359375F);
+                auto* float_pi3 = gen->getConstant(1.984187252998352e-07F);
+                auto* float_pi4 = gen->getConstant(1.273533813134432e-11F);
+                auto* float_cosC2 = gen->getConstant(-0.4999999701976776F);
+                auto* float_cosC4 = gen->getConstant(0.04166652262210846F);
+                auto* float_cosC6 = gen->getConstant(-0.001388676579343155F);
+                auto* float_cosC8 = gen->getConstant(2.4390448881604243e-05F);
+                // NOLINTEND(cppcoreguidelines-avoid-magic-numbers)
+                auto* one_float = gen->getConstant(1.0F);
                 llvm::Value* sign = gen->getInt32Constant(0);
                 llvm::Value* t1 =
                     gen->createIntrinsicCall(llvm::Intrinsic::fabs, {x});
@@ -478,7 +506,8 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Cos> {
                     gen->createIntrinsicCall(llvm::Intrinsic::nearbyint, {t2});
                 llvm::Value* t2i =
                     gen->builder.CreateFPToSI(t2_rounded, int32_ty);
-                llvm::Value* t4 = gen->builder.CreateShl(t2i, 31);
+                llvm::Value* t4 = gen->builder.CreateShl(
+                    t2i, 31); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
                 sign = gen->builder.CreateXor(sign, t4);
                 t2 = gen->builder.CreateSIToFP(t2i, float_ty);
                 t1 = gen->createIntrinsicCall(
@@ -537,8 +566,9 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Atan> {
             opInfo.name, opInfo.arity,
             [gen](llvm::ArrayRef<llvm::Value*> args) -> llvm::Value* {
                 auto* var = args[0];
-                auto* one = gen->getConstant(1.0f);
-                auto* pi_div_2 = gen->getConstant(1.5707963267948966f);
+                // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers)
+                auto* one = gen->getConstant(1.0F);
+                auto* pi_div_2 = gen->getConstant(1.5707963267948966F);
                 auto* z =
                     gen->createIntrinsicCall(llvm::Intrinsic::fabs, {var});
                 auto* z_gt_1 = gen->builder.CreateFCmpOGT(z, one);
@@ -546,60 +576,61 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Atan> {
                 auto* a = gen->builder.CreateSelect(z_gt_1, one_div_zz, z);
                 auto* s = gen->builder.CreateFMul(a, a);
                 auto* q = gen->builder.CreateFMul(s, s);
-                llvm::Value* p = gen->getConstant(-2.0258553044340116e-5f);
-                llvm::Value* t = gen->getConstant(2.2302240345710764e-4f);
+                llvm::Value* p = gen->getConstant(-2.0258553044340116e-5F);
+                llvm::Value* t = gen->getConstant(2.2302240345710764e-4F);
                 p = gen->createIntrinsicCall(
                     llvm::Intrinsic::fma,
-                    {p, q, gen->getConstant(-1.1640717779912220e-3f)});
+                    {p, q, gen->getConstant(-1.1640717779912220e-3F)});
                 t = gen->createIntrinsicCall(
                     llvm::Intrinsic::fma,
-                    {t, q, gen->getConstant(3.8559749383656407e-3f)});
+                    {t, q, gen->getConstant(3.8559749383656407e-3F)});
                 p = gen->createIntrinsicCall(
                     llvm::Intrinsic::fma,
-                    {p, q, gen->getConstant(-9.1845592187222193e-3f)});
+                    {p, q, gen->getConstant(-9.1845592187222193e-3F)});
                 t = gen->createIntrinsicCall(
                     llvm::Intrinsic::fma,
-                    {t, q, gen->getConstant(1.6978035834594660e-2f)});
+                    {t, q, gen->getConstant(1.6978035834594660e-2F)});
                 p = gen->createIntrinsicCall(
                     llvm::Intrinsic::fma,
-                    {p, q, gen->getConstant(-2.5826796814492296e-2f)});
+                    {p, q, gen->getConstant(-2.5826796814492296e-2F)});
                 t = gen->createIntrinsicCall(
                     llvm::Intrinsic::fma,
-                    {t, q, gen->getConstant(3.4067811082715810e-2f)});
+                    {t, q, gen->getConstant(3.4067811082715810e-2F)});
                 p = gen->createIntrinsicCall(
                     llvm::Intrinsic::fma,
-                    {p, q, gen->getConstant(-4.0926382420509999e-2f)});
+                    {p, q, gen->getConstant(-4.0926382420509999e-2F)});
                 t = gen->createIntrinsicCall(
                     llvm::Intrinsic::fma,
-                    {t, q, gen->getConstant(4.6739496199158334e-2f)});
+                    {t, q, gen->getConstant(4.6739496199158334e-2F)});
                 p = gen->createIntrinsicCall(
                     llvm::Intrinsic::fma,
-                    {p, q, gen->getConstant(-5.2392330054601366e-2f)});
+                    {p, q, gen->getConstant(-5.2392330054601366e-2F)});
                 t = gen->createIntrinsicCall(
                     llvm::Intrinsic::fma,
-                    {t, q, gen->getConstant(5.8773077721790683e-2f)});
+                    {t, q, gen->getConstant(5.8773077721790683e-2F)});
                 p = gen->createIntrinsicCall(
                     llvm::Intrinsic::fma,
-                    {p, q, gen->getConstant(-6.6658603633512892e-2f)});
+                    {p, q, gen->getConstant(-6.6658603633512892e-2F)});
                 t = gen->createIntrinsicCall(
                     llvm::Intrinsic::fma,
-                    {t, q, gen->getConstant(7.6922129305867892e-2f)});
+                    {t, q, gen->getConstant(7.6922129305867892e-2F)});
                 p = gen->createIntrinsicCall(llvm::Intrinsic::fma, {p, s, t});
                 p = gen->createIntrinsicCall(
                     llvm::Intrinsic::fma,
-                    {p, s, gen->getConstant(-9.0909012354005267e-2f)});
+                    {p, s, gen->getConstant(-9.0909012354005267e-2F)});
                 p = gen->createIntrinsicCall(
                     llvm::Intrinsic::fma,
-                    {p, s, gen->getConstant(1.1111110678749421e-1f)});
+                    {p, s, gen->getConstant(1.1111110678749421e-1F)});
                 p = gen->createIntrinsicCall(
                     llvm::Intrinsic::fma,
-                    {p, s, gen->getConstant(-1.4285714271334810e-1f)});
+                    {p, s, gen->getConstant(-1.4285714271334810e-1F)});
                 p = gen->createIntrinsicCall(
                     llvm::Intrinsic::fma,
-                    {p, s, gen->getConstant(1.9999999999755005e-1f)});
+                    {p, s, gen->getConstant(1.9999999999755005e-1F)});
                 p = gen->createIntrinsicCall(
                     llvm::Intrinsic::fma,
-                    {p, s, gen->getConstant(-3.3333333333331838e-1f)});
+                    {p, s, gen->getConstant(-3.3333333333331838e-1F)});
+                // NOLINTEND(cppcoreguidelines-avoid-magic-numbers)
                 auto* pp_mul_ss = gen->builder.CreateFMul(p, s);
                 p = gen->createIntrinsicCall(llvm::Intrinsic::fma,
                                              {pp_mul_ss, a, a});
@@ -621,9 +652,10 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Atan2> {
                 auto* var_x = args[1];
                 auto* atan_func =
                     MathFunctionImpl<VectorWidth, MathOp::Atan>::generate(gen);
-                auto* zero = gen->getConstant(0.0f);
-                auto* pi = gen->getConstant(3.141592653589793f);
-                auto* pi_div_2 = gen->getConstant(1.5707963267948966f);
+                auto* zero = gen->getConstant(0.0F);
+                auto* pi = gen->getConstant(std::numbers::pi_v<float>);
+                auto* pi_div_2 = gen->getConstant(
+                    1.5707963267948966F); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
                 auto* y_div_x = gen->builder.CreateFDiv(var_y, var_x);
                 auto* atan_y_div_x =
                     gen->builder.CreateCall(atan_func, {y_div_x});
@@ -659,21 +691,22 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Acos> {
             opInfo.name, opInfo.arity,
             [gen](llvm::ArrayRef<llvm::Value*> args) -> llvm::Value* {
                 auto* x = args[0];
-                auto* pi = gen->getConstant(3.14159265f);
+                auto* pi = gen->getConstant(std::numbers::pi_v<float>);
                 auto* ax = gen->createIntrinsicCall(llvm::Intrinsic::fabs, {x});
-
-                auto* term1_mul = gen->getConstant(-0.124605335f);
-                auto* term1_add = gen->getConstant(0.1570634f);
+                // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers)
+                auto* term1_mul = gen->getConstant(-0.124605335F);
+                auto* term1_add = gen->getConstant(0.1570634F);
                 auto* term1 = gen->createIntrinsicCall(
                     llvm::Intrinsic::fma, {ax, term1_mul, term1_add});
 
-                auto* term2_sub = gen->getConstant(0.99418175f);
+                auto* term2_sub = gen->getConstant(0.99418175F);
                 auto* term2 = gen->builder.CreateFSub(term2_sub, ax);
 
                 auto* poly_part = gen->builder.CreateFMul(term1, term2);
 
-                auto* two = gen->getConstant(2.0f);
-                auto* neg_two = gen->getConstant(-2.0f);
+                auto* two = gen->getConstant(2.0F);
+                auto* neg_two = gen->getConstant(-2.0F);
+                // NOLINTEND(cppcoreguidelines-avoid-magic-numbers)
                 auto* sqrt_arg = gen->createIntrinsicCall(llvm::Intrinsic::fma,
                                                           {ax, neg_two, two});
                 auto* sqrt_part =
@@ -681,7 +714,7 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Acos> {
 
                 auto* res_pos = gen->builder.CreateFAdd(poly_part, sqrt_part);
 
-                auto* zero = gen->getConstant(0.0f);
+                auto* zero = gen->getConstant(0.0F);
                 auto* is_neg = gen->builder.CreateFCmpOLT(x, zero);
 
                 auto* res_neg = gen->builder.CreateFSub(pi, res_pos);
@@ -699,7 +732,8 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Asin> {
             opInfo.name, opInfo.arity,
             [gen](llvm::ArrayRef<llvm::Value*> args) -> llvm::Value* {
                 auto* x = args[0];
-                auto* pi_div_2 = gen->getConstant(1.5707963267948966f);
+                auto* pi_div_2 = gen->getConstant(
+                    1.5707963267948966F); // NOLINT(cppcoreguidelines-avoid-magic-numbers)
                 auto* acos_func =
                     MathFunctionImpl<VectorWidth, MathOp::Acos>::generate(gen);
                 auto* acos_x = gen->builder.CreateCall(acos_func, {x});
@@ -767,9 +801,13 @@ class MathLibraryManager {
 #ifdef __x86_64__
                         if constexpr (vlen == 4) {
                             isa = "b"; // SSE
-                        } else if constexpr (vlen == 8) {
+                        } else if constexpr (
+                            vlen ==
+                            8) { // NOLINT(cppcoreguidelines-avoid-magic-numbers)
                             isa = "d"; // AVX2
-                        } else if constexpr (vlen == 16) {
+                        } else if constexpr (
+                            vlen ==
+                            16) { // NOLINT(cppcoreguidelines-avoid-magic-numbers)
                             isa = "e"; // AVX512
                         }
 #elif defined(__ARM_NEON__)
@@ -805,10 +843,10 @@ class MathLibraryManager {
     llvm::Function* generateAndCache(MathOp op) {
         llvm::Function* result = nullptr;
         std::apply(
-            [&](auto... op_constant) {
-                auto dispatcher = [&](auto op_c) {
+            [&, this](auto... op_constant) {
+                auto dispatcher = [&, this](auto op_c) {
                     if (op_c.value == op) {
-                        result = generateAndCacheImpl<op_c.value>();
+                        result = this->generateAndCacheImpl<op_c.value>();
                     }
                 };
                 (dispatcher(op_constant), ...);

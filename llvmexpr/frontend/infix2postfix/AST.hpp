@@ -23,9 +23,8 @@ struct NumberExpr {
     Token value;
     Range range;
 
-    explicit NumberExpr(Token val) : value(std::move(val)) {
-        range = value.range;
-    }
+    explicit NumberExpr(Token val)
+        : value(std::move(val)), range(value.range) {}
 };
 
 struct VariableExpr {
@@ -33,7 +32,7 @@ struct VariableExpr {
     Range range;
     std::shared_ptr<Symbol> symbol;
 
-    explicit VariableExpr(Token n) : name(std::move(n)) { range = name.range; }
+    explicit VariableExpr(Token n) : name(std::move(n)), range(name.range) {}
 };
 
 struct UnaryExpr {
@@ -79,9 +78,8 @@ struct PropAccessExpr {
     Token prop;
     Range range;
 
-    PropAccessExpr(Token c, Token p) : clip(std::move(c)), prop(std::move(p)) {
-        range = clip.range;
-    }
+    PropAccessExpr(Token c, Token p)
+        : clip(std::move(c)), prop(std::move(p)), range(clip.range) {}
 };
 
 struct StaticRelPixelAccessExpr {
@@ -93,9 +91,7 @@ struct StaticRelPixelAccessExpr {
 
     StaticRelPixelAccessExpr(Token c, Token x, Token y, std::string suffix)
         : clip(std::move(c)), offsetX(std::move(x)), offsetY(std::move(y)),
-          boundary_suffix(std::move(suffix)) {
-        range = clip.range;
-    }
+          boundary_suffix(std::move(suffix)), range(clip.range) {}
 };
 
 struct FrameDimensionExpr {
@@ -178,7 +174,7 @@ struct LabelStmt {
     Range range;
     std::shared_ptr<Symbol> symbol;
 
-    explicit LabelStmt(Token n) : name(std::move(n)) { range = name.range; }
+    explicit LabelStmt(Token n) : name(std::move(n)), range(name.range) {}
 };
 
 struct GotoStmt {
@@ -198,9 +194,8 @@ struct GlobalDecl {
     Range range;
 
     GlobalDecl(Token t, GlobalMode m, std::vector<Token> g = {})
-        : keyword(std::move(t)), mode(m), globals(std::move(g)) {
-        range = keyword.range;
-    }
+        : keyword(std::move(t)), mode(m), globals(std::move(g)),
+          range(keyword.range) {}
 };
 
 struct Parameter {
@@ -235,8 +230,9 @@ struct Expr {
     Expr& operator=(const Expr&) = delete;
     Expr(Expr&&) = default;
     Expr& operator=(Expr&&) = default;
+    ~Expr() = default;
 
-    Range range() const {
+    [[nodiscard]] Range range() const {
         return std::visit([](const auto& e) { return e.range; }, value);
     }
 };
@@ -254,8 +250,9 @@ struct Stmt {
     Stmt& operator=(const Stmt&) = delete;
     Stmt(Stmt&&) = default;
     Stmt& operator=(Stmt&&) = default;
+    ~Stmt() = default;
 
-    Range range() const {
+    [[nodiscard]] Range range() const {
         return std::visit([](const auto& s) { return s.range; }, value);
     }
 };
@@ -263,9 +260,7 @@ struct Stmt {
 inline FrameDimensionExpr::FrameDimensionExpr(Token keyword,
                                               std::unique_ptr<Expr> plane)
     : dimension_name(std::move(keyword.value)),
-      plane_index_expr(std::move(plane)) {
-    range = keyword.range;
-}
+      plane_index_expr(std::move(plane)), range(keyword.range) {}
 
 inline UnaryExpr::UnaryExpr(Token o, std::unique_ptr<Expr> r)
     : op(std::move(o)), right(std::move(r)) {
@@ -284,25 +279,27 @@ inline TernaryExpr::TernaryExpr(std::unique_ptr<Expr> c,
                                 std::unique_ptr<Expr> t,
                                 std::unique_ptr<Expr> f)
     : cond(std::move(c)), true_expr(std::move(t)), false_expr(std::move(f)) {
-    if (cond)
+    if (cond) {
         range.start = cond->range().start;
-    if (false_expr)
+    }
+    if (false_expr) {
         range.end = false_expr->range().end;
-    else if (true_expr)
+    } else if (true_expr) {
         range.end = true_expr->range().end;
-    else if (cond)
+    } else if (cond) {
         range.end = cond->range().end;
+    }
 }
 
 inline CallExpr::CallExpr(Token callee_token,
                           std::vector<std::unique_ptr<Expr>> a)
-    : callee(std::move(callee_token.value)), args(std::move(a)) {
-    range = callee_token.range;
-}
+    : callee(std::move(callee_token.value)), args(std::move(a)),
+      range(callee_token.range) {}
 
 inline ExprStmt::ExprStmt(std::unique_ptr<Expr> e) : expr(std::move(e)) {
-    if (expr)
+    if (expr) {
         range = expr->range();
+    }
 }
 
 inline AssignStmt::AssignStmt(Token n, std::unique_ptr<Expr> v)
@@ -323,24 +320,28 @@ inline IfStmt::IfStmt(std::unique_ptr<Expr> c, std::unique_ptr<Stmt> t,
                       std::unique_ptr<Stmt> e)
     : condition(std::move(c)), then_branch(std::move(t)),
       else_branch(std::move(e)) {
-    if (condition)
+    if (condition) {
         range.start = condition->range().start;
-    if (else_branch)
+    }
+    if (else_branch) {
         range.end = else_branch->range().end;
-    else if (then_branch)
+    } else if (then_branch) {
         range.end = then_branch->range().end;
-    else if (condition)
+    } else if (condition) {
         range.end = condition->range().end;
+    }
 }
 
 inline WhileStmt::WhileStmt(std::unique_ptr<Expr> c, std::unique_ptr<Stmt> b)
     : condition(std::move(c)), body(std::move(b)) {
-    if (condition)
+    if (condition) {
         range.start = condition->range().start;
-    if (body)
+    }
+    if (body) {
         range.end = body->range().end;
-    else if (condition)
+    } else if (condition) {
         range.end = condition->range().end;
+    }
 }
 
 inline ReturnStmt::ReturnStmt(Token kw, std::unique_ptr<Expr> v)
@@ -367,23 +368,27 @@ inline FunctionDef::FunctionDef(Token n, std::vector<Parameter> p,
 inline ArrayAccessExpr::ArrayAccessExpr(std::unique_ptr<Expr> arr,
                                         std::unique_ptr<Expr> idx)
     : array(std::move(arr)), index(std::move(idx)) {
-    if (array)
+    if (array) {
         range.start = array->range().start;
-    if (index)
+    }
+    if (index) {
         range.end = index->range().end;
-    else if (array)
+    } else if (array) {
         range.end = array->range().end;
+    }
 }
 
 inline ArrayAssignStmt::ArrayAssignStmt(std::unique_ptr<Expr> t,
                                         std::unique_ptr<Expr> v)
     : target(std::move(t)), value(std::move(v)) {
-    if (target)
+    if (target) {
         range.start = target->range().start;
-    if (value)
+    }
+    if (value) {
         range.end = value->range().end;
-    else if (target)
+    } else if (target) {
         range.end = target->range().end;
+    }
 }
 
 struct Program {
@@ -400,8 +405,9 @@ auto make_node(Args&&... args) {
 
 template <typename T, typename Wrapper>
 auto get_if(Wrapper* wrapper) -> decltype(std::get_if<T>(&wrapper->value)) {
-    if (!wrapper)
+    if (!wrapper) {
         return nullptr;
+    }
     return std::get_if<T>(&wrapper->value);
 }
 

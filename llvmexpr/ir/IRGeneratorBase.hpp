@@ -50,9 +50,15 @@ class IRGeneratorBase {
 
     virtual ~IRGeneratorBase() = default;
 
+    IRGeneratorBase(const IRGeneratorBase&) = delete;
+    IRGeneratorBase& operator=(const IRGeneratorBase&) = delete;
+    IRGeneratorBase(IRGeneratorBase&&) = delete;
+    IRGeneratorBase& operator=(IRGeneratorBase&&) = delete;
+
     void generate();
 
   protected:
+    // NOLINTBEGIN(cppcoreguidelines-non-private-member-variables-in-classes)
     // Input parameters
     const std::vector<Token>& tokens;
     const VSVideoInfo* vo;
@@ -91,6 +97,7 @@ class IRGeneratorBase {
 
     bool uses_x;
     bool uses_y;
+    // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes)
 
     virtual void define_function_signature() = 0;
 

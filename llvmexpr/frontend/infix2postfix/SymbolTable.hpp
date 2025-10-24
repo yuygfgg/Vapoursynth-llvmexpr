@@ -12,13 +12,15 @@ class SymbolTable {
   public:
     explicit SymbolTable(SymbolTable* parent = nullptr);
 
-    bool define(std::shared_ptr<Symbol> symbol);
+    bool define(const std::shared_ptr<Symbol>& symbol);
 
-    std::shared_ptr<Symbol> resolve(const std::string& name) const;
+    [[nodiscard]] std::shared_ptr<Symbol>
+    resolve(const std::string& name) const;
 
-    SymbolTable* get_parent() const { return parent; }
+    [[nodiscard]] SymbolTable* get_parent() const { return parent; }
 
-    const std::map<std::string, std::shared_ptr<Symbol>>& get_symbols() const {
+    [[nodiscard]] const std::map<std::string, std::shared_ptr<Symbol>>&
+    get_symbols() const {
         return symbols;
     }
 

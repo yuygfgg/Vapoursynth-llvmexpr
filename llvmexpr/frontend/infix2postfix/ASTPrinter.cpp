@@ -8,7 +8,7 @@ std::string ASTPrinter::print(const Program* program) {
     ss.str("");
     ss.clear();
     indent_level = 0;
-    if (program) {
+    if (program != nullptr) {
         for (const auto& stmt : program->statements) {
             print(stmt.get());
         }
@@ -17,13 +17,14 @@ std::string ASTPrinter::print(const Program* program) {
 }
 
 void ASTPrinter::print(const Stmt* stmt) {
-    if (!stmt)
+    if (stmt == nullptr) {
         return;
+    }
     std::visit([this](const auto& s) { this->visit(s); }, stmt->value);
 }
 
 void ASTPrinter::print(const Expr* expr) {
-    if (!expr) {
+    if (expr == nullptr) {
         line("<null expr>");
         return;
     };
@@ -247,17 +248,17 @@ void ASTPrinter::visit(const TernaryExpr& expr) {
 
 void ASTPrinter::visit(const CallExpr& expr) {
     line("CallExpr: {}", expr.callee);
-    if (expr.resolved_signature) {
+    if (expr.resolved_signature != nullptr) {
         indent();
         line("Resolved to user function: {}", expr.resolved_signature->name);
         unindent();
     }
-    if (expr.resolved_builtin) {
+    if (expr.resolved_builtin != nullptr) {
         indent();
         line("Resolved to builtin: {}", expr.resolved_builtin->name);
         unindent();
     }
-    if (expr.resolved_def) {
+    if (expr.resolved_def != nullptr) {
         indent();
         line("Resolved def: {}", expr.resolved_def->name.value);
         unindent();

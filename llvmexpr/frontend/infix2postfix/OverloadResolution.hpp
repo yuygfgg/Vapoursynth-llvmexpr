@@ -8,11 +8,12 @@
 namespace infix2postfix {
 
 inline bool isConvertible(Type from, Type to, Mode mode) {
-    if (from == Type::VOID)
+    if (from == Type::VOID) {
         return false;
+    }
     return from == to || (to == Type::VALUE && from != Type::LITERAL_STRING &&
                           from != Type::ARRAY &&
-                          !(mode == Mode::Single && from == Type::CLIP));
+                          (mode != Mode::Single || from != Type::CLIP));
 }
 
 template <typename T> struct OverloadCandidate {
@@ -24,10 +25,11 @@ template <typename T> struct OverloadCandidate {
 template <typename T>
 const OverloadCandidate<T>*
 selectBestCandidate(std::vector<OverloadCandidate<T>>& candidates) {
-    if (candidates.empty())
+    if (candidates.empty()) {
         return nullptr;
+    }
 
-    OverloadCandidate<T>* best = &candidates[0];
+    OverloadCandidate<T>* best = candidates.data();
     for (size_t i = 1; i < candidates.size(); ++i) {
         if (candidates[i].conversion_count < best->conversion_count) {
             best = &candidates[i];
@@ -44,8 +46,9 @@ selectBestCandidate(std::vector<OverloadCandidate<T>>& candidates) {
 template <typename T>
 bool isAmbiguous(const std::vector<OverloadCandidate<T>>& candidates,
                  const OverloadCandidate<T>* best) {
-    if (!best || candidates.size() <= 1)
+    if (!best || candidates.size() <= 1) {
         return false;
+    }
 
     int count = 0;
     for (const auto& cand : candidates) {

@@ -2,6 +2,8 @@
 #define LLVMEXPR_INFIX2POSTFIX_TYPES_HPP
 
 #include "llvmexpr/frontend/Tokenizer.hpp"
+#include <array>
+#include <cstdint>
 #include <format>
 #include <set>
 #include <string>
@@ -20,13 +22,13 @@ struct Range {
     SourceLocation start;
     SourceLocation end;
 
-    std::string to_string() const {
+    [[nodiscard]] std::string to_string() const {
         return std::format("{}:{} - {}:{}", start.line, start.column, end.line,
                            end.column);
     }
 };
 
-enum class Type {
+enum class Type : std::uint8_t {
     VALUE,
     CLIP,
     LITERAL,
@@ -35,7 +37,7 @@ enum class Type {
     VOID,
 };
 
-enum class TokenType {
+enum class TokenType : std::uint8_t {
     // Keywords
     If,       // if
     Else,     // else
@@ -95,49 +97,49 @@ struct TokenMapping {
     std::string_view str;
 };
 
-constexpr TokenMapping token_mappings[] = {
+constexpr std::array token_mappings = {
     // Keywords
-    {TokenType::If, "if"},
-    {TokenType::Else, "else"},
-    {TokenType::While, "while"},
-    {TokenType::Goto, "goto"},
-    {TokenType::Function, "function"},
-    {TokenType::Return, "return"},
+    TokenMapping{.type = TokenType::If, .str = "if"},
+    TokenMapping{.type = TokenType::Else, .str = "else"},
+    TokenMapping{.type = TokenType::While, .str = "while"},
+    TokenMapping{.type = TokenType::Goto, .str = "goto"},
+    TokenMapping{.type = TokenType::Function, .str = "function"},
+    TokenMapping{.type = TokenType::Return, .str = "return"},
 
     // Operators
-    {TokenType::Plus, "+"},
-    {TokenType::Minus, "-"},
-    {TokenType::Star, "*"},
-    {TokenType::Slash, "/"},
-    {TokenType::Percent, "%"},
-    {TokenType::StarStar, "**"},
-    {TokenType::LogicalAnd, "&&"},
-    {TokenType::LogicalOr, "||"},
-    {TokenType::BitAnd, "&"},
-    {TokenType::BitOr, "|"},
-    {TokenType::BitXor, "^"},
-    {TokenType::BitNot, "~"},
-    {TokenType::Eq, "=="},
-    {TokenType::Ne, "!="},
-    {TokenType::Lt, "<"},
-    {TokenType::Le, "<="},
-    {TokenType::Gt, ">"},
-    {TokenType::Ge, ">="},
-    {TokenType::Assign, "="},
-    {TokenType::Question, "?"},
-    {TokenType::Colon, ":"},
-    {TokenType::Not, "!"},
+    TokenMapping{.type = TokenType::Plus, .str = "+"},
+    TokenMapping{.type = TokenType::Minus, .str = "-"},
+    TokenMapping{.type = TokenType::Star, .str = "*"},
+    TokenMapping{.type = TokenType::Slash, .str = "/"},
+    TokenMapping{.type = TokenType::Percent, .str = "%"},
+    TokenMapping{.type = TokenType::StarStar, .str = "**"},
+    TokenMapping{.type = TokenType::LogicalAnd, .str = "&&"},
+    TokenMapping{.type = TokenType::LogicalOr, .str = "||"},
+    TokenMapping{.type = TokenType::BitAnd, .str = "&"},
+    TokenMapping{.type = TokenType::BitOr, .str = "|"},
+    TokenMapping{.type = TokenType::BitXor, .str = "^"},
+    TokenMapping{.type = TokenType::BitNot, .str = "~"},
+    TokenMapping{.type = TokenType::Eq, .str = "=="},
+    TokenMapping{.type = TokenType::Ne, .str = "!="},
+    TokenMapping{.type = TokenType::Lt, .str = "<"},
+    TokenMapping{.type = TokenType::Le, .str = "<="},
+    TokenMapping{.type = TokenType::Gt, .str = ">"},
+    TokenMapping{.type = TokenType::Ge, .str = ">="},
+    TokenMapping{.type = TokenType::Assign, .str = "="},
+    TokenMapping{.type = TokenType::Question, .str = "?"},
+    TokenMapping{.type = TokenType::Colon, .str = ":"},
+    TokenMapping{.type = TokenType::Not, .str = "!"},
 
     // Punctuation
-    {TokenType::LParen, "("},
-    {TokenType::RParen, ")"},
-    {TokenType::LBrace, "{"},
-    {TokenType::RBrace, "}"},
-    {TokenType::LBracket, "["},
-    {TokenType::RBracket, "]"},
-    {TokenType::Comma, ","},
-    {TokenType::Dot, "."},
-    {TokenType::Semicolon, ";"},
+    TokenMapping{.type = TokenType::LParen, .str = "("},
+    TokenMapping{.type = TokenType::RParen, .str = ")"},
+    TokenMapping{.type = TokenType::LBrace, .str = "{"},
+    TokenMapping{.type = TokenType::RBrace, .str = "}"},
+    TokenMapping{.type = TokenType::LBracket, .str = "["},
+    TokenMapping{.type = TokenType::RBracket, .str = "]"},
+    TokenMapping{.type = TokenType::Comma, .str = ","},
+    TokenMapping{.type = TokenType::Dot, .str = "."},
+    TokenMapping{.type = TokenType::Semicolon, .str = ";"},
 };
 
 inline std::string token_type_to_string(TokenType type) {
@@ -173,9 +175,9 @@ struct Token {
     Range range;
 };
 
-enum class Mode { Expr, Single };
+enum class Mode : std::uint8_t { Expr, Single };
 
-enum class GlobalMode { NONE, ALL, SPECIFIC };
+enum class GlobalMode : std::uint8_t { NONE, ALL, SPECIFIC };
 
 struct ParameterInfo {
     std::string name;
@@ -196,12 +198,14 @@ struct FunctionSignature {
 };
 
 inline int get_clip_index(const std::string& s) {
-    if (s.length() == 1 && s[0] >= 'a' && s[0] <= 'z')
+    if (s.length() == 1 && s[0] >= 'a' && s[0] <= 'z') {
         return parse_std_clip_idx(s[0]);
-    if (s.rfind("src", 0) == 0) {
+    }
+    if (s.starts_with("src")) {
         for (size_t i = 3; i < s.length(); ++i) {
-            if (!std::isdigit(s[i]))
+            if (std::isdigit(s[i]) == 0) {
                 return -1;
+            }
         }
         return std::stoi(s.substr(3));
     }

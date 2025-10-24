@@ -34,7 +34,7 @@ class CodeGenerator {
 
     std::string generate(Program* program);
 
-    Mode get_mode() const { return mode; }
+    [[nodiscard]] Mode get_mode() const { return mode; }
     ExprResult generate_expr(Expr* expr) { return generate(expr); }
 
   private:
