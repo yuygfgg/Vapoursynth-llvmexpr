@@ -74,13 +74,13 @@ class Preprocessor::ExpressionEvaluator {
         : expression(std::move(expression_in)), preprocessor(preprocessor_in) {}
 
     std::variant<int64_t, double> evaluate() {
-        expression = preprocessor->expandMacrosImpl(expression, -1, nullptr);
+        expression = preprocessor->expandDefinedOperator(expression);
         tokenize();
         pos = 0;
         if (tokens.size() == 1 && tokens[0].type == TokenType::Eof) {
             throw std::runtime_error("Cannot evaluate an empty expression");
         }
-        Value result = parse_logical_or();
+        Value result = parse_conditional();
         if (peek().type != TokenType::Eof) {
             throw std::runtime_error("Unexpected tokens at end of expression");
         }
@@ -137,6 +137,9 @@ class Preprocessor::ExpressionEvaluator {
         Power,
         LParen,
         RParen,
+        Comma,
+        Question,
+        Colon,
         LogicalAnd,
         LogicalOr,
         LogicalNot,
@@ -199,8 +202,8 @@ class Preprocessor::ExpressionEvaluator {
                     i++;
                 }
                 std::string text = expression.substr(start, i - start);
-                throw std::runtime_error("Unknown identifier in expression: " +
-                                         text);
+                tokens.push_back({TokenType::Identifier, text, Value{}});
+                continue;
             }
 
             switch (expression[i]) {
@@ -229,6 +232,15 @@ class Preprocessor::ExpressionEvaluator {
                 break;
             case ')':
                 tokens.push_back({TokenType::RParen, ")"});
+                break;
+            case ',':
+                tokens.push_back({TokenType::Comma, ","});
+                break;
+            case '?':
+                tokens.push_back({TokenType::Question, "?"});
+                break;
+            case ':':
+                tokens.push_back({TokenType::Colon, ":"});
                 break;
             case '!':
                 if (i + 1 < expression.length() && expression[i + 1] == '=') {
@@ -301,15 +313,88 @@ class Preprocessor::ExpressionEvaluator {
         if (match(TokenType::Number)) {
             return tokens[pos - 1].value;
         }
+        if (match(TokenType::Identifier)) {
+            std::string name = tokens[pos - 1].text;
+            auto it = preprocessor->macros.find(name);
+            if (it == preprocessor->macros.end()) {
+                throw std::runtime_error("Unknown identifier in expression: " +
+                                         name);
+            }
+
+            const MacroDefinition& macro = it->second;
+
+            if (macro.is_function_like) {
+                if (!match(TokenType::LParen)) {
+                    throw std::runtime_error(
+                        "Function-like macro used without arguments: " + name);
+                }
+
+                std::vector<Value> arg_values;
+                if (!match(TokenType::RParen)) {
+                    while (true) {
+                        Value v = parse_conditional();
+                        arg_values.push_back(v);
+                        if (match(TokenType::RParen)) {
+                            break;
+                        }
+                        if (!match(TokenType::Comma)) {
+                            throw std::runtime_error(
+                                "Expected ',' or ')' in macro call arguments");
+                        }
+                    }
+                }
+
+                if (arg_values.size() != macro.parameters.size()) {
+                    throw std::runtime_error(std::format(
+                        "Macro '{}' expects {} arguments, but {} were provided",
+                        name, macro.parameters.size(), arg_values.size()));
+                }
+
+                std::string replacement = macro.body;
+                for (size_t param_idx = 0; param_idx < macro.parameters.size();
+                     ++param_idx) {
+                    const std::string& param = macro.parameters[param_idx];
+                    const std::string arg =
+                        Value(arg_values[param_idx]).to_string();
+
+                    size_t rp = 0;
+                    while ((rp = replacement.find(param, rp)) !=
+                           std::string::npos) {
+                        if (isWordBoundary(replacement, rp, param.length())) {
+                            replacement.replace(rp, param.length(), arg);
+                            rp += arg.length();
+                        } else {
+                            rp++;
+                        }
+                    }
+                }
+
+                ExpressionEvaluator nested(replacement, preprocessor);
+                auto maybe = nested.try_evaluate_constant();
+                if (!maybe) {
+                    throw std::runtime_error(
+                        "Non-constant macro expansion for '" + name + "'");
+                }
+                return Value(*maybe);
+            } else {
+                ExpressionEvaluator nested(macro.body, preprocessor);
+                auto maybe = nested.try_evaluate_constant();
+                if (!maybe) {
+                    throw std::runtime_error(
+                        "Non-constant object-like macro '" + name + "'");
+                }
+                return Value(*maybe);
+            }
+        }
         if (match(TokenType::LParen)) {
-            Value val = parse_logical_or();
+            Value val = parse_conditional();
             if (!match(TokenType::RParen)) {
                 throw std::runtime_error("Expected ')'");
             }
             return val;
         }
-        throw std::runtime_error(
-            "Unexpected token in expression, expected number or '('");
+        throw std::runtime_error("Unexpected token in expression, expected "
+                                 "number, identifier or '('");
     }
 
     Value parse_unary() {
@@ -476,6 +561,97 @@ class Preprocessor::ExpressionEvaluator {
         return left;
     }
 
+    // Parse conditional operator with short-circuit semantics
+    Value parse_conditional() {
+        Value condition = parse_logical_or();
+        if (!match(TokenType::Question)) {
+            return condition;
+        }
+
+        bool cond_truthy = condition.is_truthy();
+
+        if (cond_truthy) {
+            Value then_val = parse_conditional();
+            if (!match(TokenType::Colon)) {
+                throw std::runtime_error(
+                    "Expected ':' in conditional expression");
+            }
+            skip_else_branch();
+            return then_val;
+        } else {
+            skip_then_branch_to_colon();
+            if (!match(TokenType::Colon)) {
+                throw std::runtime_error(
+                    "Expected ':' in conditional expression");
+            }
+            Value else_val = parse_conditional();
+            return else_val;
+        }
+    }
+
+    void skip_then_branch_to_colon() {
+        int nested = 0;
+        while (true) {
+            TokenType t = peek().type;
+            if (t == TokenType::Eof)
+                break;
+            if (t == TokenType::Question) {
+                consume();
+                nested++;
+                continue;
+            }
+            if (t == TokenType::Colon) {
+                if (nested == 0) {
+                    break; // do not consume ':' here
+                }
+                nested--;
+                consume();
+                continue;
+            }
+            consume();
+        }
+    }
+
+    void skip_else_branch() {
+        int nested = 0;
+        int paren_depth = 0;
+        while (true) {
+            TokenType t = peek().type;
+            if (t == TokenType::Eof)
+                break;
+            if (t == TokenType::LParen) {
+                paren_depth++;
+                consume();
+                continue;
+            }
+            if (t == TokenType::RParen) {
+                if (paren_depth == 0) {
+                    break; // let caller handle ')'
+                }
+                paren_depth--;
+                consume();
+                continue;
+            }
+            if (t == TokenType::Comma && paren_depth == 0) {
+                break; // end of this branch in argument list
+            }
+            if (t == TokenType::Question) {
+                nested++;
+                consume();
+                continue;
+            }
+            if (t == TokenType::Colon) {
+                if (nested == 0) {
+                    break; // end of current else-branch at outer ':'
+                }
+                nested--;
+                consume();
+                continue;
+            }
+            consume();
+        }
+    }
+
     std::string expression;
     std::vector<Token> tokens;
     size_t pos = 0;
@@ -639,12 +815,7 @@ Preprocessor::expandMacrosImpl(const std::string& line, int line_number,
                                     }
                                 }
 
-                                // Recursively expand and evaluate if possible
-                                std::string recursively_expanded =
-                                    expandMacrosImpl(replacement, line_number,
-                                                     nullptr);
-                                replacement =
-                                    evaluateIfPossible(recursively_expanded);
+                                replacement = evaluateIfPossible(replacement);
 
                                 expansion_end_pos = parser.pos;
                                 changed = true;

@@ -2304,20 +2304,6 @@ RESULT = result
         assert success, f"Failed to convert: {output}"
         assert "26" in output
 
-    def test_function_like_macro_without_parens_no_expand(self):
-        """Test that function-like macro without parentheses is not expanded."""
-        infix = """
-@define MAX(a, b) ((a) > (b) ? (a) : (b))
-result = MAX(10, 20)
-RESULT = result
-"""
-        success, output = run_infix2postfix(infix, "expr")
-        assert success, f"Failed to convert: {output}"
-        assert "10" in output
-        assert "20" in output
-        assert "?" in output
-        assert "MAX" not in output  # Macro name should be expanded
-
     def test_function_like_macro_wrong_arg_count(self):
         """Test function-like macro with wrong number of arguments."""
         infix = """
@@ -2349,10 +2335,7 @@ RESULT = CLAMP(50, 0, 100)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert "50" in output
-        assert "0" in output
-        assert "100" in output
-        assert "?" in output
+        assert "50 RESULT! RESULT@" == output.strip()
 
     def test_function_like_macro_with_object_macro(self):
         """Test mixing function-like and object-like macros."""
@@ -2376,11 +2359,7 @@ RESULT = result
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
-        assert "5" in output
-        assert "10" in output
-        assert "3" in output
-        assert "7" in output
-        assert "?" in output
+        assert "10 3 +" in output
 
     def test_function_like_macro_recursive_expansion(self):
         """Test recursive expansion of function-like macros."""
@@ -2460,7 +2439,7 @@ RESULT = ABS(-5)
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed to convert: {output}"
         assert "5" in output or "-5" in output
-        assert "?" in output
+        assert "?" not in output
 
     def test_function_like_macro_parameter_replacement(self):
         """Test that parameter replacement is word-boundary aware."""

@@ -143,6 +143,18 @@ Function-like macros can call other macros, and arguments can themselves be macr
 result = QUAD(5); # Expands to 20
 ```
 
+#### Recursive Macro Expansion
+
+Macros can be defined recursively. Combined with the ternary conditional operator (`? :`), this allows for compile-time computation. The preprocessor's expression evaluator uses short-circuiting for the ternary operator, which ensures that recursion terminates correctly.
+
+**Example: Compile-Time Factorial**
+
+```
+@define FACTORIAL(n) (n == 0 ? 1 : (n * FACTORIAL(n - 1)))
+
+RESULT = FACTORIAL(5) # Expands to 120
+```
+
 **Complex Arguments:**
 
 Arguments can contain parentheses and commas. The preprocessor correctly handles parenthesis matching:
@@ -243,6 +255,7 @@ The expression can contain:
 - Arithmetic operators: `+`, `-`, `*`, `/`, `%`, `**`
 - Comparison operators: `==`, `!=`, `>`, `<`, `>=`, `<=`
 - Logical operators: `&&`, `||`, `!`
+- The ternary conditional operator: `? :` (with short-circuit evaluation).
 - Parentheses `()` for grouping.
 
 
