@@ -23,9 +23,15 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <stdexcept>
 #include <vector>
 
 namespace infix2postfix {
+
+class PreprocessorError : public std::runtime_error {
+  public:
+    using std::runtime_error::runtime_error;
+};
 
 struct MacroExpansion {
     std::string macro_name;

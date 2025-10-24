@@ -70,8 +70,10 @@ bool isWordBoundary(const std::string& str, size_t pos, size_t word_len) {
 class Preprocessor::ExpressionEvaluator {
   public:
     ExpressionEvaluator(std::string expression_in,
-                        Preprocessor* preprocessor_in)
-        : expression(std::move(expression_in)), preprocessor(preprocessor_in) {}
+                        Preprocessor* preprocessor_in,
+                        int recursion_depth_in = 0)
+        : expression(std::move(expression_in)), preprocessor(preprocessor_in),
+          recursion_depth(recursion_depth_in) {}
 
     std::variant<int64_t, double> evaluate() {
         expression = preprocessor->expandDefinedOperator(expression);
@@ -90,6 +92,8 @@ class Preprocessor::ExpressionEvaluator {
     std::optional<std::variant<int64_t, double>> try_evaluate_constant() {
         try {
             return evaluate();
+        } catch (const PreprocessorError&) {
+            throw;
         } catch (const std::runtime_error&) {
             return std::nullopt;
         }
@@ -104,6 +108,8 @@ class Preprocessor::ExpressionEvaluator {
     }
 
   private:
+    static constexpr int MAX_EVAL_RECURSION = 1000;
+
     struct Value {
         std::variant<int64_t, double> val;
 
@@ -369,7 +375,13 @@ class Preprocessor::ExpressionEvaluator {
                     }
                 }
 
-                ExpressionEvaluator nested(replacement, preprocessor);
+                if (recursion_depth > MAX_EVAL_RECURSION) {
+                    throw PreprocessorError("Expression evaluator recursion "
+                                            "limit reached, possibly due to "
+                                            "infinite recursion");
+                }
+                ExpressionEvaluator nested(replacement, preprocessor,
+                                           recursion_depth + 1);
                 auto maybe = nested.try_evaluate_constant();
                 if (!maybe) {
                     throw std::runtime_error(
@@ -377,7 +389,13 @@ class Preprocessor::ExpressionEvaluator {
                 }
                 return Value(*maybe);
             } else {
-                ExpressionEvaluator nested(macro.body, preprocessor);
+                if (recursion_depth > MAX_EVAL_RECURSION) {
+                    throw PreprocessorError("Expression evaluator recursion "
+                                            "limit reached, possibly due to "
+                                            "infinite recursion");
+                }
+                ExpressionEvaluator nested(macro.body, preprocessor,
+                                           recursion_depth + 1);
                 auto maybe = nested.try_evaluate_constant();
                 if (!maybe) {
                     throw std::runtime_error(
@@ -656,6 +674,7 @@ class Preprocessor::ExpressionEvaluator {
     std::vector<Token> tokens;
     size_t pos = 0;
     Preprocessor* preprocessor;
+    int recursion_depth;
 };
 
 std::string Preprocessor::evaluateIfPossible(const std::string& text) {
@@ -815,7 +834,14 @@ Preprocessor::expandMacrosImpl(const std::string& line, int line_number,
                                     }
                                 }
 
-                                replacement = evaluateIfPossible(replacement);
+                                try {
+                                    replacement =
+                                        evaluateIfPossible(replacement);
+                                } catch (const PreprocessorError& e) {
+                                    addError(e.what(), line_number);
+                                    replacement = token;
+                                    changed = false;
+                                }
 
                                 expansion_end_pos = parser.pos;
                                 changed = true;
@@ -868,7 +894,8 @@ Preprocessor::expandMacrosImpl(const std::string& line, int line_number,
         }
 
         if (++count > RECURSION_LIMIT) {
-            addError("Macro expansion limit reached, possible recursive macro?",
+            addError("Macro expansion limit reached, possibly due to infinite "
+                     "recursion",
                      line_number);
             break;
         }
@@ -1142,6 +1169,8 @@ void Preprocessor::handleIf(const std::string& line, int line_number) {
             ExpressionEvaluator evaluator(expanded_expr, this);
             auto result = evaluator.evaluate();
             condition_met = ExpressionEvaluator::is_truthy(result);
+        } catch (const PreprocessorError& e) {
+            addError(e.what(), line_number);
         } catch (const std::runtime_error& e) {
             addError(
                 std::format("Failed to evaluate @if expression: {}", e.what()),
