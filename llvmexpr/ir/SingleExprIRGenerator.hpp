@@ -60,10 +60,12 @@ class SingleExprIRGenerator : public IRGeneratorBase {
     std::map<std::string, int> output_prop_map;
 
     // Array
-    llvm::Value* context_arg;
-    llvm::Function* llvmexpr_ensure_buffer_func;
-    llvm::Function* llvmexpr_get_buffer_size_func;
+    llvm::Value* context_arg = nullptr;
+    llvm::Function* llvmexpr_ensure_buffer_func = nullptr;
+    llvm::Function* llvmexpr_get_buffer_size_func = nullptr;
     std::map<std::string, llvm::Value*> array_ptr_cache;
+
+    std::map<std::string, llvm::Value*> named_arrays;
 };
 
 #endif // LLVMEXPR_SINGLEEXPRIRGENERATOR_HPP

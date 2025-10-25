@@ -665,7 +665,7 @@ Arrays are created by calling the built-in `new()` function and assigning the re
   - The size must be a literal constant.
   - `my_lut = new(256);`
 
-- **`SingleExpr` Mode (Fixed or Dynamic Size):**
+- **`SingleExpr` mode (Fixed or Dynamic Size):**
   - Fixed size: `my_array = new(100);`
   - Dynamic size: The size can be any expression that results in a value.
     ```
@@ -729,8 +729,8 @@ fill_array(my_data, 3.14, 10); # my_data is now filled with 3.14
 
 The lifetime of an array depends on the execution mode:
 
-- **`Expr` mode:** Arrays are temporary and exist only for the evaluation of a single pixel. They are re-created and destroyed for each pixel and cannot be used to share data between pixels.
-- **`SingleExpr` mode:** Arrays are persistent and exist for the lifetime of the filter instance. Their contents are preserved between frame evaluations. **Warning:** Due to VapourSynth's parallel processing, you should not rely on arrays for communication *between* frames, as frame evaluation order is not guaranteed.
+- **`Expr` mode:** Arrays are temporary and exist only for the evaluation of a single pixel. They cannot be used to share data between pixels.
+- **`SingleExpr` mode:** Array contents are **not** guaranteed to be preserved between frames due to VapourSynth's parallel processing. You should assume arrays are uninitialized at the start of each frame's evaluation.
 
 ### 11.5. Safety
 

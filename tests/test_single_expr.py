@@ -336,6 +336,20 @@ def test_array_float_to_int_index():
     # 2.9 should truncate to 2
     assert frame.props["result"] == pytest.approx(30.0)
 
+def test_array_reallocation():
+    """Test that dynamically allocated arrays can be reallocated."""
+    clip = core.std.BlankClip(width=10, height=10, format=vs.GRAY8, color=0)
+    expr = """
+    10 arr{}^
+    50.0 1 arr{}!
+    200000000 arr{}^
+    70.0 140000000 arr{}!
+    140000000 arr{}@ 1 arr{}@ + result$
+    """
+    res = core.llvmexpr.SingleExpr(clip, expr)
+    frame = res.get_frame(0)
+    assert frame.props["result"] == pytest.approx(120.0)
+
 
 def test_array_uninitialized_error():
     """Test that using uninitialized array raises an error."""

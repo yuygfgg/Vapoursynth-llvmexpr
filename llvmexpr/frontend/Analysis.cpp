@@ -20,10 +20,16 @@
 #include "Analysis.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <format>
 #include <iterator>
+#include <optional>
 #include <set>
 #include <stdexcept>
+
+namespace {
+constexpr int SINGLEEXPR_STACK_ALLOC_THRESHOLD = 1024;
+} // namespace
 
 ExpressionAnalyser::ExpressionAnalyser(const std::vector<Token>& tokens_in,
                                        int expected_final_depth_in)
@@ -214,6 +220,169 @@ void ExpressionAnalyser::validate_and_build_cfg() {
             if (new_out != out_sets[i]) {
                 out_sets[i] = new_out;
                 changed = true;
+            }
+        }
+    }
+
+    std::map<std::string, int> array_alloc_count;
+    for (const auto& token : tokens) {
+        if (token.type == TokenType::ARRAY_ALLOC_STATIC ||
+            token.type == TokenType::ARRAY_ALLOC_DYN) {
+            const auto& payload = std::get<TokenPayload_ArrayOp>(token.payload);
+            array_alloc_count[payload.name]++;
+        }
+    }
+
+    using ConstStack = std::vector<std::optional<double>>;
+    std::vector<ConstStack> in_stacks(results.cfg_blocks.size());
+    std::vector<ConstStack> out_stacks(results.cfg_blocks.size());
+
+    if (!results.cfg_blocks.empty()) {
+        in_stacks[0] = ConstStack{};
+    }
+
+    bool const_prop_changed = true;
+    while (const_prop_changed) {
+        const_prop_changed = false;
+        for (size_t i = 0; i < results.cfg_blocks.size(); ++i) {
+            // IN[i] = Merge of OUT[p] for all predecessors p
+            ConstStack new_in;
+            if (i > 0 && !results.cfg_blocks[i].predecessors.empty()) {
+                new_in = out_stacks[results.cfg_blocks[i].predecessors[0]];
+                for (size_t j = 1;
+                     j < results.cfg_blocks[i].predecessors.size(); ++j) {
+                    int p_idx = results.cfg_blocks[i].predecessors[j];
+                    const auto& other_stack = out_stacks[p_idx];
+
+                    if (new_in.size() != other_stack.size()) {
+                        throw std::runtime_error(
+                            std::format("Stack depth mismatch during constant "
+                                        "propagation at "
+                                        "block {}: {} vs {}",
+                                        i, new_in.size(), other_stack.size()));
+                    }
+
+                    for (size_t k = 0; k < new_in.size(); ++k) {
+                        if (new_in[k] != other_stack[k]) {
+                            new_in[k] = std::nullopt;
+                        }
+                    }
+                }
+            } else {
+                new_in = ConstStack{};
+            }
+
+            if (new_in != in_stacks[i]) {
+                in_stacks[i] = new_in;
+            }
+
+            // Transfer function: OUT[i] = F(IN[i])
+            ConstStack current_stack = in_stacks[i];
+            for (int j = results.cfg_blocks[i].start_token_idx;
+                 j < results.cfg_blocks[i].end_token_idx; ++j) {
+                const auto& token = tokens[j];
+                const auto behavior = get_token_behavior(token);
+
+                if (current_stack.size() <
+                    static_cast<size_t>(behavior.arity)) {
+                    for (size_t k = 0; k < static_cast<size_t>(behavior.arity) -
+                                               current_stack.size();
+                         ++k) {
+                        current_stack.insert(current_stack.begin(),
+                                             std::nullopt);
+                    }
+                }
+
+                std::vector<std::optional<double>> args;
+                for (int k = 0; k < behavior.arity; ++k) {
+                    args.push_back(current_stack.back());
+                    current_stack.pop_back();
+                }
+                std::ranges::reverse(args);
+
+                auto all_const = [&](const auto& a) { return a.has_value(); };
+                bool can_compute = std::ranges::all_of(args, all_const);
+
+                auto push_result = [&](std::optional<double> res) {
+                    current_stack.push_back(res);
+                };
+
+                auto push_n = [&](int n, std::optional<double> val) {
+                    for (int k = 0; k < n; ++k) {
+                        current_stack.push_back(val);
+                    }
+                };
+
+                switch (token.type) {
+                case TokenType::NUMBER:
+                    push_result(
+                        std::get<TokenPayload_Number>(token.payload).value);
+                    break;
+                case TokenType::CONSTANT_PI:
+                    push_result(M_PI);
+                    break;
+                case TokenType::ADD:
+                    push_result(can_compute ? std::optional(args[0].value() +
+                                                            args[1].value())
+                                            : std::nullopt);
+                    break;
+                case TokenType::SUB:
+                    push_result(can_compute ? std::optional(args[0].value() -
+                                                            args[1].value())
+                                            : std::nullopt);
+                    break;
+                case TokenType::MUL:
+                    push_result(can_compute ? std::optional(args[0].value() *
+                                                            args[1].value())
+                                            : std::nullopt);
+                    break;
+                case TokenType::DIV:
+                    push_result(can_compute ? std::optional(args[0].value() /
+                                                            args[1].value())
+                                            : std::nullopt);
+                    break;
+                case TokenType::POW:
+                    push_result(can_compute
+                                    ? std::optional(
+                                          pow(args[0].value(), args[1].value()))
+                                    : std::nullopt);
+                    break;
+                case TokenType::ARRAY_ALLOC_STATIC: {
+                    const auto& payload =
+                        std::get<TokenPayload_ArrayOp>(token.payload);
+                    // Allocate on stack if size <= threshold
+                    if (payload.static_size <=
+                            SINGLEEXPR_STACK_ALLOC_THRESHOLD &&
+                        array_alloc_count[payload.name] == 1) {
+                        results.static_array_sizes[payload.name] =
+                            payload.static_size;
+                    }
+                } break;
+                case TokenType::ARRAY_ALLOC_DYN: {
+                    const auto& payload =
+                        std::get<TokenPayload_ArrayOp>(token.payload);
+                    // Allocate on stack if:
+                    // 1. Size is a compile-time constant
+                    // 2. Size <= threshold
+                    // 3. Only allocated once
+                    if (args[0].has_value() &&
+                        array_alloc_count[payload.name] == 1) {
+                        int size = static_cast<int>(args[0].value());
+                        if (size <= SINGLEEXPR_STACK_ALLOC_THRESHOLD) {
+                            results.static_array_sizes[payload.name] = size;
+                        }
+                    }
+                } break;
+                default:
+                    push_n(behavior.arity + behavior.stack_effect,
+                           std::nullopt);
+                    break;
+                }
+            }
+
+            if (current_stack != out_stacks[i]) {
+                out_stacks[i] = current_stack;
+                const_prop_changed = true;
             }
         }
     }

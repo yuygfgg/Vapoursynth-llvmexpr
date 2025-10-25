@@ -53,6 +53,7 @@ struct ExpressionAnalysisResults {
     std::vector<CFGBlock> cfg_blocks;
     std::map<std::string, int> label_to_block_idx;
     std::vector<int> stack_depth_in;
+    std::map<std::string, int> static_array_sizes;
 };
 
 class ExpressionAnalyser {

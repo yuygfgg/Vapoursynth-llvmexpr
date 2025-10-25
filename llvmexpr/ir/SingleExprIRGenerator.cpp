@@ -97,6 +97,15 @@ void SingleExprIRGenerator::
         llvm::BasicBlock::Create(context, "entry", func);
     builder.SetInsertPoint(entry_bb);
 
+    // Allocate static arrays on the stack
+    for (const auto& [name, size] : analysis_results.static_array_sizes) {
+        llvm::ArrayType* array_ty =
+            llvm::ArrayType::get(builder.getFloatTy(), size);
+        llvm::Value* array_ptr =
+            createAllocaInEntry(array_ty, name + "_array_alloca");
+        named_arrays[name] = array_ptr;
+    }
+
     // Pre-load all plane pointers and strides
     plane_base_ptrs.resize(num_inputs + 1);
     plane_strides.resize(num_inputs + 1);
@@ -357,12 +366,16 @@ bool SingleExprIRGenerator::process_mode_specific_token(
     // Array
     case TokenType::ARRAY_ALLOC_STATIC: {
         const auto& payload = std::get<TokenPayload_ArrayOp>(token.payload);
-        llvm::Value* size_val = builder.getInt64(payload.static_size);
-        llvm::Value* name_str =
-            builder.CreateGlobalString(payload.name, payload.name + "_name");
-        llvm::Value* buffer_ptr = builder.CreateCall(
-            llvmexpr_ensure_buffer_func, {name_str, size_val});
-        array_ptr_cache[payload.name] = buffer_ptr;
+        if (named_arrays.contains(payload.name)) {
+            // Already allocated on the stack
+        } else {
+            llvm::Value* size_val = builder.getInt64(payload.static_size);
+            llvm::Value* name_str = builder.CreateGlobalString(
+                payload.name, payload.name + "_name");
+            llvm::Value* buffer_ptr = builder.CreateCall(
+                llvmexpr_ensure_buffer_func, {name_str, size_val});
+            array_ptr_cache[payload.name] = buffer_ptr;
+        }
         return true;
     }
 
@@ -371,16 +384,20 @@ bool SingleExprIRGenerator::process_mode_specific_token(
         llvm::Value* size_f = rpn_stack.back();
         rpn_stack.pop_back();
 
-        llvm::Value* size_val =
-            builder.CreateFPToSI(size_f, builder.getInt64Ty());
+        if (named_arrays.contains(payload.name)) {
+            // Already allocated on the stack, size arg is consumed.
+        } else {
+            llvm::Value* size_val =
+                builder.CreateFPToSI(size_f, builder.getInt64Ty());
 
-        llvm::Value* name_str =
-            builder.CreateGlobalString(payload.name, payload.name + "_name");
+            llvm::Value* name_str = builder.CreateGlobalString(
+                payload.name, payload.name + "_name");
 
-        llvm::Value* buffer_ptr = builder.CreateCall(
-            llvmexpr_ensure_buffer_func, {name_str, size_val});
+            llvm::Value* buffer_ptr = builder.CreateCall(
+                llvmexpr_ensure_buffer_func, {name_str, size_val});
 
-        array_ptr_cache[payload.name] = buffer_ptr;
+            array_ptr_cache[payload.name] = buffer_ptr;
+        }
         return true;
     }
 
@@ -388,15 +405,23 @@ bool SingleExprIRGenerator::process_mode_specific_token(
         const auto& payload = std::get<TokenPayload_ArrayOp>(token.payload);
         llvm::Value* idx_f = rpn_stack.back();
         rpn_stack.pop_back();
-
         llvm::Value* idx = builder.CreateFPToSI(idx_f, i32_ty);
 
-        llvm::Value* array_ptr = array_ptr_cache.at(payload.name);
+        if (named_arrays.contains(payload.name)) {
+            llvm::Value* array_ptr = named_arrays.at(payload.name);
+            llvm::Value* elem_ptr = builder.CreateInBoundsGEP(
+                llvm::cast<llvm::AllocaInst>(array_ptr)->getAllocatedType(),
+                array_ptr, {builder.getInt32(0), idx});
+            llvm::Value* value = builder.CreateLoad(float_ty, elem_ptr);
+            rpn_stack.push_back(value);
+        } else {
+            llvm::Value* array_ptr = array_ptr_cache.at(payload.name);
 
-        llvm::Value* elem_ptr = builder.CreateGEP(float_ty, array_ptr, idx);
+            llvm::Value* elem_ptr = builder.CreateGEP(float_ty, array_ptr, idx);
 
-        llvm::Value* value = builder.CreateLoad(float_ty, elem_ptr);
-        rpn_stack.push_back(value);
+            llvm::Value* value = builder.CreateLoad(float_ty, elem_ptr);
+            rpn_stack.push_back(value);
+        }
         return true;
     }
 
@@ -409,11 +434,19 @@ bool SingleExprIRGenerator::process_mode_specific_token(
 
         llvm::Value* idx = builder.CreateFPToSI(idx_f, i32_ty);
 
-        llvm::Value* array_ptr = array_ptr_cache.at(payload.name);
+        if (named_arrays.contains(payload.name)) {
+            llvm::Value* array_ptr = named_arrays.at(payload.name);
+            llvm::Value* elem_ptr = builder.CreateInBoundsGEP(
+                llvm::cast<llvm::AllocaInst>(array_ptr)->getAllocatedType(),
+                array_ptr, {builder.getInt32(0), idx});
+            builder.CreateStore(value, elem_ptr);
+        } else {
+            llvm::Value* array_ptr = array_ptr_cache.at(payload.name);
 
-        llvm::Value* elem_ptr = builder.CreateGEP(float_ty, array_ptr, idx);
+            llvm::Value* elem_ptr = builder.CreateGEP(float_ty, array_ptr, idx);
 
-        builder.CreateStore(value, elem_ptr);
+            builder.CreateStore(value, elem_ptr);
+        }
         return true;
     }
 
