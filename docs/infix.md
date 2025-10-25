@@ -25,301 +25,171 @@ This is a specialized model where the script is executed only *once for the enti
 
 ## 2. Preprocessor
 
-The infix2postfix tool includes a preprocessor that runs before parsing. This allows for macro definitions and conditional compilation, providing powerful code organization and configuration capabilities.
+The infix2postfix tool includes a powerful preprocessor that runs before the source code is parsed. It supports macro definitions, conditional compilation, and compile-time expression evaluation, enabling advanced code organization and configuration.
 
 ### 2.1. Overview
 
-The preprocessor processes directives at the beginning of lines (marked with `@`) before the source code is tokenized and parsed. All preprocessing is completed before semantic analysis begins.
+- **Activation**: Preprocessor directives are lines that begin with an `@` symbol (preceded by optional whitespace).
+- **Execution Order**: All preprocessor directives are executed to generate an intermediate source text. This text is then tokenized and parsed by the main compiler.
 
-#### Predefined Macros
+### 2.2. Macro Definitions
 
-The following macros are automatically defined:
+Macros allow you to define reusable names for constants and parameterized expressions.
 
-**Mode-Specific Macros:**
-- `__EXPR__` - Defined when compiling in `Expr` mode (per-pixel execution)
-- `__SINGLEEXPR__` - Defined when compiling in `SingleExpr` mode (per-frame execution)
+#### 2.2.1. Object-Like Macros (`@define`)
 
-These macros can be used with `@ifdef` to write mode-specific or format-specific code.
+Object-like macros are used to define constants or feature flags.
 
-**Context Macros (when using `infix=1` in VapourSynth):**
-- `__WIDTH__` - Output frame width (integer) (sub-pixeling not counted)
-- `__HEIGHT__` - Output frame height (integer) (sub-pixeling not counted)
-- `__INPUT_NUM__` - Number of input clips (integer)
-- `__OUTPUT_BITDEPTH__` - Output bit depth
-- `__INPUT_BITDEPTH_0__` - Bit depth of first input clip
-- `__INPUT_BITDEPTH_1__` - Bit depth of second input clip (if present)
-- `__INPUT_BITDEPTH_N__` - Bit depth of (N+1)-th input clip
-- `__SUBSAMPLE_W__` - Horizontal chroma subsampling (0 for 4:4:4, 1 for 4:2:0/4:2:2)
-- `__SUBSAMPLE_H__` - Vertical chroma subsampling (0 for 4:4:4/4:2:2, 1 for 4:2:0)
-- **Expr only:** `__PLANE_NO__` - Current plane being processed (0, 1, or 2)
-
-### 2.2. Preprocessor Directives
-
-All preprocessor directives start with `@` at the beginning of a line (after any whitespace):
-
-| Directive | Syntax                      | Description                                                                                 |
-| :-------- | :-------------------------- | :------------------------------------------------------------------------------------------ |
-| `@define` | `@define NAME [value]`      | Define an object-like macro. The value can be a constant expression that will be evaluated. |
-|           | `@define NAME(params) body` | Define a function-like macro with parameters. No space between name and `(`.                |
-| `@undef`  | `@undef NAME`               | Undefine a macro                                                                            |
-| `@ifdef`  | `@ifdef NAME ... @endif`    | Conditional compilation (if defined)                                                        |
-| `@ifndef` | `@ifndef NAME ... @endif`   | Conditional compilation (if not defined)                                                    |
-| `@if`     | `@if expression ... @endif` | Conditional compilation based on an expression's value.                                     |
-| `@else`   | `@else`                     | Alternative branch (optional)                                                               |
-| `@endif`  | `@endif`                    | End conditional block                                                                       |
-| `@error`  | `@error [message]`          | Emit compilation error if enabled                                                           |
-
-### 2.3. Macro Definitions
-
-The preprocessor supports two types of macros: object-like macros and function-like macros.
-
-#### 2.3.1. Object-Like Macros
-
-Define constants or feature flags using the `@define` directive:
-
-**Syntax:** `@define NAME [value]`
-
-- If a value is provided, all occurrences of `NAME` as a token will be replaced with the value
-- If the value is a constant expression that can be evaluated at compile time, it will be replaced with the result. For example, `@define SIX (2 * 3)` will cause `SIX` to expand to `6`.
-- If no value is provided, `NAME` is just marked as defined (useful for feature flags)
-- Macro names must start with a letter or underscore
-- Macro names can contain letters, digits, and underscores
+- **Syntax**: `@define NAME [value]`
+- **Behavior**:
+  - If a `value` is provided, all subsequent occurrences of `NAME` as a whole word will be replaced by the `value`.
+  - If the `value` is a constant expression that can be evaluated at compile time, it will be replaced with the computed result.
+  - If no `value` is provided, `NAME` is defined with an empty body. This is primarily useful for `@ifdef` checks.
 
 **Examples:**
-
 ```
 @define MAX_VALUE 255
 @define PI 3.14159
 @define ENABLE_FEATURE
-@define COMPUTED (2 * 3 + 1)  # Evaluates to 7
+@define COMPUTED (2 * 3 + 1)  # Expands to 7
 ```
 
-#### 2.3.2. Function-Like Macros
+#### 2.2.2. Function-Like Macros (`@define`)
 
-Function-like macros allow parameterized text replacement, similar to C preprocessor macros.
+Function-like macros provide parameterized text replacement, similar to C preprocessor macros.
 
-**Syntax:** `@define NAME(param1, param2, ...) body`
+- **Syntax**: `@define NAME(param1, param2, ...) body`
+- **Important**: There must be **no space** between the macro name and the opening parenthesis `(`. A space will cause it to be parsed as an object-like macro.
 
-**Important:** There must be **no space** between the macro name and the opening parenthesis. If there is a space, it will be treated as an object-like macro.
-
-- Parameters are identifiers separated by commas
-- Parameter names follow the same rules as variable names
-- The macro body can reference parameters, which will be replaced with the actual arguments when the macro is invoked
-- Parameters are replaced using word-boundary matching to avoid partial replacements
-
-**Invocation:**
-
-Function-like macros must be invoked with parentheses:
+- **Invocation**: To invoke a function-like macro, use its name followed by parentheses containing the arguments. If a function-like macro's name appears without `()`, it will not be expanded.
 
 ```
 @define MAX(a, b) ((a) > (b) ? (a) : (b))
 @define SQR(x) ((x) * (x))
+
 result = MAX(10, 20);  # Expands to: 20
 value = SQR(5);        # Expands to: 25
+addr = MAX;            # NOT expanded, remains 'MAX'
 ```
 
-**Without Parentheses:**
+- **Arguments**: Arguments can be complex expressions, and the preprocessor correctly handles nested parentheses. Before substitution, each argument is independently evaluated as a constant expression if possible.
 
-If a function-like macro name appears without parentheses, it will **not** be expanded:
+#### 2.2.3. Recursive Macros
 
-```
-@define ADD(a, b) ((a) + (b))
-
-x = ADD(5, 3);  # Expands to 8
-y = ADD;        # NOT expanded, remains as 'ADD'
-```
-
-This allows you to use the macro name as a regular identifier if needed.
-
-**Nested Macros:**
-
-Function-like macros can call other macros, and arguments can themselves be macro invocations. The preprocessor performs multiple passes, ensuring that macros are fully expanded.
-
-```
-@define ADD(a, b) ((a) + (b))
-@define DOUBLE(x) ADD(x, x)
-@define QUAD(x) DOUBLE(DOUBLE(x))
-
-result = QUAD(5); # Expands to 20
-```
-
-#### Recursive Macro Expansion
-
-Macros can be defined recursively. Combined with the ternary conditional operator (`? :`), this allows for compile-time computation. The preprocessor's expression evaluator uses short-circuiting for the ternary operator, which ensures that recursion terminates correctly.
+Macros can be defined recursively. When combined with the ternary conditional operator (`? :`), this enables powerful compile-time computation. The preprocessor's expression evaluator uses short-circuiting for the ternary operator, which ensures that recursion can terminate correctly.
 
 **Example: Compile-Time Factorial**
-
 ```
 @define FACTORIAL(n) (n == 0 ? 1 : (n * FACTORIAL(n - 1)))
 
-RESULT = FACTORIAL(5) # Expands to 120
+RESULT = FACTORIAL(5) # The preprocessor evaluates this to 120
 ```
 
-**Complex Arguments:**
+#### 2.2.4. Undefining Macros (`@undef`)
 
-Arguments can contain parentheses and commas. The preprocessor correctly handles parenthesis matching:
+You can remove a macro definition using the `@undef` directive.
 
-```
-@define PROCESS(expr) (expr)
+- **Syntax**: `@undef NAME`
 
-# The comma inside func() is not treated as an argument separator
-result = PROCESS(func(a, b));
-```
+#### 2.2.5. Differences from C/C++ Macros
 
-**Empty Parameter Lists:**
+This preprocessor is similar to C/C++ but has some key differences:
+- No `#` (stringification) or `##` (token pasting) operators.
+- No variadic macros (`...` and `__VA_ARGS__`).
+- Macro definitions must be on a single line (no `\` for continuation).
 
-Macros can have no parameters:
+### 2.3. Constant Expression Evaluation
 
-```
-@define ZERO() 0
-@define PI() 3.14159
+The preprocessor can evaluate constant expressions during macro expansion and for conditional compilation directives like `@if`. An expression is "constant" if it consists of literals and other macros that expand to constant values.
 
-x = ZERO();  # Expands to: 0
-```
+The expression evaluator supports:
+- **Literals**: Integers and floating-point numbers.
+- **Macros**: Previously defined macros are expanded before evaluation.
+- **`defined(MACRO)` Operator**: Returns `1` if `MACRO` is defined, `0` otherwise. This is useful within `@if` expressions.
+- **Operators**: The following operators are supported, with standard C-like precedence:
+  - **Arithmetic**: `+`, `-`, `*`, `/`, `%`, `**` (power)
+  - **Comparison**: `==`, `!=`, `>`, `<`, `>=`, `<=`
+  - **Logical**: `&&`, `||`, `!`
+  - **Bitwise**: `&`, `|`, `^`, `~`
+  - **Ternary Conditional**: `? :` (with short-circuiting)
+  - **Grouping**: `()`
 
-**Differences from C/C++ Macros:**
+### 2.4. Conditional Compilation
 
-- No `#` (stringification) operator
-- No `##` (token pasting) operator
-- No variadic macros (`...` and `__VA_ARGS__`)
-- No multiline macros (no backslash continuation)
-- All macro definitions must be on a single line
+Conditional directives allow you to include or exclude blocks of code based on certain conditions.
 
-### 2.4. Undefining Macros
+#### 2.4.1. `@ifdef` and `@ifndef`
 
-Remove a macro definition using the `@undef` directive:
+These directives check whether a macro is defined.
 
-**Syntax:** `@undef NAME`
+- **Syntax**:
+  ```
+  @ifdef MACRO_NAME
+    // Code to include if MACRO_NAME is defined
+  @else
+    // Optional: code to include if not defined
+  @endif
+  ```
+- `@ifndef` is the reverse: it includes code if a macro is *not* defined.
 
-### 2.5. Conditional Compilation
+#### 2.4.2. `@if`
 
-#### @ifdef - If Defined
+The `@if` directive provides more powerful conditional compilation based on the value of a constant expression.
 
-Include code only when a macro is defined:
+- **Syntax**:
+  ```
+  @if expression
+    // Code to include if expression evaluates to non-zero
+  @else
+    // Optional: code to include otherwise
+  @endif
+  ```
+- **Expression**: The directive evaluates the `expression` using the rules for constant expression evaluation (see section 2.3). The code block is included if the result is non-zero.
 
-**Syntax:**
-```
-@ifdef NAME
-  # Code included if NAME is defined
-@else
-  # Code included if NAME is not defined
-@endif
-```
+### 2.5. Error Directive (`@error`)
 
-The `@else` block is optional.
+You can use `@error` to force a compilation error if the directive is encountered in an active code block.
+
+- **Syntax**: `@error [message]`
+- This is useful for asserting configurations or flagging deprecated macro usage.
 
 **Example:**
-
 ```
-@define DEBUG_MODE
-
-@ifdef DEBUG_MODE
-  # This code will be included
-  debug_value = 42;
-@else
-  # This code will be excluded
-  debug_value = 0;
+@if defined(OLD_FEATURE)
+  @error OLD_FEATURE is deprecated. Please use NEW_FEATURE instead.
 @endif
 ```
 
-#### @ifndef - If Not Defined
+### 2.6. Macro Expansion Process
 
-Include code only when a macro is NOT defined:
+The preprocessor expands macros according to the following rules:
+1.  **Multiple Passes**: The preprocessor makes multiple passes over the source text, expanding macros until no more expansions can be performed. A recursion limit (1000) prevents infinite loops.
+2.  **Token-Based Matching**: Macro replacement is performed on a whole-word basis. For example, if `V` is a macro, it will not be expanded inside the identifier `VALUE`.
+3.  **Expansion Order**: The preprocessor fully expands a macro's arguments (if any) before substituting them into the macro body. The resulting text is then rescanned for further macro expansions.
 
-**Syntax:**
-```
-@ifndef NAME
-  # Code included if NAME is NOT defined
-@else
-  # Code included if NAME is defined
-@endif
-```
+### 2.7. Predefined Macros
 
-### 2.6. @if Directive
+The preprocessor provides several built-in macros that expose information about the execution context.
 
-The `@if` directive allows for conditional compilation based on the result of a constant expression.
+#### Mode-Specific Macros
+| Macro            | Description                                              |
+| :--------------- | :------------------------------------------------------- |
+| `__EXPR__`       | Defined when compiling in `Expr` mode (per-pixel).       |
+| `__SINGLEEXPR__` | Defined when compiling in `SingleExpr` mode (per-frame). |
 
-**Syntax:**
-```
-@if expression
-  # Code included if the expression evaluates to a non-zero value
-@else
-  # Optional: code included otherwise
-@endif
-```
+#### Context Macros (when `infix=1` is used)
+These are defined by the VapourSynth filter when it invokes the transpiler.
 
-The expression can contain:
-- Integer and floating-point literals.
-- Previously defined macros, which will be expanded.
-- The `defined(MACRO)` operator, which returns 1 if `MACRO` is defined, and 0 otherwise.
-- Arithmetic operators: `+`, `-`, `*`, `/`, `%`, `**`
-- Comparison operators: `==`, `!=`, `>`, `<`, `>=`, `<=`
-- Logical operators: `&&`, `||`, `!`
-- The ternary conditional operator: `? :` (with short-circuit evaluation).
-- Parentheses `()` for grouping.
-
-
-### 2.7. Error Directive
-
-Use `@error` to emit a compilation error if the directive is encountered in active code:
-
-**Syntax:** `@error [message]`
-
-This is useful for preventing compilation in certain configurations or warning about deprecated features. The `@error` directive only triggers when it's in an active code block.
-
-**Example:**
-
-```
-@ifdef __EXPR__
-  @error This expr should not be used in Expr mode
-@endif
-```
-
-### 2.8. Macro Expansion
-
-Macros are expanded during preprocessing with the following rules:
-
-**Object-Like Macros:**
-
-1. Only complete tokens (identifiers) are replaced
-2. Macro names must start with a letter or underscore
-3. Macro names can contain letters, digits, and underscores
-4. If the macro value is a constant expression, it will be evaluated at preprocessing time
-
-**Function-Like Macros:**
-
-1. Must be followed by `(` to be expanded (no space between name and `(`)
-2. Arguments are parsed with proper parenthesis matching
-3. Parameters are replaced in the macro body using word-boundary matching
-4. Recursive expansion is supported: macros can call other macros
-
-**Expansion Process:**
-
-The preprocessor performs multiple passes of macro expansion until no more macros can be expanded (up to a recursion limit of 1000). This allows for complex nested macro invocations.
-
-**Example:**
-
-```
-# Object-like macros
-@define MAX 100
-@define SQUARE 2 ** 2        # Evaluates to: 4
-@define LARGE_VALUE 2 ** 10  # Evaluates to: 1024
-
-x = MAX;        # Expands to: x = 100;
-y = MAX + 1;    # Expands to: y = 100 + 1;
-z = SQUARE;     # Expands to: z = 4;
-
-# Function-like macros
-@define ADD(a, b) ((a) + (b))
-@define DOUBLE(x) ADD(x, x)
-
-result = DOUBLE(5);  # First: ADD(5, 5), then evaluated to: 10
-```
-
-**Notes:**
-- The `**` operator (power/exponentiation) is right-associative, meaning `2 ** 3 ** 2` is evaluated as `2 ** (3 ** 2)` = `2 ** 9` = `512`.
-- Power operations always produce floating-point results in the preprocessor.
-- For function-like macros, each argument can be an arbitrary expression, including other macro calls.
+| Macro                  | Description                                                          |
+| :--------------------- | :------------------------------------------------------------------- |
+| `__WIDTH__`            | Output frame width (integer, sub-sampling not counted).              |
+| `__HEIGHT__`           | Output frame height (integer, sub-sampling not counted).             |
+| `__INPUT_NUM__`        | Number of input clips (integer).                                     |
+| `__OUTPUT_BITDEPTH__`  | Output bit depth.                                                    |
+| `__INPUT_BITDEPTH_N__` | Bit depth of the (N+1)-th input clip (e.g., `__INPUT_BITDEPTH_0__`). |
+| `__SUBSAMPLE_W__`      | Horizontal chroma subsampling (`1` for 4:2:x, `0` otherwise).        |
+| `__SUBSAMPLE_H__`      | Vertical chroma subsampling (`1` for 4:2:0, `0` otherwise).          |
+| `__PLANE_NO__`         | Current plane being processed (`0`, `1`, or `2`). (`Expr` mode only) |
 
 ## 3. Lexical Structure
 
