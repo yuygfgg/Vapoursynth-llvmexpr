@@ -149,12 +149,21 @@ class Preprocessor::ExpressionEvaluator {
         Power,
         LParen,
         RParen,
+        LBracket,
+        RBracket,
+        LBrace,
+        RBrace,
+        Dot,
         Comma,
         Question,
         Colon,
         LogicalAnd,
         LogicalOr,
         LogicalNot,
+        BitAnd,
+        BitOr,
+        BitXor,
+        BitNot,
         Equal,
         NotEqual,
         Greater,
@@ -208,6 +217,22 @@ class Preprocessor::ExpressionEvaluator {
                 continue;
             }
 
+            if (expression[i] == '$') {
+                size_t start = i;
+                i++; // Skip '$'
+                while (i < expression.length() &&
+                       ((std::isalnum(expression[i]) != 0) ||
+                        expression[i] == '_')) {
+                    i++;
+                }
+                std::string text = expression.substr(start, i - start);
+                if (text.length() == 1) {
+                    throw std::runtime_error("Invalid '$' expression");
+                }
+                tokens.push_back({TokenType::Identifier, text, Value{}});
+                continue;
+            }
+
             if ((std::isalpha(expression[i]) != 0) || expression[i] == '_') {
                 size_t start = i;
                 while (i < expression.length() &&
@@ -247,6 +272,21 @@ class Preprocessor::ExpressionEvaluator {
             case ')':
                 tokens.push_back({TokenType::RParen, ")"});
                 break;
+            case '[':
+                tokens.push_back({TokenType::LBracket, "["});
+                break;
+            case ']':
+                tokens.push_back({TokenType::RBracket, "]"});
+                break;
+            case '{':
+                tokens.push_back({TokenType::LBrace, "{"});
+                break;
+            case '}':
+                tokens.push_back({TokenType::RBrace, "}"});
+                break;
+            case '.':
+                tokens.push_back({TokenType::Dot, "."});
+                break;
             case ',':
                 tokens.push_back({TokenType::Comma, ","});
                 break;
@@ -277,7 +317,7 @@ class Preprocessor::ExpressionEvaluator {
                     tokens.push_back({TokenType::LogicalAnd, "&&"});
                     i++;
                 } else {
-                    throw std::runtime_error("Unexpected token '&'");
+                    tokens.push_back({TokenType::BitAnd, "&"});
                 }
                 break;
             case '|':
@@ -285,8 +325,14 @@ class Preprocessor::ExpressionEvaluator {
                     tokens.push_back({TokenType::LogicalOr, "||"});
                     i++;
                 } else {
-                    throw std::runtime_error("Unexpected token '|'");
+                    tokens.push_back({TokenType::BitOr, "|"});
                 }
+                break;
+            case '^':
+                tokens.push_back({TokenType::BitXor, "^"});
+                break;
+            case '~':
+                tokens.push_back({TokenType::BitNot, "~"});
                 break;
             case '>':
                 if (i + 1 < expression.length() && expression[i + 1] == '=') {
@@ -640,6 +686,7 @@ class Preprocessor::ExpressionEvaluator {
     void skip_else_branch() {
         int nested = 0;
         int paren_depth = 0;
+        int bracket_depth = 0;
         while (true) {
             TokenType t = peek().type;
             if (t == TokenType::Eof) {
@@ -658,7 +705,20 @@ class Preprocessor::ExpressionEvaluator {
                 consume();
                 continue;
             }
-            if (t == TokenType::Comma && paren_depth == 0) {
+            if (t == TokenType::LBracket) {
+                bracket_depth++;
+                consume();
+                continue;
+            }
+            if (t == TokenType::RBracket) {
+                if (bracket_depth > 0) {
+                    bracket_depth--;
+                    consume();
+                    continue;
+                }
+            }
+            if (t == TokenType::Comma && paren_depth == 0 &&
+                bracket_depth == 0) {
                 break; // end of this branch in argument list
             }
             if (t == TokenType::Question) {
