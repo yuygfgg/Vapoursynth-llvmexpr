@@ -4,6 +4,7 @@
 #include <span>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 #include "ASTPrinter.hpp"
 #include "AnalysisEngine.hpp"
@@ -41,65 +42,85 @@ int main(int argc, char* argv[]) {
     }
 
     for (int i = 1; i < argc; ++i) {
-        std::string arg = args[i];
-        if (arg == "-o") {
-            if (i + 1 < argc) {
-                output_file = args[++i];
+        std::string_view arg = args[i];
+
+        if (!arg.starts_with('-')) {
+            if (!input_file.empty()) {
+                std::cerr << "Error: Only one input file can be specified.\n";
+                return 1;
             }
+            input_file = arg;
+            continue;
+        }
+
+        if (arg == "-o") {
+            if (i + 1 >= argc) {
+                std::cerr << "Error: -o requires an argument\n";
+                return 1;
+            }
+            output_file = args[++i];
         } else if (arg == "-m") {
-            if (i + 1 < argc) {
-                std::string mode_str = args[++i];
-                if (mode_str == "single") {
-                    mode = Mode::Single;
-                } else if (mode_str != "expr") {
-                    std::cerr << std::format(
-                        "Error: Invalid mode '{}'. Use 'expr' or 'single'.\n",
-                        mode_str);
-                    return 1;
-                }
+            if (i + 1 >= argc) {
+                std::cerr << "Error: -m requires an argument\n";
+                return 1;
+            }
+            std::string_view mode_str = args[++i];
+            if (mode_str == "single") {
+                mode = Mode::Single;
+            } else if (mode_str != "expr") {
+                std::cerr << std::format(
+                    "Error: Invalid mode '{}'. Use 'expr' or 'single'.\n",
+                    std::string(mode_str));
+                return 1;
             }
         } else if (arg == "-D") {
-            if (i + 1 < argc) {
-                std::string macro_def = args[++i];
-                size_t eq_pos = macro_def.find('=');
-                if (eq_pos != std::string::npos) {
-                    std::string name = macro_def.substr(0, eq_pos);
-                    std::string value = macro_def.substr(eq_pos + 1);
-                    predefined_macros.emplace_back(name, value);
-                } else {
-                    predefined_macros.emplace_back(macro_def, "");
-                }
-            } else {
+            if (i + 1 >= argc) {
                 std::cerr << "Error: -D requires an argument\n";
                 return 1;
+            }
+            std::string_view macro_def = args[++i];
+            size_t eq_pos = macro_def.find('=');
+            if (eq_pos != std::string_view::npos) {
+                std::string name(macro_def.substr(0, eq_pos));
+                std::string value(macro_def.substr(eq_pos + 1));
+                predefined_macros.emplace_back(std::move(name),
+                                               std::move(value));
+            } else {
+                predefined_macros.emplace_back(std::string(macro_def), "");
             }
         } else if (arg == "--dump-ast") {
             dump_ast = true;
         } else if (arg == "-E") {
             preprocess_only = true;
         } else {
-            if (input_file.empty()) {
-                input_file = arg;
-            } else {
-                print_usage();
-                return 1;
-            }
+            std::cerr << std::format("Error: Unknown option '{}'\n",
+                                     std::string(arg));
+            print_usage();
+            return 1;
         }
     }
 
     if (input_file.empty()) {
+        std::cerr << "Error: No input file specified.\n";
         print_usage();
         return 1;
     }
 
-    if (!preprocess_only && output_file.empty()) {
-        print_usage();
-        return 1;
-    }
-
-    if (preprocess_only && dump_ast) {
-        std::cerr << "Error: --dump-ast and -E cannot be used together\n";
-        return 1;
+    if (preprocess_only) {
+        if (dump_ast) {
+            std::cerr << "Error: --dump-ast and -E cannot be used together\n";
+            return 1;
+        }
+        if (!output_file.empty()) {
+            std::cerr << "Error: -o and -E cannot be used together\n";
+            return 1;
+        }
+    } else {
+        if (output_file.empty()) {
+            std::cerr << "Error: Output file must be specified with -o\n";
+            print_usage();
+            return 1;
+        }
     }
 
     std::ifstream in_stream(input_file);

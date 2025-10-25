@@ -85,6 +85,13 @@ Macros can be defined recursively. When combined with the ternary conditional op
 RESULT = FACTORIAL(5) # The preprocessor evaluates this to 120
 ```
 
+**Example: Compile-Time Array Expansion**
+```
+@define MINUS(a, b) ((a) - (b)) # This marco is crucial, otherwise the '- 1' will persist in the expanded array index.
+@define EXPAND(array, count) ((count) <= 0 ? 0 : (EXPAND(array, MINUS(count, 1)) + array[MINUS(count, 1)]))
+RESULT = EXPAND(arr, 5) # Will be expanded to '((5) <= 0 ? 0 : (((4) <= 0 ? 0 : (((3) <= 0 ? 0 : (((2) <= 0 ? 0 : (((1) <= 0 ? 0 : (0 + arr[0])) + arr[1])) + arr[2])) + arr[3])) + arr[4]))'
+```
+
 #### 2.2.4. Undefining Macros (`@undef`)
 
 You can remove a macro definition using the `@undef` directive.
@@ -180,16 +187,16 @@ The preprocessor provides several built-in macros that expose information about 
 #### Context Macros (when `infix=1` is used)
 These are defined by the VapourSynth filter when it invokes the transpiler.
 
-| Macro                  | Description                                                          |
-| :--------------------- | :------------------------------------------------------------------- |
-| `__WIDTH__`            | Output frame width (integer, sub-sampling not counted).              |
-| `__HEIGHT__`           | Output frame height (integer, sub-sampling not counted).             |
-| `__INPUT_NUM__`        | Number of input clips (integer).                                     |
-| `__OUTPUT_BITDEPTH__`  | Output bit depth.                                                    |
-| `__INPUT_BITDEPTH_N__` | Bit depth of the (N+1)-th input clip (e.g., `__INPUT_BITDEPTH_0__`). |
-| `__SUBSAMPLE_W__`      | Horizontal chroma subsampling (`1` for 4:2:x, `0` otherwise).        |
-| `__SUBSAMPLE_H__`      | Vertical chroma subsampling (`1` for 4:2:0, `0` otherwise).          |
-| `__PLANE_NO__`         | Current plane being processed (`0`, `1`, or `2`). (`Expr` mode only) |
+| Macro                  | Description                                                              |
+| :--------------------- | :----------------------------------------------------------------------- |
+| `__WIDTH__`            | Output frame width (integer, sub-sampling not counted).                  |
+| `__HEIGHT__`           | Output frame height (integer, sub-sampling not counted).                 |
+| `__INPUT_NUM__`        | Number of input clips (integer).                                         |
+| `__OUTPUT_BITDEPTH__`  | Output bit depth.                                                        |
+| `__INPUT_BITDEPTH_N__` | Bit depth of the (N+1)-th input clip (e.g., `__INPUT_BITDEPTH_0__`).     |
+| `__SUBSAMPLE_W__`      | Horizontal chroma subsampling (`1` for 4:2:x, `0` otherwise).            |
+| `__SUBSAMPLE_H__`      | Vertical chroma subsampling (`1` for 4:2:0, `0` otherwise).              |
+| `__PLANE_NO__`         | Current plane being processed (`0`, `1`, or `2`). (**`Expr` mode only**) |
 
 ## 3. Lexical Structure
 
