@@ -126,6 +126,7 @@ class Preprocessor {
     std::string expandMacrosImpl(const std::string& line, int line_number,
                                  std::vector<MacroExpansion>* expansions_out);
     std::string expandDefinedOperator(const std::string& text);
+    std::string expandConstEvalOperators(const std::string& text);
     std::string evaluateIfPossible(const std::string& text);
     [[nodiscard]] bool isCurrentBlockActive() const;
 

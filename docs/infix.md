@@ -198,6 +198,33 @@ These are defined by the VapourSynth filter when it invokes the transpiler.
 | `__SUBSAMPLE_H__`      | Vertical chroma subsampling (`1` for 4:2:0, `0` otherwise).              |
 | `__PLANE_NO__`         | Current plane being processed (`0`, `1`, or `2`). (**`Expr` mode only**) |
 
+### 2.8. Compile-Time Evaluation Helpers
+
+The preprocessor provides two helper intrinsics to control constant evaluation semantics during preprocessing. They operate only within the preprocessor's evaluation context (e.g., in `@if` expressions or when the preprocessor attempts to fold constant macro arguments).
+
+- `is_consteval(expr)`
+  - Returns `1` if `expr` can be fully evaluated as a compile-time constant under the current macro context; otherwise returns `0`.
+  - Never raises an error. Un-evaluable expressions simply yield `0`.
+  - Works with nested conditionals; non-taken ternary branches are not evaluated.
+
+- `consteval(expr)`
+  - Forces compile-time evaluation of `expr`. If successful, it is replaced by the computed numeric result.
+  - If the expression cannot be evaluated at compile-time, a preprocessing error is raised.
+
+**Examples:**
+```
+@define FAST_PATH(n) ((n) * (n))
+@define SLOW_PATH(x) (fma((x), (x), 0))
+
+@define DISPATCH(x) (is_consteval(x) ? FAST_PATH(consteval(x)) : SLOW_PATH(x))
+
+@if is_consteval(LEN)
+  @define BUF_LEN consteval(LEN)
+@else
+  @define BUF_LEN 256
+@endif
+```
+
 ## 3. Lexical Structure
 
 ### 3.1. Comments

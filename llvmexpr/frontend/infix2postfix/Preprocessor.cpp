@@ -80,6 +80,7 @@ class Preprocessor::ExpressionEvaluator {
 
     std::variant<int64_t, double> evaluate() {
         expression = preprocessor->expandDefinedOperator(expression);
+        expression = preprocessor->expandConstEvalOperators(expression);
         tokenize();
         pos = 0;
         if (tokens.size() == 1 && tokens[0].type == TokenType::Eof) {
@@ -745,10 +746,147 @@ class Preprocessor::ExpressionEvaluator {
     int recursion_depth;
 };
 
-std::string Preprocessor::evaluateIfPossible(const std::string& text) {
+std::string Preprocessor::evaluateIfPossible(const std::string& text_in) {
+    std::string text = trim(text_in);
+
     ExpressionEvaluator evaluator(text, this);
     auto evaluated = evaluator.try_evaluate_constant();
-    return evaluated ? ExpressionEvaluator::toString(*evaluated) : text;
+    if (evaluated) {
+        return ExpressionEvaluator::toString(*evaluated);
+    }
+
+    // Stripping enclosing parentheses
+    if (text.length() > 1 && text.front() == '(' && text.back() == ')') {
+        int level = 0;
+        bool enclosed = true;
+        for (size_t i = 0; i < text.length(); ++i) {
+            if (text[i] == '(') {
+                level++;
+            } else if (text[i] == ')') {
+                level--;
+            }
+            if (level == 0 && i < text.length() - 1) {
+                enclosed = false;
+                break;
+            }
+        }
+        if (enclosed) {
+            return evaluateIfPossible(text.substr(1, text.length() - 2));
+        }
+    }
+
+    size_t first_close = text.find(')');
+    if (first_close != std::string::npos) {
+        size_t open_for_close = text.rfind('(', first_close);
+        if (open_for_close != std::string::npos) {
+            std::string inner = text.substr(open_for_close + 1,
+                                            first_close - open_for_close - 1);
+            std::string simplified_inner = evaluateIfPossible(inner);
+            if (simplified_inner != inner) {
+                std::string new_text = text.substr(0, open_for_close) +
+                                       simplified_inner +
+                                       text.substr(first_close + 1);
+                return evaluateIfPossible(new_text);
+            }
+        }
+    }
+
+    int paren_depth = 0;
+    int bracket_depth = 0;
+    int brace_depth = 0;
+    size_t qpos = std::string::npos;
+    for (size_t i = 0; i < text.length(); ++i) {
+        char ch = text[i];
+        if (ch == '(') {
+            paren_depth++;
+        } else if (ch == ')') {
+            if (paren_depth > 0) {
+                paren_depth--;
+            }
+        } else if (ch == '[') {
+            bracket_depth++;
+        } else if (ch == ']') {
+            if (bracket_depth > 0) {
+                bracket_depth--;
+            }
+        } else if (ch == '{') {
+            brace_depth++;
+        } else if (ch == '}') {
+            if (brace_depth > 0) {
+                brace_depth--;
+            }
+        } else if (ch == '?' && paren_depth == 0 && bracket_depth == 0 &&
+                   brace_depth == 0) {
+            qpos = i;
+            break;
+        }
+    }
+
+    if (qpos == std::string::npos) {
+        return text;
+    }
+
+    std::string cond_src = text.substr(0, qpos);
+    cond_src = expandDefinedOperator(cond_src);
+    try {
+        cond_src = expandMacrosImpl(cond_src, /*line_number*/ 0, nullptr);
+    } catch (const PreprocessorError&) {
+        return text;
+    }
+    cond_src = expandConstEvalOperators(cond_src);
+
+    ExpressionEvaluator cond_eval(cond_src, this);
+    auto cond_maybe = cond_eval.try_evaluate_constant();
+    if (!cond_maybe) {
+        return text;
+    }
+    const bool cond_truthy = ExpressionEvaluator::is_truthy(*cond_maybe);
+
+    size_t cpos = std::string::npos;
+    int nested = 0;
+    paren_depth = bracket_depth = brace_depth = 0;
+    for (size_t i = qpos + 1; i < text.length(); ++i) {
+        char ch = text[i];
+        if (ch == '(') {
+            paren_depth++;
+        } else if (ch == ')') {
+            if (paren_depth > 0) {
+                paren_depth--;
+            }
+        } else if (ch == '[') {
+            bracket_depth++;
+        } else if (ch == ']') {
+            if (bracket_depth > 0) {
+                bracket_depth--;
+            }
+        } else if (ch == '{') {
+            brace_depth++;
+        } else if (ch == '}') {
+            if (brace_depth > 0) {
+                brace_depth--;
+            }
+        } else if (ch == '?' && paren_depth == 0 && bracket_depth == 0 &&
+                   brace_depth == 0) {
+            nested++;
+        } else if (ch == ':' && paren_depth == 0 && bracket_depth == 0 &&
+                   brace_depth == 0) {
+            if (nested == 0) {
+                cpos = i;
+                break;
+            }
+            nested--;
+        }
+    }
+
+    if (cpos == std::string::npos) {
+        return text;
+    }
+
+    const std::string then_text = text.substr(qpos + 1, cpos - (qpos + 1));
+    const std::string else_text = text.substr(cpos + 1);
+    std::string simplified = cond_truthy ? then_text : else_text;
+
+    return evaluateIfPossible(simplified);
 }
 
 void Preprocessor::LineParser::skipWhitespace() {
@@ -1339,6 +1477,85 @@ std::string Preprocessor::expandDefinedOperator(const std::string& text) {
         }
         pos++;
     }
+    return processed;
+}
+
+std::string Preprocessor::expandConstEvalOperators(const std::string& text) {
+    std::string processed = text;
+
+    auto process_one = [&](const std::string& name, bool is_probe) {
+        size_t pos = 0;
+        while ((pos = processed.find(name, pos)) != std::string::npos) {
+            if (!isWordBoundary(processed, pos, name.length())) {
+                pos++;
+                continue;
+            }
+
+            size_t start =
+                processed.find_first_not_of(" \t", pos + name.length());
+            if (start == std::string::npos || processed[start] != '(') {
+                pos++;
+                continue;
+            }
+
+            size_t arg_begin = start + 1;
+            int depth = 0;
+            size_t i = arg_begin;
+            bool found = false;
+            while (i < processed.length()) {
+                char ch = processed[i];
+                if (ch == '(') {
+                    depth++;
+                } else if (ch == ')') {
+                    if (depth == 0) {
+                        found = true;
+                        break;
+                    }
+                    depth--;
+                }
+                i++;
+            }
+
+            if (!found) {
+                // Unbalanced parentheses
+                pos++;
+                continue;
+            }
+
+            std::string arg = processed.substr(arg_begin, i - arg_begin);
+
+            // Evaluate argument
+            std::optional<std::variant<int64_t, double>> maybe;
+            try {
+                ExpressionEvaluator nested(arg, this);
+                maybe = nested.try_evaluate_constant();
+            } catch (const PreprocessorError&) {
+                if (is_probe) {
+                    maybe = std::nullopt;
+                } else {
+                    throw; // consteval()
+                }
+            }
+
+            if (is_probe) {
+                const std::string repl = (maybe ? "1" : "0");
+                processed.replace(pos, (i - pos) + 1, repl);
+                pos += repl.length();
+            } else {
+                if (!maybe) {
+                    throw PreprocessorError(
+                        "consteval() requires a constant expression");
+                }
+                const std::string repl = ExpressionEvaluator::toString(*maybe);
+                processed.replace(pos, (i - pos) + 1, repl);
+                pos += repl.length();
+            }
+        }
+    };
+
+    process_one("consteval", false);
+    process_one("is_consteval", true);
+
     return processed;
 }
 
