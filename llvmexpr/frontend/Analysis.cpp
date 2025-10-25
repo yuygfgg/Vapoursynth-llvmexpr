@@ -23,6 +23,7 @@
 #include <cmath>
 #include <format>
 #include <iterator>
+#include <numbers>
 #include <optional>
 #include <set>
 #include <stdexcept>
@@ -319,7 +320,7 @@ void ExpressionAnalyser::validate_and_build_cfg() {
                         std::get<TokenPayload_Number>(token.payload).value);
                     break;
                 case TokenType::CONSTANT_PI:
-                    push_result(M_PI);
+                    push_result(std::numbers::pi_v<double>);
                     break;
                 case TokenType::ADD:
                     push_result(can_compute ? std::optional(args[0].value() +
