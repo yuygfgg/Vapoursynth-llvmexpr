@@ -225,6 +225,12 @@ The preprocessor provides two helper intrinsics to control constant evaluation s
 @endif
 ```
 
+### 2.9. Including Standard Libraries (`@requires`)
+
+You can include built-in standard libraries using the `@requires` directive. This is the primary way to access a rich set of pre-defined functions and constants.
+
+- **Syntax**: `@requires <library_name>`
+
 ## 3. Lexical Structure
 
 ### 3.1. Comments

@@ -10,8 +10,10 @@ namespace infix2postfix {
 
 AnalysisEngine::AnalysisEngine(const std::vector<Token>& tokens, Mode mode,
                                int num_inputs,
-                               const std::vector<LineMapping>& line_map)
-    : tokens(tokens), mode(mode), num_inputs(num_inputs), line_map(line_map) {}
+                               const std::vector<LineMapping>& line_map,
+                               int library_line_count)
+    : tokens(tokens), mode(mode), num_inputs(num_inputs), line_map(line_map),
+      library_line_count(library_line_count) {}
 
 AnalysisEngine::~AnalysisEngine() = default;
 
@@ -31,7 +33,8 @@ bool AnalysisEngine::runAnalysis() {
         return false;
     }
 
-    semantic_analyzer = std::make_unique<SemanticAnalyzer>(mode, num_inputs);
+    semantic_analyzer = std::make_unique<SemanticAnalyzer>(mode, num_inputs,
+                                                           library_line_count);
     semantic_analyzer->analyze(ast.get());
 
     const auto& semantic_diagnostics = semantic_analyzer->getDiagnostics();

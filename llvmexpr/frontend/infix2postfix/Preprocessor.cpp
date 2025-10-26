@@ -18,6 +18,7 @@
  */
 
 #include "Preprocessor.hpp"
+#include "StandardLibrary.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -917,6 +918,8 @@ PreprocessResult Preprocessor::process() {
     errors.clear();
     conditional_stack.clear();
     current_output_line = 1;
+    included_libraries.clear();
+    library_line_count = 0;
 
     std::istringstream stream(source);
     std::string line;
@@ -938,6 +941,7 @@ PreprocessResult Preprocessor::process() {
     result.success = errors.empty();
     result.errors = errors;
     result.line_map = line_mappings;
+    result.library_line_count = library_line_count;
 
     std::ostringstream oss;
     for (size_t i = 0; i < output_lines.size(); ++i) {
@@ -1154,6 +1158,10 @@ void Preprocessor::handleDirective(const std::string& line, int line_number) {
     } else if (directive == "error") {
         if (isCurrentBlockActive()) {
             handleError(line, line_number);
+        }
+    } else if (directive == "requires") {
+        if (isCurrentBlockActive()) {
+            handleRequires(line, line_number);
         }
     } else {
         if (isCurrentBlockActive()) {
@@ -1710,6 +1718,157 @@ Preprocessor::formatMacroExpansions(const std::vector<LineMapping>& line_map) {
     }
 
     return result;
+}
+
+void Preprocessor::handleRequires(const std::string& line, int line_number) {
+    // @requires <library_name>
+    LineParser parser(line);
+    size_t requires_pos = line.find("@requires");
+    if (requires_pos == std::string::npos) {
+        return;
+    }
+
+    parser.pos = requires_pos + std::string("@requires").length();
+    parser.skipWhitespace();
+
+    if (parser.eof()) {
+        addError("@requires requires a library name", line_number);
+        return;
+    }
+
+    auto lib_name_sv = parser.extractIdentifier();
+    if (lib_name_sv.empty()) {
+        addError("@requires requires a valid library name", line_number);
+        return;
+    }
+
+    std::string lib_name(lib_name_sv);
+
+    std::vector<std::string_view> libraries_to_include;
+    try {
+        libraries_to_include =
+            StandardLibraryManager::resolveDependencies(lib_name_sv);
+    } catch (const std::exception& e) {
+        addError(std::format("Failed to resolve library '{}': {}", lib_name,
+                             e.what()),
+                 line_number);
+        return;
+    }
+
+    std::string_view explicitly_requested_lib = lib_name_sv;
+
+    for (const auto& lib : libraries_to_include) {
+        if (included_libraries.contains(lib)) {
+            continue;
+        }
+
+        auto lib_code_opt = StandardLibraryManager::getLibraryCode(lib);
+        if (!lib_code_opt) {
+            addError(std::format("Library '{}' not found", std::string(lib)),
+                     line_number);
+            continue;
+        }
+
+        std::string lib_code = std::string(lib_code_opt.value());
+
+        Preprocessor lib_preprocessor(lib_code);
+        for (const auto& [name, macro] : macros) {
+            lib_preprocessor.macros[name] = macro;
+        }
+        auto lib_result = lib_preprocessor.process();
+
+        if (!lib_result.success) {
+            addError(std::format("Failed to preprocess library '{}': {}",
+                                 std::string(lib),
+                                 lib_result.errors.empty()
+                                     ? "unknown error"
+                                     : lib_result.errors[0]),
+                     line_number);
+            continue;
+        }
+
+        for (const auto& [name, macro] : lib_preprocessor.macros) {
+            macros[name] = macro;
+        }
+
+        std::vector<std::string> lib_lines;
+        std::istringstream lib_stream(lib_result.source);
+        std::string lib_line;
+        while (std::getline(lib_stream, lib_line)) {
+            lib_lines.push_back(lib_line);
+        }
+
+        if (lib == explicitly_requested_lib) {
+            auto exports_opt = StandardLibraryManager::getExports(lib);
+            if (exports_opt) {
+                std::string lib_name_upper;
+                for (char c : lib) {
+                    lib_name_upper += static_cast<char>(std::toupper(c));
+                }
+
+                for (const auto& exported : *exports_opt) {
+                    MacroDefinition alias_macro;
+                    alias_macro.name = std::string(exported.name);
+
+                    // Constants
+                    if (exported.param_count == 0) {
+                        alias_macro.body =
+                            std::format("___STDLIB_{}_{}", lib_name_upper,
+                                        std::string(exported.name));
+                        alias_macro.is_function_like = false;
+                    } else {
+                        // Functions
+                        std::string internal_name =
+                            std::format("___stdlib_{}_{}", std::string(lib),
+                                        std::string(exported.name));
+
+                        alias_macro.is_function_like = true;
+                        for (int i = 0; i < exported.param_count; ++i) {
+                            alias_macro.parameters.push_back(
+                                std::format("__arg{}", i));
+                        }
+
+                        alias_macro.body = internal_name + "(";
+                        for (int i = 0; i < exported.param_count; ++i) {
+                            if (i > 0) {
+                                alias_macro.body += ", ";
+                            }
+                            alias_macro.body += std::format("__arg{}", i);
+                        }
+                        alias_macro.body += ")";
+                    }
+
+                    macros[alias_macro.name] = alias_macro;
+                }
+            }
+        }
+
+        for (const auto& lib_line : lib_lines | std::views::reverse) {
+            output_lines.insert(output_lines.begin(), lib_line);
+
+            LineMapping mapping;
+            mapping.preprocessed_line = 1; // Will be adjusted later
+            mapping.original_line = -1;    // Special marker for library code
+            line_mappings.insert(line_mappings.begin(), mapping);
+        }
+
+        library_line_count += static_cast<int>(lib_lines.size());
+
+        for (size_t i = lib_lines.size(); i < line_mappings.size(); ++i) {
+            // User code
+            if (line_mappings[i].original_line > 0) {
+                line_mappings[i].preprocessed_line +=
+                    static_cast<int>(lib_lines.size());
+            }
+        }
+
+        for (size_t i = 0; i < lib_lines.size() && i < line_mappings.size();
+             ++i) {
+            line_mappings[i].preprocessed_line = static_cast<int>(i + 1);
+        }
+
+        included_libraries.insert(lib);
+    }
 }
 
 } // namespace infix2postfix

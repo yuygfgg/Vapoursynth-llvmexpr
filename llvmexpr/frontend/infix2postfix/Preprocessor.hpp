@@ -22,8 +22,10 @@
 
 #include <map>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace infix2postfix {
@@ -60,6 +62,7 @@ struct PreprocessResult {
     std::vector<LineMapping> line_map;
     std::vector<std::string> errors;
     bool success;
+    int library_line_count = 0;
 };
 
 class Preprocessor {
@@ -117,6 +120,7 @@ class Preprocessor {
     void handleElse(const std::string& line, int line_number);
     void handleEndif(const std::string& line, int line_number);
     void handleError(const std::string& line, int line_number);
+    void handleRequires(const std::string& line, int line_number);
 
     std::optional<std::vector<std::string>>
     parseMacroArguments(LineParser& parser, const std::string& macro_name,
@@ -146,6 +150,9 @@ class Preprocessor {
     std::vector<std::string> errors;
 
     int current_output_line = 1;
+
+    std::set<std::string_view> included_libraries;
+    int library_line_count = 0;
 };
 
 } // namespace infix2postfix

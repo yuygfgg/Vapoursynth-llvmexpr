@@ -178,7 +178,7 @@ int main(int argc, char* argv[]) {
         AnalysisEngine engine(
             tokens, mode,
             114514, // NOLINT(cppcoreguidelines-avoid-magic-numbers)
-            preprocess_result.line_map);
+            preprocess_result.line_map, preprocess_result.library_line_count);
 
         bool success = engine.runAnalysis();
 

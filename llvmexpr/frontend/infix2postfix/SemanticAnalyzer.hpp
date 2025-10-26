@@ -15,7 +15,7 @@ namespace infix2postfix {
 
 class SemanticAnalyzer {
   public:
-    SemanticAnalyzer(Mode mode, int num_inputs);
+    SemanticAnalyzer(Mode mode, int num_inputs, int library_line_count = 0);
 
     class ScopeGuard {
       public:
@@ -113,6 +113,7 @@ class SemanticAnalyzer {
 
     Mode mode;
     int num_inputs;
+    int library_line_count;
     bool has_result = false;
     bool result_defined_in_global_scope = false;
 

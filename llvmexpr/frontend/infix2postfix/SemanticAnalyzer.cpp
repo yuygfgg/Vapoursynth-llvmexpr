@@ -9,8 +9,10 @@
 
 namespace infix2postfix {
 
-SemanticAnalyzer::SemanticAnalyzer(Mode mode, int num_inputs)
+SemanticAnalyzer::SemanticAnalyzer(Mode mode, int num_inputs,
+                                   int library_line_count)
     : mode(mode), num_inputs(num_inputs),
+      library_line_count(library_line_count),
       global_scope(std::make_unique<SymbolTable>()),
       current_scope(global_scope.get()) {}
 
@@ -169,6 +171,11 @@ bool SemanticAnalyzer::analyze(Program* program) {
     for (const auto& [name, symbol] : global_scope->get_symbols()) {
         if (!symbol->is_used) {
             if (symbol->name == "RESULT") {
+                continue;
+            }
+
+            // Skip warnings for symbols defined in standard library code
+            if (symbol->definition_range.start.line <= library_line_count) {
                 continue;
             }
 
@@ -1018,6 +1025,10 @@ void SemanticAnalyzer::analyze(FunctionDef& stmt) {
         // Check for unused local variables and parameters
         for (const auto& [name, symbol] : current_scope->get_symbols()) {
             if (!symbol->is_used) {
+                // Skip warnings for symbols in standard library functions
+                if (symbol->definition_range.start.line <= library_line_count) {
+                    continue;
+                }
                 reportWarning(std::format("Unused symbol '{}'", name),
                               symbol->definition_range);
             }

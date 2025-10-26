@@ -30,7 +30,8 @@ class SemanticAnalyzer; // Forward declaration
 class AnalysisEngine {
   public:
     AnalysisEngine(const std::vector<Token>& tokens, Mode mode, int num_inputs,
-                   const std::vector<LineMapping>& line_map);
+                   const std::vector<LineMapping>& line_map,
+                   int library_line_count = 0);
     ~AnalysisEngine();
 
     AnalysisEngine(const AnalysisEngine&) = delete;
@@ -58,6 +59,7 @@ class AnalysisEngine {
     Mode mode;
     int num_inputs;
     std::vector<LineMapping> line_map;
+    int library_line_count;
 
     std::unique_ptr<Program> ast;
     std::unique_ptr<SemanticAnalyzer> semantic_analyzer;
