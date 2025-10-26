@@ -31,6 +31,7 @@ std::string convertInfixToPostfix(const std::string& infix_expr, int num_inputs,
     try {
         std::string preprocessed_source = infix_expr;
         std::vector<infix2postfix::LineMapping> line_map;
+        int library_line_count = 0;
 
         if (context != nullptr) {
             infix2postfix::Preprocessor preprocessor(infix_expr);
@@ -80,13 +81,14 @@ std::string convertInfixToPostfix(const std::string& infix_expr, int num_inputs,
 
             preprocessed_source = preprocess_result.source;
             line_map = preprocess_result.line_map;
+            library_line_count = preprocess_result.library_line_count;
         }
 
         infix2postfix::Tokenizer tokenizer(preprocessed_source);
         auto tokens = tokenizer.tokenize();
 
-        infix2postfix::AnalysisEngine engine(tokens, mode, num_inputs,
-                                             line_map);
+        infix2postfix::AnalysisEngine engine(tokens, mode, num_inputs, line_map,
+                                             library_line_count);
         bool success = engine.runAnalysis();
 
         if (!success) {
