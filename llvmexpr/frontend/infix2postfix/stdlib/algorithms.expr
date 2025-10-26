@@ -34,6 +34,51 @@ function ___stdlib_algorithms_heapify(Array a, Value n, Value i, Value offset) {
     heapify_loop_end:
 }
 
+function ___stdlib_algorithms_insertion_sort(Array a, Value begin, Value end) {
+    i = begin + 1;
+    while (i < end) {
+        key = a[i];
+        j = i - 1;
+        while (j >= begin && a[j] > key) {
+            a[j + 1] = a[j];
+            j = j - 1;
+        }
+        a[j + 1] = key;
+        i = i + 1;
+    }
+}
+
+function ___stdlib_algorithms_heapsort(Array a, Value begin, Value end) {
+    n = end - begin;
+
+    i = n / 2 - 1;
+    while (i >= 0) {
+        ___stdlib_algorithms_heapify(a, n, i, begin);
+        i = i - 1;
+    }
+
+    i = n - 1;
+    while (i > 0) {
+        ___stdlib_algorithms_swap(a, begin, begin + i);
+        ___stdlib_algorithms_heapify(a, i, 0, begin);
+        i = i - 1;
+    }
+}
+
+function ___stdlib_algorithms_median_of_three(Array a, Value low, Value high) {
+    mid = floor(low + (high - low) / 2);
+    if (a[low] > a[mid]) {
+        ___stdlib_algorithms_swap(a, low, mid);
+    }
+    if (a[low] > a[high]) {
+        ___stdlib_algorithms_swap(a, low, high);
+    }
+    if (a[mid] > a[high]) {
+        ___stdlib_algorithms_swap(a, mid, high);
+    }
+    ___stdlib_algorithms_swap(a, mid, high);
+}
+
 function ___stdlib_algorithms_partition(Array a, Value low, Value high) {
     pivot = a[high];
     i = low - 1;
@@ -108,18 +153,52 @@ function ___stdlib_algorithms_find_kth_smallest_slow(Array arr, Value begin, Val
 
 function ___stdlib_algorithms_sort(Array a, Value begin, Value end) {
     n = end - begin;
-
-    i = n / 2 - 1;
-    while (i >= 0) {
-        ___stdlib_algorithms_heapify(a, n, i, begin);
-        i = i - 1;
+    if (n <= 1) {
+        return;
     }
 
-    i = n - 1;
-    while (i > 0) {
-        ___stdlib_algorithms_swap(a, begin, begin + i);
-        ___stdlib_algorithms_heapify(a, i, 0, begin);
-        i = i - 1;
+    INSERTION_SORT_THRESHOLD = 16;
+    if (n < INSERTION_SORT_THRESHOLD) {
+        ___stdlib_algorithms_insertion_sort(a, begin, end);
+        return;
+    }
+
+    stack = new(192);
+    stack_ptr = 0;
+
+    stack[stack_ptr] = begin;
+    stack[stack_ptr + 1] = end;
+    stack[stack_ptr + 2] = 2 * floor(log2(n));
+    stack_ptr = stack_ptr + 3;
+
+    while (stack_ptr > 0) {
+        stack_ptr = stack_ptr - 3;
+        current_begin = stack[stack_ptr];
+        current_end = stack[stack_ptr + 1];
+        depth_limit = stack[stack_ptr + 2];
+
+        current_n = current_end - current_begin;
+        if (current_n > 1) {
+            if (current_n < INSERTION_SORT_THRESHOLD) {
+                ___stdlib_algorithms_insertion_sort(a, current_begin, current_end);
+            } else if (depth_limit == 0) {
+                ___stdlib_algorithms_heapsort(a, current_begin, current_end);
+            } else {
+                p_high = current_end - 1;
+                ___stdlib_algorithms_median_of_three(a, current_begin, p_high);
+                pivot_idx = ___stdlib_algorithms_partition(a, current_begin, p_high);
+
+                stack[stack_ptr] = pivot_idx + 1;
+                stack[stack_ptr + 1] = current_end;
+                stack[stack_ptr + 2] = depth_limit - 1;
+                stack_ptr = stack_ptr + 3;
+
+                stack[stack_ptr] = current_begin;
+                stack[stack_ptr + 1] = pivot_idx;
+                stack[stack_ptr + 2] = depth_limit - 1;
+                stack_ptr = stack_ptr + 3;
+            }
+        }
     }
 }
 

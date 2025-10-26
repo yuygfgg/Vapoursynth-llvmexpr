@@ -1867,6 +1867,8 @@ void Preprocessor::handleRequires(const std::string& line, int line_number) {
             line_mappings[i].preprocessed_line = static_cast<int>(i + 1);
         }
 
+        current_output_line += static_cast<int>(lib_lines.size());
+
         included_libraries.insert(lib);
     }
 }
