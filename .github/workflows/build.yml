@@ -49,7 +49,6 @@ jobs:
             mingw-w64-x86_64-clang
             mingw-w64-x86_64-lld
             mingw-w64-x86_64-llvm
-            mingw-w64-x86_64-libc++
             mingw-w64-x86_64-vapoursynth
             mingw-w64-x86_64-zstd
 
@@ -84,7 +83,7 @@ jobs:
       - name: Configure (Meson) (Windows)
         shell: msys2 {0}
         run: |
-          CC="clang -fuse-ld=lld" CXX="clang++ -fuse-ld=lld -stdlib=libc++" meson setup builddir \
+          CC="clang -fuse-ld=lld" CXX="clang++ -fuse-ld=lld" meson setup builddir \
             -Dstatic-llvm=true \
             --buildtype=release
 
@@ -202,7 +201,6 @@ jobs:
             mingw-w64-x86_64-clang
             mingw-w64-x86_64-lld
             mingw-w64-x86_64-llvm
-            mingw-w64-x86_64-libc++
             mingw-w64-x86_64-vapoursynth
             mingw-w64-x86_64-zstd
 
@@ -331,7 +329,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          CC="clang -fuse-ld=lld" CXX="clang++ -fuse-ld=lld -stdlib=libc++" meson setup builddir \
+          CC="clang -fuse-ld=lld" CXX="clang++ -fuse-ld=lld" meson setup builddir \
             -Dstatic-llvm=true \
             -Denable-sanitizers=true \
             --buildtype=debug
