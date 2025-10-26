@@ -19,6 +19,9 @@
 
 #include "StandardLibrary.hpp"
 
+#include <stdexcept>
+#include <string>
+
 namespace infix2postfix {
 
 std::vector<std::string_view>

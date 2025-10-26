@@ -21,6 +21,7 @@
 #define LLVMEXPR_INFIX2POSTFIX_STANDARDLIBRARY_HPP
 
 #include <optional>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 
