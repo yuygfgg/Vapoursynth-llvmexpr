@@ -126,6 +126,18 @@
           ]
         },
         {
+          "name": "meta.preprocessor.requires.llvmexpr-infix",
+          "match": "^\\s*(@requires)\\s+([a-zA-Z_]\\w*)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.control.directive.requires.llvmexpr-infix"
+            },
+            "2": {
+              "name": "entity.name.type.library.llvmexpr-infix"
+            }
+          }
+        },
+        {
           "include": "#preprocessor_macros"
         }
       ]
