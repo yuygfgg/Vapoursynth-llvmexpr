@@ -98,7 +98,7 @@ RESULT = FACTORIAL(5) # The preprocessor evaluates this to 120
 
 **Example: Compile-Time Array Expansion**
 ```
-@define MINUS(a, b) ((a) - (b)) # This marco is crucial, otherwise the '- 1' will persist in the expanded array index.
+@define MINUS(a, b) ((a) - (b)) # This macro is crucial, otherwise the '- 1' will persist in the expanded array index.
 @define EXPAND(array, count) ((count) <= 0 ? 0 : (EXPAND(array, MINUS(count, 1)) + array[MINUS(count, 1)]))
 RESULT = EXPAND(arr, 5) # Will be expanded to '((5) <= 0 ? 0 : (((4) <= 0 ? 0 : (((3) <= 0 ? 0 : (((2) <= 0 ? 0 : (((1) <= 0 ? 0 : (0 + arr[0])) + arr[1])) + arr[2])) + arr[3])) + arr[4]))'
 ```
@@ -513,25 +513,25 @@ Source clips can be referenced in two equivalent ways:
 
 Operators are left-associative, except for the unary and ternary operators. The following table lists operators in order of precedence, from lowest to highest.
 
-| Precedence | Operator            | Description              | Arity      | Associativity |
-| :--------- | :------------------ | :----------------------- | :--------- | :------------ |
-| 1          | `                   | `                        | Logical OR | Binary        | Left |
-| 2          | `&&`                | Logical AND              | Binary     | Left          |
-| 3          | `                   | `                        | Bitwise OR | Binary        | Left |
-|            | `^`                 | Bitwise XOR              | Binary     | Left          |
-|            | `&`                 | Bitwise AND              | Binary     | Left          |
-|            | `~`                 | Bitwise NOT              | Unary      | Right         |
-| 4          | `<`, `<=`, `>` `>=` | Relational               | Binary     | Left          |
-| 5          | `==`, `!=`          | Equality                 | Binary     | Left          |
-| 6          | `+`, `-`            | Addition, Subtraction    | Binary     | Left          |
-| 7          | `*`, `/`            | Multiplication, Division | Binary     | Left          |
-|            | `%`                 | Modulus                  | Binary     | Left          |
-| 8          | `**`                | Exponentiation (Power)   | Binary     | Right         |
-| 9          | `-`                 | Negation                 | Unary      | Right         |
-|            | `!`                 | Logical NOT              | Unary      | Right         |
-| 10         | `? :`               | Ternary Conditional      | Ternary    | Right         |
+| Precedence | Operator             | Description              | Arity   | Associativity |
+| :--------- | :------------------- | :----------------------- | :------ | :------------ |
+| 1          | `\|\|`               | Logical OR               | Binary  | Left          |
+| 2          | `&&`                 | Logical AND              | Binary  | Left          |
+| 3          | `\|`                 | Bitwise OR               | Binary  | Left          |
+|            | `^`                  | Bitwise XOR              | Binary  | Left          |
+|            | `&`                  | Bitwise AND              | Binary  | Left          |
+|            | `~`                  | Bitwise NOT              | Unary   | Right         |
+| 4          | `<`, `<=`, `>`, `>=` | Relational               | Binary  | Left          |
+| 5          | `==`, `!=`           | Equality                 | Binary  | Left          |
+| 6          | `+`, `-`             | Addition, Subtraction    | Binary  | Left          |
+| 7          | `*`, `/`             | Multiplication, Division | Binary  | Left          |
+|            | `%`                  | Modulus                  | Binary  | Left          |
+| 8          | `**`                 | Exponentiation (Power)   | Binary  | Right         |
+| 9          | `-`                  | Negation                 | Unary   | Right         |
+|            | `!`                  | Logical NOT              | Unary   | Right         |
+| 10         | `? :`                | Ternary Conditional      | Ternary | Right         |
 
-Note: Bitwise operators operates on integer values. When operating on floating-point values, operands are first rounded to the nearest integer.
+Note: Bitwise operators operate on integer values. When operating on floating-point values, operands are first rounded to the nearest integer.
 Note: Logical operators treat any value greater than 0 as `true`. They return `1.0` for true and `0.0` for false.
 
 ## 7. Data Access
@@ -562,7 +562,7 @@ set_prop(MyProperty, 123.456);
 # Write computed value
 w = frame.width[0];
 h = frame.height[0];
-avg = (dyn(x, 0, 0, 0) + dyn(x, w-1, h-1, 0)) / 2;
+avg = (dyn($x, 0, 0, 0) + dyn($x, w-1, h-1, 0)) / 2;
 set_prop(AverageValue, avg);
 ```
 
@@ -584,7 +584,7 @@ Access a pixel at a fixed, constant offset from the current coordinate (`$X`, `$
 
 #### Dynamic Absolute Pixel Access
 
-Access a pixel at a dynamically calculated coordinate using the 3-argument `dyn()` function. See section 7.2 for details.
+Access a pixel at a dynamically calculated coordinate using the 3-argument `dyn()` function. See section 8.3 for details.
 
 ### 7.3. Pixel and Data I/O (`SingleExpr` mode)
 
@@ -598,15 +598,15 @@ Access the width and height of specific planes using `frame.width[N]` and `frame
 w0 = frame.width[0];   # Width of plane 0 (luma)
 h1 = frame.height[1];  # Height of plane 1 (chroma U)
 ```
-**Note:** The plane index `N` must be an literal constant.
+**Note:** The plane index `N` must be a literal constant.
 
 #### Absolute Pixel Reading
 
-Read pixels from specific coordinates and planes using the 4-argument version of `dyn()`. See section 7.2 for details.
+Read pixels from specific coordinates and planes using the 4-argument version of `dyn()`. See section 8.3 for details.
 
 #### Absolute Pixel Writing
 
-Write values to specific output frame locations using the 4-argument version of `store()`. See section 7.2 for details.
+Write values to specific output frame locations using the 4-argument version of `store()`. See section 8.3 for details.
 
 ## 8. Functions
 
@@ -633,7 +633,7 @@ Functions are called using standard syntax: `functionName(argument1, argument2, 
 | `fma`                             | 3                   | Fused multiply-add: `(a * b) + c`.                                                                      |
 | `nth_N`                           | `M` (where `M ≥ N`) | `nth_3(a, b, c, d)` returns the 3rd smallest of the 4 values.                                           |
 | `new`                             | 1                   | Allocates an array. In `Expr` mode, size must be a literal. In `SingleExpr`, size can be an expression. |
-| `resize`                          | 1                   | Resizes an array. Alias for `new()` in `SingleExpr` mode only.                                          |
+| `resize`                          | 1                   | Resizes an array in `SingleExpr` mode only. The array must be previously allocated with `new()`.        |
 
 Notes:
 
@@ -661,7 +661,7 @@ The `dyn()` function has different signatures for `Expr` and `SingleExpr` modes.
   - **Signature:** `dyn($clip, x, y, plane)`
     - `$clip`: Clip constant (e.g., `$x`, `$y`, `$z`, or `$srcN`).
     - `x`, `y`: Absolute coordinates (can be expressions).
-    - `plane`: Plane index (must be an literal constant).
+    - `plane`: Plane index (must be a literal constant).
   - **Example:** `val = dyn($x, 100, 200, 0);`
 
 #### `store()` - Pixel Writing
@@ -676,7 +676,7 @@ The `store()` function has different signatures for `Expr` and `SingleExpr` mode
   - Writes a value to an absolute coordinate on a specific output plane.
   - **Signature:** `store(x, y, plane, value)`
     - `x`, `y`: Absolute coordinates (can be expressions).
-    - `plane`: Plane index (must be an literal constant).
+    - `plane`: Plane index (must be a literal constant).
     - `value`: Value to write (can be an expression).
   - **Example:** `store(0, 0, 0, 255);`
   - **Warning:** No boundary checking is performed. Writing outside valid frame dimensions causes undefined behavior.
