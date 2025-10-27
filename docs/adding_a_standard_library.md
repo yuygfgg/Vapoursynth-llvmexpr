@@ -52,8 +52,15 @@ struct ExportedFunction {
 
 To prevent name collisions, all symbols defined within a standard library **must** follow a strict internal naming convention:
 
-- **Functions**: `___stdlib_<library_name>_<function_name>` (lowercase)
-- **Constants**: `___STDLIB_<LIBRARY_NAME>_<CONSTANT_NAME>` (uppercase)
+- **Functions (or function-like macros)**: `___stdlib_<library_name>_<function_name>`
+  - The prefix `___stdlib_` and `<library_name>` are **always lowercase**
+  - `<function_name>` can be **any case** (e.g., `IF_THEN_ELSE`, `if_then_else`, or `IfThenElse`)
+  - Examples: `___stdlib_meta_IF_THEN_ELSE`, `___stdlib_algorithms_sort`
+  
+- **Constants**: `___STDLIB_<LIBRARY_NAME>_<CONSTANT_NAME>`
+  - The prefix `___STDLIB_` and `<LIBRARY_NAME>` are **always uppercase**
+  - `<CONSTANT_NAME>` can be **any case**, but uppercase is recommended for constants
+  - Examples: `___STDLIB_MATH_PI`, `___STDLIB_META_VERSION`
 
 The `exports` mechanism creates user-friendly aliases for these internal names. For example, `___stdlib_math_extra_clamp_value` can be exported as `clamp_value`.
 

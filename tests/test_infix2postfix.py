@@ -2737,6 +2737,39 @@ RESULT = SAFE_SIZE(LEN)
         assert success, f"Failed to convert: {output}"
         assert "5" in output
 
+    def test_nested_macro_call_with_token_pasting(self):
+        """Test passing macro name as argument and using it with token pasting."""
+        infix = """
+@define _PASTE(a, b) a@@b
+@define EVAL_AND_PASTE(a, b) _PASTE(a, b)
+@define GET_SRC(i) EVAL_AND_PASTE($src, i)
+@define CALL(macro, arg) macro(arg)
+
+RESULT = CALL(GET_SRC, 0)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        # Should expand to $src0, not (0) or empty
+        assert "src0" in output
+        assert "RESULT!" in output
+
+    def test_recursive_macro_with_token_pasting_simplified(self):
+        """Test simplified version of recursive macro with token pasting (JOIN pattern)."""
+        infix = """
+@define DEC(n) ((n) - 1)
+@define _PASTE(a, b) a@@b
+@define EVAL_AND_PASTE(a, b) _PASTE(a, b)
+@define GET_X(i) EVAL_AND_PASTE($src, i)
+@define CALL(macro, arg) macro(arg)
+@define _JOIN(count, macro, sep) ((count) == 1 ? CALL(macro, 0) : (_JOIN(DEC(count), macro, sep) sep CALL(macro, DEC(count))))
+@define JOIN(count, macro, sep) _JOIN(count, macro, sep)
+
+RESULT = JOIN(3, GET_X, +)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert output.strip() == "src0 src1 + src2 + RESULT! RESULT@"
+
 
 class TestMultipleReturns:
     def test_valid_multiple_value_returns(self):

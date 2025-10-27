@@ -518,7 +518,7 @@ class TokenStream {
         return tokens.empty() || tokens.front().type == TokenType::END_OF_FILE;
     }
 
-    [[nodiscard]] const Token& peek(size_t offset = 0) const {
+    [[nodiscard]] Token peek(size_t offset = 0) const {
         if (offset >= tokens.size()) {
             static Token eofToken{TokenType::END_OF_FILE, "", 0, 0};
             return eofToken;
@@ -1094,7 +1094,7 @@ class Expander {
         std::vector<Token> result;
 
         while (!stream.is_eof()) {
-            const Token& tok = stream.peek();
+            const auto tok = stream.peek();
 
             if (tok.type == TokenType::IDENTIFIER) {
                 if (tok.text == "defined") {
@@ -1118,12 +1118,28 @@ class Expander {
                     continue;
                 }
 
-                stream.consume();
+                size_t result_before = result.size();
+
+                Token macroToken = stream.consume();
 
                 if (macro->is_function_like) {
-                    expandFunctionLikeMacro(stream, result, tok, *macro);
+                    expandFunctionLikeMacro(stream, result, macroToken, *macro);
                 } else {
                     expandObjectLikeMacro(stream, *macro);
+                }
+
+                if (recursion_depth == 0) {
+                    std::string replacement;
+                    for (size_t i = result_before; i < result.size(); ++i) {
+                        replacement += result[i].text;
+                    }
+
+                    MacroExpansion expansion;
+                    expansion.macro_name = tok.text;
+                    expansion.original_line = tok.line;
+                    expansion.original_column = tok.column;
+                    expansion.replacement_text = replacement;
+                    expansions.push_back(expansion);
                 }
             } else {
                 result.push_back(stream.consume());
@@ -1133,15 +1149,20 @@ class Expander {
         return result;
     }
 
+    [[nodiscard]] std::vector<MacroExpansion> getExpansions() const {
+        return expansions;
+    }
+
   private:
     static constexpr int MAX_RECURSION = 1000;
 
     const MacroTable& macros;
     int recursion_depth;
+    std::vector<MacroExpansion> expansions;
 
     void handleDefinedOperator(TokenStream& stream,
                                std::vector<Token>& result) {
-        const Token& tok = stream.peek();
+        const auto tok = stream.peek();
         int defLine = tok.line;
         int defCol = tok.column;
         stream.consume();
@@ -1155,8 +1176,8 @@ class Expander {
         }
 
         if (!stream.is_eof() && stream.peek().type == TokenType::IDENTIFIER) {
-            std::string macroName = stream.peek().text;
-            stream.consume();
+            Token macroToken = stream.consume();
+            std::string macroName = macroToken.text;
 
             if (hasParen) {
                 stream.skipWhitespace();
@@ -1196,7 +1217,7 @@ class Expander {
         bool found = false;
 
         while (!stream.is_eof()) {
-            const Token& t = stream.peek();
+            const auto t = stream.peek();
 
             if (t.type == TokenType::LPAREN) {
                 depth++;
@@ -1313,7 +1334,7 @@ class Expander {
         int parenDepth = 0;
 
         while (!stream.is_eof()) {
-            const Token& argTok = stream.peek();
+            const auto argTok = stream.peek();
 
             if (argTok.type == TokenType::LPAREN) {
                 parenDepth++;
@@ -1408,20 +1429,6 @@ class Expander {
                 processedArgs.push_back(arg);
             } else {
                 std::vector<Token> expandedArg = argExpander.expand(arg);
-
-                try {
-                    Evaluator evaluator(expandedArg);
-                    auto evaluated = evaluator.tryEvaluate();
-                    if (evaluated) {
-                        std::string value = Evaluator::toString(*evaluated);
-                        expandedArg.clear();
-                        expandedArg.emplace_back(TokenType::NUMBER, value,
-                                                 tok.line, tok.column,
-                                                 *evaluated);
-                    }
-                } catch (...) {
-                }
-
                 processedArgs.push_back(expandedArg);
             }
         }
@@ -1753,6 +1760,13 @@ class Preprocessor::Impl {
                 std::string lineText =
                     preprocessor_detail::tokensToString(expanded, true);
                 addOutputLine(lineText, lineNumber);
+
+                if (!line_mappings.empty()) {
+                    auto expansions = expander.getExpansions();
+                    line_mappings.back().expansions.insert(
+                        line_mappings.back().expansions.end(),
+                        expansions.begin(), expansions.end());
+                }
             } catch (const PreprocessorError& e) {
                 addError(e.what(), lineNumber);
                 addOutputLine("", lineNumber);

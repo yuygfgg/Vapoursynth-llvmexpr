@@ -12,3 +12,4 @@ exprutils.egg-info/*
 *.expr
 !examples/*.expr
 !llvmexpr/frontend/infix2postfix/stdlib/*.expr
+.cursor/rules/build-and-test-rule.mdc
