@@ -20,12 +20,9 @@
 #ifndef LLVMEXPR_INFIX2POSTFIX_PREPROCESSOR_HPP
 #define LLVMEXPR_INFIX2POSTFIX_PREPROCESSOR_HPP
 
-#include <map>
-#include <optional>
-#include <set>
+#include <memory>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace infix2postfix {
@@ -68,8 +65,14 @@ struct PreprocessResult {
 class Preprocessor {
   public:
     explicit Preprocessor(std::string source);
+    ~Preprocessor();
 
-    void addPredefinedMacro(std::string name, std::string value = "");
+    Preprocessor(const Preprocessor&) = delete;
+    Preprocessor& operator=(const Preprocessor&) = delete;
+    Preprocessor(Preprocessor&&) = delete;
+    Preprocessor& operator=(Preprocessor&&) = delete;
+
+    void addPredefinedMacro(std::string name, const std::string& value = "");
 
     PreprocessResult process();
 
@@ -81,78 +84,8 @@ class Preprocessor {
     formatMacroExpansions(const std::vector<LineMapping>& line_map);
 
   private:
-    class ExpressionEvaluator;
-
-    struct LineParser {
-        const std::string& str;
-        size_t pos = 0;
-
-        explicit LineParser(const std::string& s) : str(s) {}
-
-        [[nodiscard]] bool eof() const { return pos >= str.length(); }
-        [[nodiscard]] char peek() const { return eof() ? '\0' : str[pos]; }
-        void consume() {
-            if (!eof()) {
-                pos++;
-            }
-        }
-        char consume_one() { return eof() ? '\0' : str[pos++]; }
-        void skipWhitespace();
-        std::string_view extractIdentifier();
-    };
-
-    struct ConditionalBlock {
-        int start_line;
-        bool is_active;
-        bool had_true_branch;
-    };
-
-    void processLine(const std::string& line, int line_number);
-    [[nodiscard]] bool isDirective(const std::string& line) const;
-    void handleDirective(const std::string& line, int line_number);
-    void handleDefine(const std::string& line, int line_number);
-    void handleUndef(const std::string& line, int line_number);
-    void handleIfdef(const std::string& line, int line_number);
-    void handleIfndef(const std::string& line, int line_number);
-    void handleIfdefCommon(const std::string& line, int line_number,
-                           bool check_defined);
-    void handleIf(const std::string& line, int line_number);
-    void handleElse(const std::string& line, int line_number);
-    void handleEndif(const std::string& line, int line_number);
-    void handleError(const std::string& line, int line_number);
-    void handleRequires(const std::string& line, int line_number);
-
-    std::optional<std::vector<std::string>>
-    parseMacroArguments(LineParser& parser, const std::string& macro_name,
-                        int line_number);
-
-    std::string expandMacros(const std::string& line, int line_number);
-    std::string expandMacrosImpl(const std::string& line, int line_number,
-                                 std::vector<MacroExpansion>* expansions_out);
-    std::string expandDefinedOperator(const std::string& text);
-    std::string expandConstEvalOperators(const std::string& text);
-    std::string evaluateIfPossible(const std::string& text);
-    [[nodiscard]] bool isCurrentBlockActive() const;
-
-    void addError(const std::string& message, int line);
-    void addOutputLine(const std::string& line, int original_line,
-                       const std::vector<MacroExpansion>& expansions = {});
-
-    std::string source;
-    std::string filename;
-
-    std::map<std::string, MacroDefinition> macros;
-
-    std::vector<ConditionalBlock> conditional_stack;
-
-    std::vector<std::string> output_lines;
-    std::vector<LineMapping> line_mappings;
-    std::vector<std::string> errors;
-
-    int current_output_line = 1;
-
-    std::set<std::string_view> included_libraries;
-    int library_line_count = 0;
+    class Impl;
+    std::unique_ptr<Impl> impl;
 };
 
 } // namespace infix2postfix

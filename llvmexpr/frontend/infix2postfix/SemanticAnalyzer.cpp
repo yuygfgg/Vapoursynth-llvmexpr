@@ -1009,7 +1009,6 @@ void SemanticAnalyzer::analyze(FunctionDef& stmt) {
     current_function = sig;
 
     {
-        // Enter function scope with RAII guard
         ScopeGuard scope_guard(this);
 
         // Add parameters
@@ -1033,7 +1032,7 @@ void SemanticAnalyzer::analyze(FunctionDef& stmt) {
                               symbol->definition_range);
             }
         }
-    } // Scope automatically exits here
+    }
 
     // Restore context
     current_function = saved_current_function;

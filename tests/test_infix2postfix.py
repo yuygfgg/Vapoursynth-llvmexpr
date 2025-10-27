@@ -1463,7 +1463,7 @@ RESULT = result
         assert "arr{}^3" in output
         assert "arr{}!" in output
         assert "arr{}@" in output
-    
+
     def test_array_size_Literal(self):
         infix = """
 function test(Literal size) {
@@ -1648,6 +1648,75 @@ RESULT = f(10)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"Failed: {output}"
+
+    def test_token_pasting_simple(self):
+        """Test @@ operator for simple token pasting."""
+        infix = """
+@define CONCAT(a, b) a@@b
+xy = 42
+RESULT = CONCAT(x, y)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "42 xy!" in output
+        assert "xy@" in output
+
+    def test_token_pasting_with_numbers(self):
+        """Test @@ operator with numbers."""
+        infix = """
+@define CONCAT(a, b) a@@b
+RESULT = CONCAT(12, 34)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "1234 RESULT!" in output
+
+    def test_token_pasting_with_empty_arg(self):
+        """Test @@ operator with an empty argument."""
+        infix = """
+@define PASTE(a, b) a@@b
+hello = 99
+RESULT = PASTE(hello, )
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "99 hello!" in output
+        assert "hello@" in output
+
+    def test_token_pasting_with_empty_arg_left(self):
+        """Test @@ operator with an empty argument on the left."""
+        infix = """
+@define PASTE(a, b) a@@b
+world = 101
+RESULT = PASTE(, world)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "101 world!" in output
+        assert "world@" in output
+
+    def test_token_pasting_multiple(self):
+        """Test multiple @@ operators."""
+        infix = """
+@define CONCAT3(a, b, c) a@@b@@c
+var = 55
+RESULT = CONCAT3(v, a, r)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "55 var!" in output
+        assert "var@" in output
+
+    def test_token_pasting_forms_new_macro(self):
+        """Test that @@ can form a new macro to be expanded."""
+        infix = """
+@define MY_MACRO 123
+@define CONCAT(a, b) a@@b
+RESULT = CONCAT(MY_, MACRO)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "123 RESULT!" in output
 
 
 class TestVoidFunctions:
@@ -2487,6 +2556,172 @@ RESULT = test(CALC_LEN(0, 10))
         assert success, f"Failed to convert: {output}"
         # The expression ((10) - (0)) should be evaluated to 10
         assert "arr{}^10" in output
+
+    def test_consteval_basic(self):
+        """Test basic consteval() operator."""
+        infix = """
+@define SIZE 10
+RESULT = consteval(SIZE * 2)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "20" in output
+
+    def test_consteval_with_expression(self):
+        """Test consteval() with complex expression."""
+        infix = """
+@define A 5
+@define B 3
+RESULT = consteval(A * A + B * B)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "34" in output
+
+    def test_consteval_fails_on_non_constant(self):
+        """Test that consteval() fails on non-constant expression."""
+        infix = """
+RESULT = consteval($X + 10)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail with non-constant expression"
+        assert "consteval() requires a constant expression" in output
+
+    def test_is_consteval_with_constant(self):
+        """Test is_consteval() with constant expression."""
+        infix = """
+@define VALUE 42
+@if is_consteval(VALUE * 2)
+RESULT = 1
+@else
+RESULT = 0
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "1 RESULT!" in output
+
+    def test_is_consteval_with_non_constant(self):
+        """Test is_consteval() with non-constant expression."""
+        infix = """
+@if is_consteval($X + 10)
+RESULT = 0
+@else
+RESULT = 1
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "1 RESULT!" in output
+
+    def test_consteval_in_macro_definition(self):
+        """Test consteval() in macro definition."""
+        infix = """
+@define SIZE 8
+@define AREA consteval(SIZE * SIZE)
+RESULT = AREA
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "64" in output
+
+    def test_is_consteval_in_conditional_macro(self):
+        """Test is_consteval() in conditional compilation."""
+        infix = """
+@define LEN 10
+@define DISPATCH(x) (is_consteval(x) ? consteval(x) : (x))
+RESULT = DISPATCH(LEN)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "10" in output
+
+    def test_consteval_with_nested_macros(self):
+        """Test consteval() with nested macro expansion."""
+        infix = """
+@define INNER 5
+@define OUTER(x) ((x) * 2)
+RESULT = consteval(OUTER(INNER) + 3)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "13" in output
+
+    def test_consteval_with_defined_operator(self):
+        """Test consteval() with defined() operator in macro."""
+        infix = """
+@define FEATURE
+@define CHECK_FEATURE consteval(defined(FEATURE) + defined(UNDEFINED))
+RESULT = CHECK_FEATURE
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "1" in output
+
+    def test_is_consteval_in_function_like_macro(self):
+        """Test is_consteval() in function-like macro."""
+        infix = """
+@define SAFE_EVAL(x) (is_consteval(x) ? consteval(x) : 0)
+@define CONST 42
+RESULT = SAFE_EVAL(CONST)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "42" in output
+
+    def test_consteval_in_if_directive(self):
+        """Test consteval() in @if directive."""
+        infix = """
+@define SIZE 100
+@if consteval(SIZE > 50)
+RESULT = 1
+@else
+RESULT = 0
+@endif
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "1 RESULT!" in output
+
+    def test_consteval_in_array_size(self):
+        """Test consteval() for array size calculation (simulates stdlib use case)."""
+        infix = """
+@define WIDTH 10
+@define HEIGHT 10
+@define BUFFER_SIZE consteval(WIDTH * HEIGHT)
+function test(Literal size) {
+    arr = new(size)
+    return arr[0]
+}
+RESULT = test(BUFFER_SIZE)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "arr{}^100" in output
+
+    def test_stdlib_like_conditional_dispatch(self):
+        """Test stdlib-like pattern: use fast path if size is constant."""
+        infix = """
+@define SIZE 100
+@define FAST_PATH(n) consteval((n) * (n) + 1)
+@define SLOW_PATH(x) ((x) * (x))
+@define DISPATCH(x) (is_consteval(x) ? FAST_PATH(x) : SLOW_PATH(x))
+RESULT = DISPATCH(SIZE)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "10001" in output
+
+    def test_consteval_with_ternary_in_macro(self):
+        """Test consteval with ternary operator (common in stdlib)."""
+        infix = """
+@define LEN 5
+@define SAFE_SIZE(n) consteval((n) <= 0 ? 1 : (n))
+RESULT = SAFE_SIZE(LEN)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "5" in output
 
 
 class TestMultipleReturns:

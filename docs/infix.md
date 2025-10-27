@@ -74,9 +74,22 @@ addr = MAX;            # NOT expanded, remains 'MAX'
 
 - **Arguments**: Arguments can be complex expressions, and the preprocessor correctly handles nested parentheses. Before substitution, each argument is independently evaluated as a constant expression if possible.
 
-#### 2.2.3. Recursive Macros
+#### 2.2.3. Advanced Macros: Recursion and Conditional Expansion
 
 Macros can be defined recursively. When combined with the ternary conditional operator (`? :`), this enables powerful compile-time computation. The preprocessor's expression evaluator uses short-circuiting for the ternary operator, which ensures that recursion can terminate correctly.
+
+Furthermore, the preprocessor treats a top-level ternary operator within a macro body as a powerful conditional compilation tool, similar to an inline `@if`. If the condition is a constant expression that can be evaluated at compile time, the preprocessor replaces the *entire* ternary expression with only the tokens from the chosen branch. The unelected branch is completely discarded and does not need to be valid or evaluable. This allows for selecting different code structures based on preprocessor conditions, not just different values.
+
+**Example: Conditional Code Selection**
+```
+@define COMPILE_ERROR(msg) unsupported_function() 
+
+@define CHECK(cond, val) (cond ? val : COMPILE_ERROR("Error"))
+
+# Because the condition '1' is constant, this expands ONLY to '10'. 
+# The COMPILE_ERROR branch is never included in the final source code passed to the parser.
+RESULT = CHECK(1, 10) 
+```
 
 **Example: Compile-Time Factorial**
 ```
@@ -98,10 +111,39 @@ You can remove a macro definition using the `@undef` directive.
 
 - **Syntax**: `@undef NAME`
 
-#### 2.2.5. Differences from C/C++ Macros
+#### 2.2.5. Token Pasting (`@@`)
+
+The preprocessor supports the `@@` operator for token pasting, which concatenates two tokens in a macro body.
+
+- **Syntax**: `token1 @@ token2`
+- **Behavior**: During macro expansion, the `@@` operator is removed, and the tokens on either side are merged into a single new token. This new token is then available for further macro expansion.
+
+**Example:**
+```
+@define CONCAT(a, b) a@@b
+@define xy 100
+
+# Expands to CONCAT(x, y) -> xy -> 100
+RESULT = CONCAT(x, y)
+```
+
+- **Empty Arguments**: If an argument next to `@@` is empty, it is treated as a "placemarker". Concatenating a token with a placemarker results in just the token.
+
+**Example with empty argument:**
+```
+@define PREFIX(val) MY_@@val
+
+# Expands to MY_VAR
+a = PREFIX(VAR)
+
+# Expands to just MY_
+b = PREFIX()
+```
+
+#### 2.2.6. Differences from C/C++ Macros
 
 This preprocessor is similar to C/C++ but has some key differences:
-- No `#` (stringification) or `##` (token pasting) operators.
+- No `#` (stringification) operator.
 - No variadic macros (`...` and `__VA_ARGS__`).
 - Macro definitions must be on a single line (no `\` for continuation).
 
