@@ -82,12 +82,10 @@ Furthermore, the preprocessor treats a top-level ternary operator within a macro
 
 **Example: Conditional Code Selection**
 ```
-@define COMPILE_ERROR(msg) unsupported_function() 
-
-@define CHECK(cond, val) (cond ? val : COMPILE_ERROR("Error"))
+@define CHECK(cond, val) (cond ? val : static_assert(0, Error))
 
 # Because the condition '1' is constant, this expands ONLY to '10'. 
-# The COMPILE_ERROR branch is never included in the final source code passed to the parser.
+# The static_assert(0, Error) branch is never included in the final source code passed to the parser.
 RESULT = CHECK(1, 10) 
 ```
 
@@ -179,31 +177,79 @@ To force an argument to be evaluated *before* pasting, you must use a two-level 
 RESULT = EVAL_AND_PASTE($src, ONE) # Expands to $src1
 ```
 
-**Example: Recursive Identifier Generation**
+**Example: A General-Purpose Recursive Macro for Code Generation**
 
-This technique can be combined with recursive macros to generate complex code structures. The following example recursively generates a sum of source clips from `$src0` to `$src4`.
+This technique can be combined with recursive macros to generate complex code structures. The following example demonstrates a robust, general-purpose `JOIN` macro that recursively generates a sequence of expressions, such as summing a series of source clips. This pattern is highly effective for reducing repetitive code.
+
+The utility works by defining a set of helper macros:
+- A recursive inner macro (`__JOIN`) that builds the expression sequence.
+- A public-facing macro (`JOIN`) that validates its inputs before delegating to the inner macro.
+- Helper macros for safe decrement (`DEC`), token pasting (`_PASTE`), and compile-time assertions (`ASSERT_CONST_EXPR`).
+
+The core logic relies on the preprocessor's ability to handle recursion with termination via a conditional ternary operator. The two-step token pasting pattern is used to correctly form identifiers like `$src0`, `$src1`, etc.
 
 ```
-# Helper for compile-time subtraction
-@define MINUS(a, b) ((a) - (b))
+# -----------------------------------------------------------------------------
+# COMPILE-TIME UTILITY MACROS
+# -----------------------------------------------------------------------------
+# A collection of macros for generating repetitive code structures safely.
+# -----------------------------------------------------------------------------
 
-# Inner macro for direct pasting
-@define PASTE(a, b) a@@b
+# Utility to force a compilation error with a custom message.
+@define ERROR(msg) static_assert(0, msg)
 
-# Outer macro to force argument evaluation before pasting
-@define EVAL_AND_PASTE(a, b) PASTE(a, b)
+# Asserts that an expression is a compile-time constant and evaluates to true.
+# It leverages the short-circuiting of the ternary operator to conditionally
+# include the static_assert or an error, ensuring validation occurs at compile-time.
+# A notable feature is that `static_assert` returns 1 on success. This allows the
+# macro to also return 1, making it suitable for use as the condition in another
+# ternary operator, as seen in the `JOIN` macro. This behavior may be unexpected
+# for users familiar with C++, where `static_assert` is a non-returning declaration.
+@define ASSERT_CONST_EXPR(expr, name_token, message) ( is_consteval(expr) ? static_assert(expr, name_token message) : ERROR(name_token must be a constant expression) )
 
-# Recursive macro to generate a sequence of identifiers
-# Note: n is the count of clips, so it generates indices from 0 to n-1.
-@define EXPAND(prefix, n) (n == 1 ? EVAL_AND_PASTE(prefix, 0) : (EXPAND(prefix, MINUS(n, 1)) + EVAL_AND_PASTE(prefix, MINUS(n, 1))))
+# A safe, compile-time decrement macro, crucial for recursion.
+# Ensures that `(n - 1)` is evaluated as part of argument expansion.
+@define DEC(n) ((n) - 1)
 
-# Expands to: $src0 + $src1 + $src2 + $src3 + $src4
-RESULT = EXPAND($src, 5)
+# The inner macro for token pasting (Step 1 of the two-step pattern).
+# Performs direct concatenation. Arguments are not expanded before pasting.
+@define _PASTE(a, b) a@@b
+
+# The internal recursive implementation for the JOIN macro.
+# Base Case: When count is 1, it emits `macro(0)`.
+# Recursive Step: For count > 1, it calls itself and appends the next element.
+@define __JOIN(count, macro, sep) ((count) == 1 ? macro(0) : (__JOIN(DEC(count), macro, sep) sep macro(DEC(count))))
+
+# A public-facing macro to generate a sequence of expressions.
+# It validates that `count` is a positive compile-time integer, then delegates
+# to the internal `__JOIN` macro for code generation.
+@define JOIN(count, macro, sep) (ASSERT_CONST_EXPR(count > 0, first argument, must be a positive integer) ? __JOIN(count, macro, sep) : 0)
+
+
+# -----------------------------------------------------------------------------
+# USER CODE EXAMPLE
+# -----------------------------------------------------------------------------
+# This section demonstrates using `JOIN` to generate `$src0 + $src1 + $src2`.
+# -----------------------------------------------------------------------------
+
+# Define the prefix for the identifiers. It must be a function-like macro
+# to ensure it's expanded to `$src` before being passed to `_PASTE`.
+@define PREFIX() $src
+
+# Define the macro that generates each element in the sequence.
+# This is Step 2 of the two-step paste pattern. `JOIN` calls this
+# with evaluated numbers (0, 1, 2), which are then pasted to `PREFIX()`.
+@define GET_X(i) _PASTE(PREFIX(), i)
+
+# USAGE:
+# Call the public `JOIN` macro.
+# - `count` is a constant expression that evaluates to 3.
+# - `GET_X` is the macro called with indices 0, 1, and 2.
+# - `+` is the separator.
+#
+# This expands recursively to: `(($src0 + $src1) + $src2)`
+RESULT = JOIN(2 + 1, GET_X, +)
 ```
-This combines several advanced features:
--   **Recursion:** `EXPAND` calls itself.
--   **Conditional Termination:** The ternary operator `? :` stops the recursion when `n == 1`. The preprocessor's ability to short-circuit this condition is essential.
--   **Forced Evaluation:** The `EVAL_AND_PASTE` wrapper ensures that the result of `MINUS(n, 1)` (e.g., `4`, `3`, `2`...) is computed before being pasted to the `prefix`.
 
 #### 2.2.6. Differences from C/C++ Macros
 
@@ -320,7 +366,7 @@ The preprocessor provides two helper intrinsics to control constant evaluation s
 
 - `static_assert(condition, message)`
   - If `condition` is `0`, raises a compile-time error with the specified `message`.
-  - This is useful for compile-time assertions.
+  - Returns `1` if `condition` is non-zero.
 
 **Examples:**
 ```
