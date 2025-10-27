@@ -140,6 +140,71 @@ a = PREFIX(VAR)
 b = PREFIX()
 ```
 
+#### 2.2.5.1. Forcing Argument Evaluation Before Pasting
+
+A common and powerful pattern is to generate identifiers dynamically, for example, `src0`, `src1`, `src2`, etc., in a loop. This requires pasting a prefix (like `src`) with the result of a compile-time calculation.
+
+However, the `@@` operator follows a rule similar to the C/C++ preprocessor: if a macro parameter is adjacent to `@@` in a macro definition, the corresponding argument passed to the macro will *not* be expanded before pasting.
+
+**Problem:**
+```
+@define PASTE(prefix, num) prefix@@num
+@define ONE 1
+
+# This expands to PASTE($src, ONE) -> $src@@ONE -> $srcONE, NOT $src1
+RESULT = PASTE($src, ONE) 
+```
+
+**Solution: The Two-Step Macro**
+
+To force an argument to be evaluated *before* pasting, you must use a two-level macro definition. This is a standard C preprocessor technique.
+
+1.  **Inner Macro:** Performs the direct pasting. Its arguments will not be expanded.
+2.  **Outer Macro:** Calls the inner macro. Its arguments *will* be expanded because they are not next to `@@` in its own definition.
+
+```
+# Inner macro for direct pasting
+@define PASTE(prefix, num) prefix@@num
+
+# Outer macro to force argument evaluation
+@define EVAL_AND_PASTE(prefix, num) PASTE(prefix, num)
+
+@define ONE 1
+
+# This now works correctly:
+# 1. EVAL_AND_PASTE($src, ONE) is called.
+# 2. Its arguments are expanded: $src remains $src, ONE becomes 1.
+# 3. PASTE($src, 1) is called.
+# 4. Its arguments are not expanded. It pastes '$src' and '1' into '$src1'.
+RESULT = EVAL_AND_PASTE($src, ONE) # Expands to $src1
+```
+
+**Example: Recursive Identifier Generation**
+
+This technique can be combined with recursive macros to generate complex code structures. The following example recursively generates a sum of source clips from `$src0` to `$src4`.
+
+```
+# Helper for compile-time subtraction
+@define MINUS(a, b) ((a) - (b))
+
+# Inner macro for direct pasting
+@define PASTE(a, b) a@@b
+
+# Outer macro to force argument evaluation before pasting
+@define EVAL_AND_PASTE(a, b) PASTE(a, b)
+
+# Recursive macro to generate a sequence of identifiers
+# Note: n is the count of clips, so it generates indices from 0 to n-1.
+@define EXPAND(prefix, n) (n == 1 ? EVAL_AND_PASTE(prefix, 0) : (EXPAND(prefix, MINUS(n, 1)) + EVAL_AND_PASTE(prefix, MINUS(n, 1))))
+
+# Expands to: $src0 + $src1 + $src2 + $src3 + $src4
+RESULT = EXPAND($src, 5)
+```
+This combines several advanced features:
+-   **Recursion:** `EXPAND` calls itself.
+-   **Conditional Termination:** The ternary operator `? :` stops the recursion when `n == 1`. The preprocessor's ability to short-circuit this condition is essential.
+-   **Forced Evaluation:** The `EVAL_AND_PASTE` wrapper ensures that the result of `MINUS(n, 1)` (e.g., `4`, `3`, `2`...) is computed before being pasted to the `prefix`.
+
 #### 2.2.6. Differences from C/C++ Macros
 
 This preprocessor is similar to C/C++ but has some key differences:

@@ -1998,6 +1998,20 @@ RESULT = 1
         assert not success, "Should fail with @error directive"
         assert "This should fail" in output
 
+    def test_recursive_macro_with_pasting(self):
+        """Test recursive macro expansion with token pasting."""
+        infix = """
+@define MINUS(a, b) ((a) - (b))
+@define PASTE(a, b) a@@b
+@define EVAL_AND_PASTE(a, b) PASTE(a, b)
+@define EXPAND(prefix, n) (n == 1 ? EVAL_AND_PASTE(prefix, 0) : (EXPAND(prefix, MINUS(n, 1)) + EVAL_AND_PASTE(prefix, MINUS(n, 1))))
+
+RESULT = EXPAND($src, 5)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert output.strip() == "src0 src1 + src2 + src3 + src4 + RESULT! RESULT@"
+
     def test_error_directive_in_inactive_block(self):
         """Test @error directive in inactive code block (should not trigger)."""
         infix = """

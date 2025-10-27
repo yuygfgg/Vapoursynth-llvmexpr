@@ -1368,10 +1368,10 @@ class Expander {
         std::vector<Token> substituted =
             substituteParams(macro.body, macro.params, processedArgs);
 
+        substituted = foldTopLevelTernary(substituted);
+
         Expander nestedExpander(macros, recursion_depth + 1);
         substituted = nestedExpander.expand(substituted);
-
-        substituted = foldTopLevelTernary(substituted);
 
         try {
             Evaluator evaluator(substituted);
@@ -1472,7 +1472,9 @@ class Expander {
             core_tokens.begin() + static_cast<std::ptrdiff_t>(question_pos));
 
         try {
-            Evaluator evaluator(cond_tokens);
+            Expander condExpander(macros, recursion_depth + 1);
+            auto expanded_cond = condExpander.expand(cond_tokens);
+            Evaluator evaluator(expanded_cond);
             auto result = evaluator.tryEvaluate();
             if (!result) {
                 return tokens;
