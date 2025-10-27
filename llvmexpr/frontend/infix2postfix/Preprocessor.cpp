@@ -1107,6 +1107,11 @@ class Expander {
                     continue;
                 }
 
+                if (tok.text == "static_assert") {
+                    handleStaticAssertIntrinsic(stream, result, tok);
+                    continue;
+                }
+
                 const Macro* macro = macros.find(tok.text);
                 if (macro == nullptr) {
                     result.push_back(stream.consume());
@@ -1244,6 +1249,62 @@ class Expander {
             result.emplace_back(TokenType::NUMBER, value, startLine, startCol,
                                 *maybe);
         }
+    }
+
+    void handleStaticAssertIntrinsic(TokenStream& stream,
+                                     std::vector<Token>& result,
+                                     const Token& tok) {
+        int startLine = tok.line;
+        int startCol = tok.column;
+
+        stream.consume();
+        stream.skipWhitespace();
+
+        if (stream.is_eof() || stream.peek().type != TokenType::LPAREN) {
+            result.emplace_back(TokenType::IDENTIFIER, tok.text, startLine,
+                                startCol);
+            return;
+        }
+
+        stream.consume();
+
+        std::vector<std::vector<Token>> args = parseMacroArguments(stream);
+        if (args.size() != 2) {
+            throw PreprocessorError(
+                "static_assert() expects 2 arguments: condition, message");
+        }
+
+        Expander nestedExpander(macros, recursion_depth + 1);
+        std::vector<Token> condTokens = nestedExpander.expand(args[0]);
+        std::vector<Token> msgTokens = nestedExpander.expand(args[1]);
+
+        std::optional<std::variant<int64_t, double>> maybe;
+        try {
+            Evaluator evaluator(condTokens);
+            maybe = evaluator.tryEvaluate();
+        } catch (const PreprocessorError&) {
+            throw;
+        } catch (...) {
+            maybe = std::nullopt;
+        }
+
+        if (!maybe) {
+            throw PreprocessorError(
+                "static_assert() requires a constant expression condition");
+        }
+
+        if (!Evaluator::is_truthy(*maybe)) {
+            std::string message =
+                preprocessor_detail::tokensToString(msgTokens, true);
+            if (message.empty()) {
+                message = "static_assert condition is false";
+            }
+            throw PreprocessorError(
+                std::format("static_assert failed: {}", message));
+        }
+
+        result.emplace_back(TokenType::NUMBER, "1", startLine, startCol,
+                            static_cast<int64_t>(1));
     }
 
     std::vector<std::vector<Token>> parseMacroArguments(TokenStream& stream) {

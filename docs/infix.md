@@ -318,6 +318,10 @@ The preprocessor provides two helper intrinsics to control constant evaluation s
   - Forces compile-time evaluation of `expr`. If successful, it is replaced by the computed numeric result.
   - If the expression cannot be evaluated at compile-time, a preprocessing error is raised.
 
+- `static_assert(condition, message)`
+  - If `condition` is `0`, raises a compile-time error with the specified `message`.
+  - This is useful for compile-time assertions.
+
 **Examples:**
 ```
 @define FAST_PATH(n) ((n) * (n))
