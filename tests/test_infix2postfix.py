@@ -2771,6 +2771,119 @@ RESULT = JOIN(3, GET_X, +)
         assert output.strip() == "src0 src1 + src2 + RESULT! RESULT@"
 
 
+class TestConditionSemantics:
+    """Test that infix conditions are converted to use != 0 semantics."""
+
+    def test_if_statement_inserts_zero_check(self):
+        """Test that if statement condition gets 0 = check inserted."""
+        infix = """
+val = 1
+a = 0
+if (val) {
+    a = 1
+}
+RESULT = a
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "val@ 0 =" in output
+
+    def test_while_statement_inserts_zero_check(self):
+        """Test that while statement condition gets 0 = check inserted."""
+        infix = """
+counter = 5
+while (counter) {
+    counter = counter - 1
+}
+RESULT = 0
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "counter@ 0 =" in output
+
+    def test_ternary_inserts_zero_check(self):
+        """Test that ternary operator condition gets 0 = not inserted."""
+        infix = """
+cond = 1
+result = cond ? 1 : 0
+RESULT = result
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "cond@ 0 = not" in output
+
+    def test_logical_and_inserts_zero_checks(self):
+        """Test that && inserts 0 = not for both operands."""
+        infix = """
+a = 1
+b = 1
+result = a && b
+RESULT = result
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "a@ 0 = not" in output
+        assert "b@ 0 = not" in output
+        assert "and" in output
+
+    def test_logical_or_inserts_zero_checks(self):
+        """Test that || inserts 0 = not for both operands."""
+        infix = """
+x = 0
+y = 1
+result = x || y
+RESULT = result
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "x@ 0 = not" in output
+        assert "y@ 0 = not" in output
+        assert "or" in output
+
+    def test_logical_not_becomes_zero_equals(self):
+        """Test that ! becomes 0 = (not 'not' token)."""
+        infix = """
+val = 1
+result = !val
+RESULT = result
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "val@ 0 =" in output
+
+    def test_conditional_goto_inserts_zero_check(self):
+        """Test that conditional goto gets 0 = not inserted."""
+        infix = """
+flag = 1
+if (flag) {
+    goto skip
+}
+a = 0
+skip:
+RESULT = 0
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        assert "flag@ 0 =" in output
+
+    def test_complex_logical_expression(self):
+        """Test complex logical expression with multiple conversions."""
+        infix = """
+a = 1
+b = 1
+c = 0
+result = (a && b) || c
+RESULT = result
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to convert: {output}"
+        # Each operand in && and || should get 0 = not
+        assert "a@ 0 = not" in output
+        assert "b@ 0 = not" in output
+        assert "and" in output
+        assert "or" in output
+
+
 class TestMultipleReturns:
     def test_valid_multiple_value_returns(self):
         """Test a function with multiple value returns where all paths return."""
@@ -2969,7 +3082,7 @@ RESULT = JOIN(3, GET_SRC, +)
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"JOIN() macro failed: {output}"
         assert output.strip() == "src0 src1 + src2 + RESULT! RESULT@"
-    
+
     def test_meta_unroll_macro(self):
         """Test the UNROLL() macro for generating expression sequences."""
         infix = """
@@ -2982,7 +3095,10 @@ RESULT = lut[2]
 """
         success, output = run_infix2postfix(infix, "expr")
         assert success, f"UNROLL() macro failed: {output}"
-        assert output.strip() == "lut{}^256 0 0 lut{}! 1 1 lut{}! 4 2 lut{}! 9 3 lut{}! 2 lut{}@ RESULT! RESULT@"
+        assert (
+            output.strip()
+            == "lut{}^256 0 0 lut{}! 1 1 lut{}! 4 2 lut{}! 9 3 lut{}! 2 lut{}@ RESULT! RESULT@"
+        )
 
     def test_macros_without_requires_fail(self):
         """Test that meta macros are not available without @requires meta."""

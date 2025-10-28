@@ -25,7 +25,7 @@ This is a specialized model where the script is executed only *once for the enti
 
 ## 2. Preprocessor
 
-The infix2postfix tool includes a powerful preprocessor that runs before the source code is parsed. It supports macro definitions, conditional compilation, and compile-time expression evaluation, enabling advanced code organization and configuration.
+The compiler includes a powerful preprocessor that runs before the source code is parsed. It supports macro definitions, conditional compilation, and compile-time expression evaluation, enabling advanced code organization and configuration.
 
 ### 2.1. Overview
 
@@ -299,64 +299,9 @@ Macros can be defined recursively. When combined with the short-circuiting terna
 RESULT = FACTORIAL(5) 
 ```
 
-Note that in this example, the expression `(n) - 1` is passed unevaluated at each step, accumulating into a large final expression `((5) * ((4) * ...))`. This is acceptable for simple arithmetic, but will fail if a step inside the recursion requires a single evaluated number (e.g., for token pasting). See [Section 2.8.4. Forcing Step-by-Step Evaluation in Recursive Macros](#284-forcing-step-by-step-evaluation-in-recursive-macros) for how to force evaluation at each step.
+Note that in this example, the expression `(n) - 1` is passed unevaluated at each step, accumulating into a large final expression `((5) * ((4) * ...))`. This is acceptable for simple arithmetic, but will fail if a step inside the recursion requires a single evaluated number (e.g., for token pasting). See [Next Section](#283-forcing-step-by-step-evaluation-in-recursive-macros) for how to force evaluation at each step.
 
-#### 2.8.3. A General-Purpose `JOIN` Macro
-
-These techniques can be combined to generate complex code structures. The following example demonstrates a robust, general-purpose `JOIN` macro that recursively generates a sequence of expressions, such as summing a series of source clips. This pattern is highly effective for reducing repetitive code and is available in the `meta` standard library.
-
-The utility works by defining a set of helper macros:
-- A recursive inner macro (`__JOIN`) that builds the expression sequence.
-- A public-facing macro (`JOIN`) that validates its inputs before delegating to the inner macro.
-- Helper macros for safe decrement (`DEC`), token pasting (`PASTE`), and compile-time assertions (`ASSERT_CONST_EXPR`).
-
-```
-# -----------------------------------------------------------------------------
-# COMPILE-TIME UTILITY MACROS (Simplified from 'meta' library)
-# -----------------------------------------------------------------------------
-
-# Utility to force a compilation error with a custom message.
-@define ERROR(msg) static_assert(0, msg)
-
-# Asserts that an expression is a compile-time constant and evaluates to true.
-@define ASSERT_CONST_EXPR(expr, name, msg) (is_consteval(expr) ? static_assert(expr, name msg) : ERROR(name must be a constant expression))
-
-# Safe, compile-time decrement macro.
-@define DEC(n) ((n) - 1)
-
-# Two-step token pasting macros.
-@define _PASTE(a, b) a@@b
-@define PASTE(a, b) _PASTE(a, b)
-
-# Internal recursive implementation for the JOIN macro.
-# Base Case: When count is 1, it emits `macro(0)`.
-# Recursive Step: For count > 1, it calls itself and appends the next element.
-@define __JOIN(count, macro, sep) ((count) == 1 ? macro(0) : (__JOIN(DEC(count), macro, sep) sep macro(DEC(count))))
-
-# Public-facing macro to generate a sequence of expressions.
-@define JOIN(count, macro, sep) (ASSERT_CONST_EXPR(count > 0, count, must be a positive integer) ? __JOIN(count, macro, sep) : 0)
-
-
-# -----------------------------------------------------------------------------
-# USER CODE EXAMPLE
-# -----------------------------------------------------------------------------
-# This section demonstrates using `JOIN` to generate `$src0 + $src1 + $src2`.
-
-# Define the macro that generates each element in the sequence.
-# It uses PASTE to combine '$src' with the index 'i'.
-@define GET_SRC(i) PASTE($src, i)
-
-# USAGE:
-# Call the public `JOIN` macro.
-# - `count` is 3.
-# - `GET_SRC` is the macro called with indices 0, 1, and 2.
-# - `+` is the separator.
-#
-# This expands recursively to: `(($src0 + $src1) + $src2)`
-RESULT = JOIN(3, GET_SRC, +)
-```
-
-#### 2.8.4. Forcing Step-by-Step Evaluation in Recursive Macros
+#### 2.8.3. Forcing Step-by-Step Evaluation in Recursive Macros
 
 A critical subtlety of recursive macros arises when an argument needs to be evaluated at *each* step of the recursion, rather than accumulating into a large expression. This is often necessary when the argument is passed to another macro that requires a simple value, such as a token-pasting macro.
 
@@ -378,7 +323,7 @@ This produces incorrect results. On the first recursion, the argument `(i) + 1` 
 
 **The Solution: Helper Macros to Force Evaluation**
 
-To force evaluation at each step, the expression must be wrapped in another macro. This pattern is used by the `DEC` macro in the `JOIN` example above, and we can define a similar one for incrementing.
+To force evaluation at each step, the expression must be wrapped in another macro so that arguments are expanded beforehand.
 
 **Correct Implementation:**
 ```
@@ -429,6 +374,15 @@ These are defined by the VapourSynth filter when it invokes the transpiler.
 | `__SUBSAMPLE_W__`      | Horizontal chroma subsampling (`1` for 4:2:x, `0` otherwise).            |
 | `__SUBSAMPLE_H__`      | Vertical chroma subsampling (`1` for 4:2:0, `0` otherwise).              |
 | `__PLANE_NO__`         | Current plane being processed (`0`, `1`, or `2`). (**`Expr` mode only**) |
+
+### 2.10. Debugging Macros
+
+The cli tool `infix2postfix` includes a `-E` option that outputs the preprocessed code and a trace of macro expansions.
+```
+infix2postfix input.expr -m [expr/single] -E
+```
+
+This can be very helpful for debugging macro definitions and expansion.
 
 ## 3. Lexical Structure
 
@@ -569,7 +523,8 @@ Operators are left-associative, except for the unary and ternary operators. The 
 | 10         | `? :`                | Ternary Conditional      | Ternary | Right         |
 
 Note: Bitwise operators operate on integer values. When operating on floating-point values, operands are first rounded to the nearest integer.
-Note: Logical operators treat any value greater than 0 as `true`. They return `1.0` for true and `0.0` for false.
+
+Note: All conditional contexts in the infix syntax use consistent `!= 0` semantics, which is different from that of the underlying RPN language.
 
 ## 7. Data Access
 
@@ -843,7 +798,7 @@ if (condition) {
 ```
 
 - `else` is optional. Nested blocks are supported.
-- The condition is any valid expression; non-zero is treated as true.
+- The condition is any valid expression; any non-zero value (including negative values) is treated as true, and zero is treated as false.
 - Each block is a sequence of normal statements (assignments or expressions).
 
 ### 10.2. Goto and Labels
@@ -869,7 +824,7 @@ while (condition) {
 }
 ```
 
-- The `condition` is any valid expression; a non-zero result is treated as true.
+- The `condition` is any valid expression; any non-zero value (including negative values) is treated as true, and zero is treated as false.
 - The loop continues to execute as long as the condition evaluates to true.
 - This is syntactic sugar for a structure using labels and conditional `goto`.
 

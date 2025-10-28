@@ -94,6 +94,13 @@ CodeGenerator::ExprResult CodeGenerator::handle(const UnaryExpr& expr) {
 
     auto right = generate(expr.right.get());
     PostfixBuilder b = right.postfix;
+
+    if (expr.op.type == TokenType::Not) {
+        b.add_number("0");
+        b.add_op(TokenType::Eq);
+        return {.postfix = b, .type = Type::VALUE};
+    }
+
     b.add_unary_op(expr.op.type);
     return {.postfix = b, .type = Type::VALUE};
 }
@@ -104,6 +111,22 @@ CodeGenerator::ExprResult CodeGenerator::handle(const BinaryExpr& expr) {
 
     PostfixBuilder b;
     b.append(left.postfix);
+
+    if (expr.op.type == TokenType::LogicalAnd ||
+        expr.op.type == TokenType::LogicalOr) {
+        b.add_number("0");
+        b.add_op(TokenType::Eq);
+        b.add_unary_op(TokenType::Not);
+
+        b.append(right.postfix);
+        b.add_number("0");
+        b.add_op(TokenType::Eq);
+        b.add_unary_op(TokenType::Not);
+
+        b.add_op(expr.op.type);
+        return {.postfix = b, .type = Type::VALUE};
+    }
+
     b.append(right.postfix);
     b.add_op(expr.op.type);
     return {.postfix = b, .type = Type::VALUE};
@@ -116,6 +139,9 @@ CodeGenerator::ExprResult CodeGenerator::handle(const TernaryExpr& expr) {
 
     PostfixBuilder b;
     b.append(cond.postfix);
+    b.add_number("0");
+    b.add_op(TokenType::Eq);
+    b.add_unary_op(TokenType::Not);
     b.append(true_branch.postfix);
     b.append(false_branch.postfix);
     b.add_ternary_op();
@@ -374,7 +400,8 @@ PostfixBuilder CodeGenerator::handle(const WhileStmt& stmt) {
     PostfixBuilder b;
     b.add_label(start_label);
     b.append(generate(stmt.condition.get()).postfix);
-    b.add_unary_op(TokenType::Not);
+    b.add_number("0");
+    b.add_op(TokenType::Eq);
     b.add_conditional_jump(end_label);
     b.append(generate(stmt.body.get()));
     b.add_unconditional_jump(start_label);
@@ -428,6 +455,9 @@ PostfixBuilder CodeGenerator::handle(const GotoStmt& stmt) {
                                  : stmt.label.value;
     if (stmt.condition) {
         b.append(generate(stmt.condition.get()).postfix);
+        b.add_number("0");
+        b.add_op(TokenType::Eq);
+        b.add_unary_op(TokenType::Not);
         b.add_conditional_jump(label_name);
     } else {
         b.add_unconditional_jump(label_name);
