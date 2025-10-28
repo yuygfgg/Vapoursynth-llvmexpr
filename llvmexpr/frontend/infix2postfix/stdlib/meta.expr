@@ -1,0 +1,17 @@
+@define ___stdlib_meta_ERROR(msg) static_assert(0, msg)
+
+@define ___stdlib_meta_ASSERT_CONST(expr, context, message) (is_consteval(expr) ? static_assert(expr, ___stdlib_meta__PASTE(context, message)) : ___stdlib_meta_ERROR(___stdlib_meta__PASTE(context, _must_be_a_constant_expression)))
+
+@define ___stdlib_meta__PASTE(a, b) a@@b
+
+@define ___stdlib_meta_PASTE(a, b) ___stdlib_meta__PASTE(a, b)
+
+@define ___stdlib_meta__DEC(n) ((n) - 1)
+
+@define ___stdlib_meta__JOIN(count, macro, sep) ((count) == 1 ? macro(0) : (___stdlib_meta__JOIN(___stdlib_meta__DEC(count), macro, sep) sep macro(___stdlib_meta__DEC(count))))
+
+@define ___stdlib_meta_JOIN(count, macro, sep) (___stdlib_meta_ASSERT_CONST(count > 0, First_argument, _must_be_a_positive_integer) ? ___stdlib_meta__JOIN(count, macro, sep) : 0)
+
+@define ___stdlib_meta__UNROLL(count, macro) ((count) == 1 ? macro(0) : ___stdlib_meta__UNROLL(___stdlib_meta__DEC(count), macro); macro(___stdlib_meta__DEC(count)))
+
+@define ___stdlib_meta_UNROLL(count, macro) (___stdlib_meta_ASSERT_CONST(count > 0, First_argument, _must_be_a_positive_integer) ? ___stdlib_meta__UNROLL(count, macro) : 0)

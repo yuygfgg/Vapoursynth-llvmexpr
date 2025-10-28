@@ -72,6 +72,22 @@ Follow these steps to add a new library.
 
 Select a short, descriptive, and unique name for your library (e.g., `my_lib`).
 
+**Naming Requirements:**
+
+Library names must follow identifier rules and can only contain:
+- Lowercase letters (`a-z`)
+- Digits (`0-9`)
+- Underscores (`_`)
+
+**Important restrictions:**
+- Names must NOT contain dots (`.`), hyphens (`-`), or other special characters
+- Names should be in `snake_case` format
+- Names must be unique across all standard libraries
+
+**Examples:**
+- ✅ Valid: `algorithms`, `math_extra`, `image_processing`, `util2`
+- ❌ Invalid: `math.extra` (contains dot), `image-processing` (contains hyphen), `MathExtra` (uppercase)
+
 ### Step 2: Create Library Files
 
 A library consists of two files: a C++ header (`.hpp`) and a source file (`.expr`).

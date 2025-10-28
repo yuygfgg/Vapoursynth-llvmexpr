@@ -28,13 +28,14 @@
 // Import all standard library definitions
 #include "stdlib/Algorithms.hpp"
 #include "stdlib/LibraryBase.hpp"
+#include "stdlib/Meta.hpp"
 
 namespace infix2postfix {
 
 using stdlib::ExportedFunction;
 using stdlib::IsLibrary;
 
-using AllStandardLibraries = std::tuple<stdlib::algorithms>;
+using AllStandardLibraries = std::tuple<stdlib::algorithms, stdlib::meta>;
 
 namespace detail {
 

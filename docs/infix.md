@@ -386,11 +386,18 @@ The preprocessor provides two helper intrinsics to control constant evaluation s
 
 You can include built-in standard libraries using the `@requires` directive. This is the primary way to access a rich set of pre-defined functions and constants.
 
-- **Syntax**: `@requires [library_name]`
+- **Syntax**: `@requires library_name`
+- **Library Name**: Must be a valid identifier containing only lowercase letters, digits, and underscores (no dots, hyphens, or other special characters).
 
 **Example:**
 ```
 @requires algorithms
+@requires math_extra
+```
+
+**Invalid:**
+```
+@requires math.extra  # Error: dots not allowed in library names
 ```
 
 ## 3. Lexical Structure
@@ -930,3 +937,87 @@ The lifetime of an array depends on the execution mode:
 ### 11.5. Safety
 
 **Warning:** The language does not perform runtime bounds checking on array access. Accessing an index outside the allocated size (e.g., `my_array[-1]` or `my_array[size]`) will result in **undefined behavior**, which may include crashes or memory corruption. It is the script author's responsibility to ensure all access is within bounds.
+
+## 12. Standard Library Reference
+
+The `@requires` directive can be used to import built-in standard libraries to extend the language's functionality.
+
+### 12.1. The `meta` Library
+
+The `meta` library provides a collection of powerful macros for compile-time metaprogramming. These macros help you generate repetitive code, perform compile-time assertions, and carry out more advanced preprocessing tasks.
+
+To use this library, add the following to your code:
+```
+@requires meta
+```
+
+**Macro Functions**
+
+-   `ERROR(message)`
+    -   **Function:** Generates a compile-time error with the specified `message`, useful in ternary operators.
+
+-   `ASSERT_CONST(expression, context, message)`
+    -   **Function:** Asserts that an `expression` must evaluate to true at compile time. If the expression is not a constant or evaluates to false, compilation will fail.
+    -   **Parameters:**
+        -   `expression`: The compile-time expression to check.
+        -   `context`: A token representing the context where the error occurred.
+        -   `message`: A token describing the reason for the assertion failure.
+    -   **Example:** `ASSERT_CONST(__WIDTH__ > 1024, __WIDTH__, must_be_greater_than_1024)`
+
+-   `PASTE(token1, token2)`
+    -   **Function:** Pastes two tokens into one. It uses a two-step macro expansion to ensure that `token1` and `token2` are fully expanded before pasting.
+    -   **Example:**
+        ```
+        @define VAR_NAME(i) my_var_@@i
+        @define INDEX 5
+        # Expands to my_var_5
+        var = PASTE(VAR_NAME, INDEX)
+        ```
+
+-   `JOIN(count, macro, separator)`
+    -   **Function:** A recursive macro that generates a sequence of expressions joined by a `separator`. It calls `macro(i)` for each index `i` from 0 to `count - 1`. `count` must be a compile-time constant.
+    -   **Parameters:**
+        -   `count`: The number of repetitions.
+        -   `macro`: A single-argument macro that generates each element in the sequence.
+        -   `separator`: The token used to join the elements (e.g., `+`, `,`).
+    -   **Example:** Generate `$src0 + $src1 + $src2`
+        ```
+        @define GET_SRC(i) PASTE($src, i)
+        # Expands to (($src0 + $src1) + $src2)
+        RESULT = JOIN(3, GET_SRC, +)
+        ```
+
+-   `UNROLL(count, macro)`
+    -   **Function:** Similar to `JOIN`, but generates a sequence of statements separated by semicolons. It calls `macro(i)` for each index from 0 to `count - 1`. `count` must be a compile-time constant.
+    -   **Example:** Generate an unrolled loop
+        ```
+        @define PROCESS(i) data[i] = data[i] * 2
+        # Expands to: data[0] = data[0] * 2; data[1] = data[1] * 2; ...
+        UNROLL(5, PROCESS)
+        ```
+
+### 12.2. The `algorithms` Library
+
+The `algorithms` library provides a set of common algorithms for operating on arrays.
+
+To use this library, add the following to your code:
+```
+@requires algorithms
+```
+
+**Functions**
+
+-   `swap(Array a, Value i, Value j)`
+    -   **Function:** Swaps the two elements at indices `i` and `j` in array `a`.
+
+-   `reverse(Array a, Value begin, Value end)`
+    -   **Function:** Reverses the order of elements in array `a` within the range `[begin, end)`.
+
+-   `sort(Array a, Value begin, Value end)`
+    -   **Function:** Sorts the elements in array `a` within the range `[begin, end)` in ascending order.
+    -   **Implementation:** This function uses Introsort to achieve an average and worst-case time complexity of `O(N log N)`.
+
+-   `find_kth_smallest(Array a, Value begin, Value end, Value k)`
+    -   **Function:** Finds the k-th smallest element (0-indexed) in array `a` within the range `[begin, end)`. This operation is more efficient than a full sort, with an average time complexity of `O(N)`.
+    -   **Parameters:** `k` is a 0-based index where `0 <= k < (end - begin)`.
+    -   **Implementation:** This function uses a quickselect algorithm. In `Expr` mode, if the range size is not a compile-time constant, it falls back to a slower but correct implementation.

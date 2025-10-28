@@ -2890,3 +2890,105 @@ RESULT = find_first_negative_val(arr, 10)
             "Not all control paths in function 'find_first_negative_val' return a value"
             in output
         )
+
+
+class TestStdlibMeta:
+    """Test the 'meta' standard library."""
+
+    def test_meta_requires(self):
+        """Test that the 'meta' library can be required."""
+        infix = """
+@requires meta
+RESULT = 1
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"Failed to require meta: {output}"
+
+    def test_meta_error_macro(self):
+        """Test the ERROR() macro from the meta library."""
+        infix = """
+@requires meta
+ERROR(This is a test error from meta lib)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "ERROR() macro should have failed compilation"
+        assert "This is a test error from meta lib" in output
+
+    def test_meta_assert_const_macro_true(self):
+        """Test ASSERT_CONST() macro when condition is true."""
+        infix = """
+@requires meta
+_ = ASSERT_CONST(1, TestContext, _message)
+RESULT = 1
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"ASSERT_CONST() should succeed: {output}"
+        assert "1 RESULT! RESULT@" in output
+
+    def test_meta_assert_const_macro_false(self):
+        """Test ASSERT_CONST() macro when condition is false."""
+        infix = """
+@requires meta
+ASSERT_CONST(0, TestContext, _this_should_fail)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "ASSERT_CONST() should have failed compilation"
+        assert "TestContext_this_should_fail" in output
+
+    def test_meta_assert_const_macro_not_const(self):
+        """Test ASSERT_CONST() macro when expression is not a compile-time constant."""
+        infix = """
+@requires meta
+ASSERT_CONST($X, TestContext, _message)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert not success, "ASSERT_CONST() should fail on non-constant expression"
+        assert "TestContext_must_be_a_constant_expression" in output
+
+    def test_meta_paste_macro(self):
+        """Test the PASTE() macro for argument expansion and token pasting."""
+        infix = """
+@requires meta
+@define A x
+@define B y
+xy = 100
+RESULT = PASTE(A, B)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"PASTE() macro failed: {output}"
+        assert "100 xy!" in output
+        assert "xy@ RESULT!" in output
+
+    def test_meta_join_macro(self):
+        """Test the JOIN() macro for generating expression sequences."""
+        infix = """
+@requires meta
+@define GET_SRC(i) PASTE($src, i)
+RESULT = JOIN(3, GET_SRC, +)
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"JOIN() macro failed: {output}"
+        assert output.strip() == "src0 src1 + src2 + RESULT! RESULT@"
+    
+    def test_meta_unroll_macro(self):
+        """Test the UNROLL() macro for generating expression sequences."""
+        infix = """
+@requires meta
+lut = new(256);
+@define POW(x) x * x
+@define FILL_LUT_ENTRY(i) lut[i] = POW(i)
+UNROLL(4, FILL_LUT_ENTRY)
+RESULT = lut[2]
+"""
+        success, output = run_infix2postfix(infix, "expr")
+        assert success, f"UNROLL() macro failed: {output}"
+        assert output.strip() == "lut{}^256 0 0 lut{}! 1 1 lut{}! 4 2 lut{}! 9 3 lut{}! 2 lut{}@ RESULT! RESULT@"
+
+    def test_macros_without_requires_fail(self):
+        """Test that meta macros are not available without @requires meta."""
+        infix = """
+@define GET_SRC(i) i
+RESULT = JOIN(3, GET_SRC, +)
+"""
+        success, _ = run_infix2postfix(infix, "expr")
+        assert not success, "Should fail without @requires meta"
