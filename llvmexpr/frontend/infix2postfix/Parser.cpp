@@ -474,6 +474,12 @@ std::unique_ptr<Expr> Parser::parseExponent() {
 std::unique_ptr<Expr> Parser::parseUnary() {
     if (match({TokenType::Not, TokenType::Minus, TokenType::BitNot})) {
         Token op = previous();
+        if (op.type == TokenType::Minus && peek().type == TokenType::Number) {
+            Token number = advance();
+            number.value = std::format("-{}", number.value);
+            number.range.start = op.range.start;
+            return make_node<Expr, NumberExpr>(number);
+        }
         auto right = parseUnary();
         return make_node<Expr, UnaryExpr>(op, std::move(right));
     }

@@ -590,7 +590,7 @@ Access the width and height of specific planes using `frame.width[N]` and `frame
 w0 = frame.width[0];   # Width of plane 0 (luma)
 h1 = frame.height[1];  # Height of plane 1 (chroma U)
 ```
-**Note:** The plane index `N` must be a literal constant.
+**Note:** The plane index `N` must be a literal constant. `frame.width` and `frame.height` are special built-in syntax forms, not member access on an object.
 
 #### Absolute Pixel Reading
 
@@ -623,7 +623,7 @@ Functions are called using standard syntax: `functionName(argument1, argument2, 
 | `copysign`                        | 2                   | Magnitude of first operand, sign of second.                                                             |
 | `clamp`                           | 3                   | `clamp(x, lo, hi)`; clamps to `[lo, hi]`.                                                               |
 | `fma`                             | 3                   | Fused multiply-add: `(a * b) + c`.                                                                      |
-| `nth_N`                           | `M` (where `M ≥ N`) | `nth_3(a, b, c, d)` returns the 3rd smallest of the 4 values.                                           |
+| `nth_N`                           | `M` (where `M ≥ N`) | Returns the N-th smallest value (1-indexed). E.g., `nth_3(1,2,3,4,5,6)` returns `3`.                   |
 | `new`                             | 1                   | Allocates an array. In `Expr` mode, size must be a literal. In `SingleExpr`, size can be an expression. |
 | `resize`                          | 1                   | Resizes an array in `SingleExpr` mode only. The array must be previously allocated with `new()`.        |
 
@@ -642,10 +642,11 @@ The `dyn()` function has different signatures for `Expr` and `SingleExpr` modes.
   - Accesses a pixel at a dynamically calculated coordinate.
   - `$clip` must be a source clip constant.
   - `x_expr` and `y_expr` can be any valid expressions. If the coordinates are not integers, they will be rounded half to even.
-  - `boundary_mode` is an optional integer constant that specifies the boundary handling:
-    - `0`: Use the filter's global boundary parameter.
+  - `boundary_mode` (optional): Boundary handling mode.
+    - If omitted (3 arguments): Clamped boundary (default, same as `2`).
+    - `0`: Use the filter's global boundary parameter (same as the boundary mode in [Section 7.2](#72-pixel-access-expr-mode)).
     - `1`: Mirrored boundary.
-    - `2`: Clamped boundary (this is the default if the argument is omitted).
+    - `2`: Clamped boundary.
   - `dyn($src0, $X + 2, $Y + 3, 0)` is roughly equivalent to `$src0[2, 3]`.
 
 - **`SingleExpr` mode:** `dyn($clip, x, y, plane)`
@@ -682,7 +683,7 @@ The `store()` function has different signatures for `Expr` and `SingleExpr` mode
 
 - **Definition:**
 
-Functions are defined using the `function` keyword. The function name cannot conflict with any built-in function names. If a function has no type specifier, it is assumed to be `Value`.
+Functions are defined using the `function` keyword. The function name cannot conflict with any built-in function names.
 
 ```
 function functionName(Type1 param1, Type2 param2) {
@@ -693,10 +694,12 @@ function functionName(Type1 param1, Type2 param2) {
 ```
 
 - **Parameter Types:**
-  - `Value`: A standard floating-point value, the most general type.
+  - `Value`: A standard floating-point value, the most general type. This is the default if no type is specified.
   - `Clip`: A source clip constant (e.g., `$a`, `$src1`).
   - `Literal`: A literal constant value (numeric literal).
   - `Array`: A reference to an array created with `new()`.
+
+- **Return Type:** All functions that return a value return type `Value`. There is no syntax for specifying a return type.
 
 - **Return Statement:** The `return` statement exits a function. It can appear multiple times within a function body and can be used with or without a value.
 
@@ -723,7 +726,7 @@ When an overloaded function is called, the compiler selects the best-matching ov
 3.  **Tie-Breaking:** If multiple overloads have the same number of conversions, the one where the first conversion occurs on a later argument (further to the right in the parameter list) is selected.
 4.  **Ambiguity:** If a single best overload cannot be determined from these rules, a compile-time error is raised.
 
-**Example:**
+**Example: (Expr mode)**
 ```
 # Overloaded function 'process'
 function process(Clip c) {
@@ -860,11 +863,14 @@ Arrays are created by calling the built-in `new()` function and assigning the re
     frame_size = $width * $height;
     pixel_buffer = new(frame_size);
     ```
+  - **Float to Integer Conversion:** If the size expression evaluates to a floating-point value, it will be **truncated toward zero**.
+    - Examples: `new(10.9)` allocates size `10`, `new(3.1)` allocates size `3`, `new(-2.9)` allocates size `-2` (which would cause undefined behavior).
+    - **Note:** This is truncation, not rounding. `new(10.9)` will allocate 10 elements, not 11.
   - The `resize()` function can be used to change an array's size.
     ```
     pixel_buffer = resize(new_size);
     ```
-    Note: An array must be allocated using `new()` before it can be resized.
+    Note: An array must be allocated using `new()` before it can be resized. The same float-to-integer truncation applies to `resize()`.
 
 ### 11.2. Element Access
 
@@ -872,6 +878,10 @@ C-style square brackets `[]` are used to read from and write to array elements.
 
 - **Writing:** `my_array[index_expression] = value_expression;`
 - **Reading:** `value = my_array[index_expression];`
+
+**Float to Integer Conversion:** If the index expression evaluates to a floating-point value, it will be **truncated toward zero**.
+- Examples: `my_array[3.7]` accesses index `3`, `my_array[0.1]` accesses index `0`, `my_array[-1.5]` accesses index `-1` (may cause undefined behavior).
+- This is truncation, not rounding: `my_array[3.9]` accesses index `3`, not `4`.
 
 **Syntax Disambiguation:** Array access is distinguished from relative pixel access by the number of arguments in the brackets.
 - `my_array[i]` (1 argument) is an array access.
@@ -923,6 +933,9 @@ The lifetime of an array depends on the execution mode:
 
 **Warning:** The language does not perform runtime bounds checking on array access. Accessing an index outside the allocated size (e.g., `my_array[-1]` or `my_array[size]`) will result in **undefined behavior**, which may include crashes or memory corruption. It is the script author's responsibility to ensure all access is within bounds.
 
+**Floating-point indices:** While the language accepts floating-point values for array indices and sizes, they are truncated toward zero, not rounded. This may lead to unexpected behavior if you assume rounding. Use explicit rounding functions (`floor()`, `ceil()`, `round()`) if you need specific rounding behavior.
+**Negative sizes/indices:** Passing negative values to `new()` or `resize()`, or using negative array indices (which can result from truncating small negative floats like `-0.5` → `0` or larger ones like `-1.5` → `-1`), will cause undefined behavior.
+
 ## 12. Standard Library Reference
 
 The `@requires` directive can be used to import built-in standard libraries to extend the language's functionality.
@@ -953,7 +966,8 @@ To use this library, add the following to your code:
     -   **Function:** Pastes two tokens into one. It uses a two-step macro expansion to ensure that `token1` and `token2` are fully expanded before pasting.
     -   **Example:**
         ```
-        @define VAR_NAME(i) my_var_@@i
+        @requires meta
+        @define VAR_NAME my_var_
         @define INDEX 5
         # Expands to my_var_5
         var = PASTE(VAR_NAME, INDEX)

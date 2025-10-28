@@ -226,7 +226,8 @@ Arrays must be allocated before use. The allocation method depends on whether th
 
 - **Dynamic Allocation:** `size arrayname{}^` (**SingleExpr only**)
   - Allocates an array with a size determined at runtime.
-  - Pops the `size` value from the stack. If the value is not an integer, it will be converted (truncated).
+  - Pops the `size` value from the stack. If the value is not an integer, it will be **truncated toward zero**.
+    - Examples: `10.9` → `10`, `3.1` → `3`, `-2.9` → `-2`
   - The array is heap-allocated and can be resized by allocating again with a different size.
   - **Not available in `Expr` mode** - attempting to use this will result in a compilation error.
   - Stack effect: -1 (consumes the size value).
@@ -236,14 +237,16 @@ Arrays must be allocated before use. The allocation method depends on whether th
 
 - **Reading:** `index arrayname{}@`
   - Reads a value from the array at the specified index.
-  - Pops the `index` from the stack. If the index is not an integer, it will be converted (truncated).
+  - Pops the `index` from the stack. If the index is not an integer, it will be **truncated toward zero**.
+    - Examples: `3.7 buffer{}@` accesses index `3`, `0.1 buffer{}@` accesses index `0`, `-1.5 buffer{}@` accesses index `-1` (may cause undefined behavior).
   - Pushes the value stored at that index onto the stack.
   - Stack effect: 0 (consumes index, produces value).
   - **Example:** `5 buffer{}@` reads the value at index 5 from `buffer`.
 
 - **Writing:** `value index arrayname{}!`
   - Writes a value to the array at the specified index.
-  - Pops the `index` and then the `value` from the stack. If the index is not an integer, it will be converted (truncated).
+  - Pops the `index` and then the `value` from the stack. If the index is not an integer, it will be **truncated toward zero**.
+    - Examples: `42.0 3.9 buffer{}!` writes to index `3`, not `4` (truncation, not rounding).
   - Stack effect: -2 (consumes both value and index).
   - **Example:** `42.0 10 buffer{}!` writes 42.0 to index 10 of `buffer`.
 
@@ -254,6 +257,10 @@ Like variables, arrays undergo static initialization analysis:
 - Attempting to access an uninitialized array will result in a compilation error.
 - An array allocated statically (`arrayname{}^size`) cannot be reallocated by any means (either statically or dynamically). The compiler will raise an error if it detects a re-allocation attempt. This applies to both `Expr` and `SingleExpr`.
 - Array indices are **not** bounds-checked at runtime. Accessing an out-of-bounds index results in **undefined behavior**.
+
+**Additional Safety Considerations:**
+- **Floating-point indices:** While the language accepts floating-point values for array indices and sizes (in dynamic allocation), they are truncated toward zero, not rounded. Use explicit rounding operations (`floor`, `ceil`, `round`) if you need specific rounding behavior before passing values to array operations.
+- **Negative sizes/indices:** Passing negative values to dynamic allocation or using negative array indices (which can result from truncating negative floats like `-1.5` → `-1`) will cause undefined behavior.
 
 ##### **4.3.4. Array Scope and Persistence**
 
