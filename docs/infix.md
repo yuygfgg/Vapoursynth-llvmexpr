@@ -148,7 +148,7 @@ The preprocessor expands macros according to the following rules:
 
 1.  **Multiple Passes**: The preprocessor makes multiple passes over the source text, expanding macros until no more expansions can be performed. A recursion limit (1000) prevents infinite loops.
 2.  **Token-Based Matching**: Macro replacement is performed on a whole-word basis. For example, if `V` is a macro, it will not be expanded inside the identifier `VALUE`.
-3.  **Argument Expansion**: For function-like macros, the preprocessor fully expands a macro's arguments *before* substituting them into the macro body, with one key exception (see Token Pasting below). The resulting text is then rescanned for further macro expansions.
+3.  **Argument Expansion**: For function-like macros, the preprocessor fully expands a macro's arguments *before* substituting them into the macro body, with one key exception (see Token Pasting below). An important consequence of this is that if an expanded argument forms a valid constant expression (e.g., (2+3)), it is immediately evaluated and replaced by its result (e.g., 5) before being passed to the outer macro. This mechanism is crucial for advanced techniques like recursive macros that generate new values at each step. The resulting text is then rescanned for further macro expansions.
 4.  **Differences from C/C++**: This preprocessor is similar to C/C++ but lacks a stringification (`#`) operator and variadic macros (`...`, `__VA_ARGS__`). Also, macro definitions must be on a single line.
 
 #### 2.5.1. Token Pasting (`@@`)
@@ -218,21 +218,21 @@ The expression evaluator supports:
 
 | Precedence | Operator             | Description              | Arity   | Associativity |
 | :--------- | :------------------- | :----------------------- | :------ | :------------ |
-| 1          | `\|\|`               | Logical OR               | Binary  | Left          |
-| 2          | `&&`                 | Logical AND              | Binary  | Left          |
-| 3          | `\|`                 | Bitwise OR               | Binary  | Left          |
-|            | `^`                  | Bitwise XOR              | Binary  | Left          |
-|            | `&`                  | Bitwise AND              | Binary  | Left          |
-|            | `~`                  | Bitwise NOT              | Unary   | Right         |
-| 4          | `<`, `<=`, `>`, `>=` | Relational               | Binary  | Left          |
-| 5          | `==`, `!=`           | Equality                 | Binary  | Left          |
-| 6          | `+`, `-`             | Addition, Subtraction    | Binary  | Left          |
-| 7          | `*`, `/`             | Multiplication, Division | Binary  | Left          |
+| 1          | `? :`                | Ternary Conditional      | Ternary | Right         |
+| 2          | `\|\|`               | Logical OR               | Binary  | Left          |
+| 3          | `&&`                 | Logical AND              | Binary  | Left          |
+| 4          | `\|`                 | Bitwise OR               | Binary  | Left          |
+| 5          | `^`                  | Bitwise XOR              | Binary  | Left          |
+| 6          | `&`                  | Bitwise AND              | Binary  | Left          |
+| 7          | `==`, `!=`           | Equality                 | Binary  | Left          |
+| 8          | `<`, `<=`, `>`, `>=` | Relational               | Binary  | Left          |
+| 9          | `+`, `-`             | Addition, Subtraction    | Binary  | Left          |
+| 10         | `*`, `/`             | Multiplication, Division | Binary  | Left          |
 |            | `%`                  | Modulus                  | Binary  | Left          |
-| 8          | `**`                 | Exponentiation (Power)   | Binary  | Right         |
-| 9          | `-`                  | Negation                 | Unary   | Right         |
+| 11         | `**`                 | Exponentiation (Power)   | Binary  | Right         |
+| 12         | `-`                  | Negation                 | Unary   | Right         |
 |            | `!`                  | Logical NOT              | Unary   | Right         |
-| 10         | `? :`                | Ternary Conditional      | Ternary | Right         |
+|            | `~`                  | Bitwise NOT              | Unary   | Right         |
 
 - **Short-Circuiting**: The logical operators `&&`, `||`, and the ternary operator `? :` use short-circuit evaluation. This means only the necessary operands are evaluated. This behavior is essential for implementing terminating recursive macros.
 
@@ -506,21 +506,21 @@ Operators are left-associative, except for the unary and ternary operators. The 
 
 | Precedence | Operator             | Description              | Arity   | Associativity |
 | :--------- | :------------------- | :----------------------- | :------ | :------------ |
-| 1          | `\|\|`               | Logical OR               | Binary  | Left          |
-| 2          | `&&`                 | Logical AND              | Binary  | Left          |
-| 3          | `\|`                 | Bitwise OR               | Binary  | Left          |
-|            | `^`                  | Bitwise XOR              | Binary  | Left          |
-|            | `&`                  | Bitwise AND              | Binary  | Left          |
-|            | `~`                  | Bitwise NOT              | Unary   | Right         |
-| 4          | `<`, `<=`, `>`, `>=` | Relational               | Binary  | Left          |
-| 5          | `==`, `!=`           | Equality                 | Binary  | Left          |
-| 6          | `+`, `-`             | Addition, Subtraction    | Binary  | Left          |
-| 7          | `*`, `/`             | Multiplication, Division | Binary  | Left          |
+| 1          | `? :`                | Ternary Conditional      | Ternary | Right         |
+| 2          | `\|\|`               | Logical OR               | Binary  | Left          |
+| 3          | `&&`                 | Logical AND              | Binary  | Left          |
+| 4          | `\|`                 | Bitwise OR               | Binary  | Left          |
+| 5          | `^`                  | Bitwise XOR              | Binary  | Left          |
+| 6          | `&`                  | Bitwise AND              | Binary  | Left          |
+| 7          | `==`, `!=`           | Equality                 | Binary  | Left          |
+| 8          | `<`, `<=`, `>`, `>=` | Relational               | Binary  | Left          |
+| 9          | `+`, `-`             | Addition, Subtraction    | Binary  | Left          |
+| 10         | `*`, `/`             | Multiplication, Division | Binary  | Left          |
 |            | `%`                  | Modulus                  | Binary  | Left          |
-| 8          | `**`                 | Exponentiation (Power)   | Binary  | Right         |
-| 9          | `-`                  | Negation                 | Unary   | Right         |
+| 11         | `**`                 | Exponentiation (Power)   | Binary  | Right         |
+| 12         | `-`                  | Negation                 | Unary   | Right         |
 |            | `!`                  | Logical NOT              | Unary   | Right         |
-| 10         | `? :`                | Ternary Conditional      | Ternary | Right         |
+|            | `~`                  | Bitwise NOT              | Unary   | Right         |
 
 Note: Bitwise operators operate on integer values. When operating on floating-point values, operands are first rounded to the nearest integer.
 
@@ -537,14 +537,14 @@ Data access methods for pixels and frame properties differ significantly between
 Read a property from a clip's frame properties using `clip.propname` syntax.
 
 - **Syntax:** `clip.propname`
-- `clip` must be a valid source clip identifier (e.g., `a`, `src1`). The `$` prefix is required. For example: `$a.propname` or `$src1._Matrix`.
+- `clip` must be a valid source clip identifier (e.g., `$a`, `$src1`). The `$` prefix is required. For example: `$a.propname` or `$src1._Matrix`.
 
 #### Writing (`SingleExpr` only)
 
 Write a frame property using the `set_prop()` built-in function.
 
 - **Signature:** `set_prop(property_name, value)`
-- `property_name`: Property name as an identifier (not a string).
+- `property_name`: Property name as an identifier (not a string). The transpiler treats `property_name` as a literal key for the property map; it is not evaluated as a variable.
 - `value`: The value to write, which can be the result of an expression.
 
 ```
@@ -916,8 +916,8 @@ fill_array(my_data, 3.14, 10); # my_data is now filled with 3.14
 
 The lifetime of an array depends on the execution mode:
 
-- **`Expr` mode:** Arrays are temporary and exist only for the evaluation of a single pixel. They cannot be used to share data between pixels.
-- **`SingleExpr` mode:** Array contents are **not** guaranteed to be preserved between frames due to VapourSynth's parallel processing. You should assume arrays are uninitialized at the start of each frame's evaluation.
+- **`Expr` mode:** Arrays are temporary and exist only for the evaluation of a **single pixel**. They cannot be used to share data between pixels.
+- **`SingleExpr` mode:** An array's lifetime is confined to the processing of a **single frame**. Its contents are **not** guaranteed to be preserved between frames due to VapourSynth's parallel processing. You should assume arrays are uninitialized at the start of each frame's evaluation.
 
 ### 11.5. Safety
 

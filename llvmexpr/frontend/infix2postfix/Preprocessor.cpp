@@ -843,22 +843,20 @@ class Evaluator {
         return left;
     }
 
-    Value parseBitwise() {
-        Value left = parseTerm();
+    Value parseBitwiseOr() {
+        Value left = parseBitwiseXor();
 
         while (true) {
             skipWhitespace();
             const Token& op = peek();
 
-            if (op.type != TokenType::BIT_AND && op.type != TokenType::BIT_OR &&
-                op.type != TokenType::BIT_XOR) {
+            if (op.type != TokenType::BIT_OR) {
                 break;
             }
 
-            TokenType opType = op.type;
             consume();
             skipWhitespace();
-            Value right = parseTerm();
+            Value right = parseBitwiseXor();
 
             int64_t l = left.is_double()
                             ? static_cast<int64_t>(std::round(left.to_double()))
@@ -868,65 +866,65 @@ class Evaluator {
                     ? static_cast<int64_t>(std::round(right.to_double()))
                     : std::get<int64_t>(right.val);
 
-            switch (opType) {
-            case TokenType::BIT_AND:
-                left = Value(l & r);
-                break;
-            case TokenType::BIT_OR:
-                left = Value(l | r);
-                break;
-            case TokenType::BIT_XOR:
-                left = Value(l ^ r);
-                break;
-            default:
-                std::unreachable();
-            }
+            left = Value(l | r);
         }
 
         return left;
     }
 
-    Value parseComparison() {
-        Value left = parseBitwise();
+    Value parseBitwiseXor() {
+        Value left = parseBitwiseAnd();
 
         while (true) {
             skipWhitespace();
             const Token& op = peek();
 
-            if (op.type != TokenType::GREATER &&
-                op.type != TokenType::GREATER_EQUAL &&
-                op.type != TokenType::LESS &&
-                op.type != TokenType::LESS_EQUAL) {
+            if (op.type != TokenType::BIT_XOR) {
                 break;
             }
 
-            TokenType opType = op.type;
             consume();
             skipWhitespace();
-            Value right = parseBitwise();
+            Value right = parseBitwiseAnd();
 
-            double l = left.to_double();
-            double r = right.to_double();
-            bool result = false;
+            int64_t l = left.is_double()
+                            ? static_cast<int64_t>(std::round(left.to_double()))
+                            : std::get<int64_t>(left.val);
+            int64_t r =
+                right.is_double()
+                    ? static_cast<int64_t>(std::round(right.to_double()))
+                    : std::get<int64_t>(right.val);
 
-            switch (opType) {
-            case TokenType::GREATER:
-                result = l > r;
+            left = Value(l ^ r);
+        }
+
+        return left;
+    }
+
+    Value parseBitwiseAnd() {
+        Value left = parseEquality();
+
+        while (true) {
+            skipWhitespace();
+            const Token& op = peek();
+
+            if (op.type != TokenType::BIT_AND) {
                 break;
-            case TokenType::GREATER_EQUAL:
-                result = l >= r;
-                break;
-            case TokenType::LESS:
-                result = l < r;
-                break;
-            case TokenType::LESS_EQUAL:
-                result = l <= r;
-                break;
-            default:
-                std::unreachable();
             }
 
-            left = Value(static_cast<int64_t>(result));
+            consume();
+            skipWhitespace();
+            Value right = parseEquality();
+
+            int64_t l = left.is_double()
+                            ? static_cast<int64_t>(std::round(left.to_double()))
+                            : std::get<int64_t>(left.val);
+            int64_t r =
+                right.is_double()
+                    ? static_cast<int64_t>(std::round(right.to_double()))
+                    : std::get<int64_t>(right.val);
+
+            left = Value(l & r);
         }
 
         return left;
@@ -959,8 +957,54 @@ class Evaluator {
         return left;
     }
 
+    Value parseComparison() {
+        Value left = parseTerm();
+
+        while (true) {
+            skipWhitespace();
+            const Token& op = peek();
+
+            if (op.type != TokenType::GREATER &&
+                op.type != TokenType::GREATER_EQUAL &&
+                op.type != TokenType::LESS &&
+                op.type != TokenType::LESS_EQUAL) {
+                break;
+            }
+
+            TokenType opType = op.type;
+            consume();
+            skipWhitespace();
+            Value right = parseTerm();
+
+            double l = left.to_double();
+            double r = right.to_double();
+            bool result = false;
+
+            switch (opType) {
+            case TokenType::GREATER:
+                result = l > r;
+                break;
+            case TokenType::GREATER_EQUAL:
+                result = l >= r;
+                break;
+            case TokenType::LESS:
+                result = l < r;
+                break;
+            case TokenType::LESS_EQUAL:
+                result = l <= r;
+                break;
+            default:
+                std::unreachable();
+            }
+
+            left = Value(static_cast<int64_t>(result));
+        }
+
+        return left;
+    }
+
     Value parseLogicalAnd() {
-        Value left = parseEquality();
+        Value left = parseBitwiseOr();
 
         while (true) {
             skipWhitespace();
@@ -969,7 +1013,7 @@ class Evaluator {
             }
             consume();
             skipWhitespace();
-            Value right = parseEquality();
+            Value right = parseBitwiseOr();
             left = Value(
                 static_cast<int64_t>(left.is_truthy() && right.is_truthy()));
         }
