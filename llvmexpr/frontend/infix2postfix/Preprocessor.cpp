@@ -1118,28 +1118,12 @@ class Expander {
                     continue;
                 }
 
-                size_t result_before = result.size();
-
                 Token macroToken = stream.consume();
 
                 if (macro->is_function_like) {
                     expandFunctionLikeMacro(stream, result, macroToken, *macro);
                 } else {
-                    expandObjectLikeMacro(stream, *macro);
-                }
-
-                if (recursion_depth == 0) {
-                    std::string replacement;
-                    for (size_t i = result_before; i < result.size(); ++i) {
-                        replacement += result[i].text;
-                    }
-
-                    MacroExpansion expansion;
-                    expansion.macro_name = tok.text;
-                    expansion.original_line = tok.line;
-                    expansion.original_column = tok.column;
-                    expansion.replacement_text = replacement;
-                    expansions.push_back(expansion);
+                    expandObjectLikeMacro(stream, result, macroToken, *macro);
                 }
             } else {
                 result.push_back(stream.consume());
@@ -1436,10 +1420,15 @@ class Expander {
         std::vector<Token> substituted =
             substituteParams(macro.body, macro.params, processedArgs);
 
+        std::string initialReplacement =
+            preprocessor_detail::tokensToString(substituted, false);
+
         substituted = foldTopLevelTernary(substituted);
 
         Expander nestedExpander(macros, recursion_depth + 1);
         substituted = nestedExpander.expand(substituted);
+
+        auto nestedExpansions = nestedExpander.getExpansions();
 
         try {
             Evaluator evaluator(substituted);
@@ -1453,15 +1442,44 @@ class Expander {
         } catch (...) {
         }
 
+        MacroExpansion expansion;
+        expansion.macro_name = tok.text;
+        expansion.original_line = tok.line;
+        expansion.original_column = tok.column;
+        expansion.replacement_text = initialReplacement;
+        expansions.push_back(expansion);
+
+        expansions.insert(expansions.end(), nestedExpansions.begin(),
+                          nestedExpansions.end());
+
         stream.prepend(substituted);
     }
 
-    void expandObjectLikeMacro(TokenStream& stream, const Macro& macro) const {
+    void expandObjectLikeMacro(TokenStream& stream,
+                               [[maybe_unused]] std::vector<Token>& result,
+                               const Token& tok, const Macro& macro) {
         if (recursion_depth > MAX_RECURSION) {
             throw PreprocessorError("Macro expansion recursion limit reached");
         }
 
-        stream.prepend(macro.body);
+        std::string replacementText =
+            preprocessor_detail::tokensToString(macro.body, false);
+
+        Expander nestedExpander(macros, recursion_depth + 1);
+        std::vector<Token> expanded = nestedExpander.expand(macro.body);
+        auto nestedExpansions = nestedExpander.getExpansions();
+
+        MacroExpansion expansion;
+        expansion.macro_name = tok.text;
+        expansion.original_line = tok.line;
+        expansion.original_column = tok.column;
+        expansion.replacement_text = replacementText;
+        expansions.push_back(expansion);
+
+        expansions.insert(expansions.end(), nestedExpansions.begin(),
+                          nestedExpansions.end());
+
+        stream.prepend(expanded);
     }
 
     std::vector<Token> foldTopLevelTernary(const std::vector<Token>& tokens) {

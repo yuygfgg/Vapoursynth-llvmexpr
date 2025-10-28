@@ -29,22 +29,26 @@ The infix2postfix tool includes a powerful preprocessor that runs before the sou
 
 ### 2.1. Overview
 
-- **Activation**: Preprocessor directives are lines that begin with an `@` symbol (preceded by optional whitespace).
-- **Execution Order**: All preprocessor directives are executed to generate an intermediate source text. This text is then tokenized and parsed by the main compiler.
+- **Activation**: Preprocessor directives are lines that begin with an `@` symbol, optionally preceded by whitespace.
+- **Execution**: The preprocessor first evaluates all directives and expands all macros to generate an intermediate source text. This text is then tokenized and parsed by the main compiler. The combination of `@define`, constant expression evaluation, and the conditional ternary operator (`? :`) effectively makes the preprocessor a Turing-complete, pure functional language that executes at compile time.
 
-### 2.2. Macro Definitions
+### 2.2. Macro Definition Directives
 
 Macros allow you to define reusable names for constants and parameterized expressions.
 
-#### 2.2.1. Object-Like Macros (`@define`)
+#### 2.2.1. `@define`
 
-Object-like macros are used to define constants or feature flags.
+The `@define` directive is used to create both simple and function-like macros.
+
+**Object-Like Macros**
+
+These are used to define constants or feature flags.
 
 - **Syntax**: `@define NAME [value]`
 - **Behavior**:
   - If a `value` is provided, all subsequent occurrences of `NAME` as a whole word will be replaced by the `value`.
   - If the `value` is a constant expression that can be evaluated at compile time, it will be replaced with the computed result.
-  - If no `value` is provided, `NAME` is defined with an empty body. This is primarily useful for `@ifdef` checks.
+  - If no `value` is provided, `NAME` is defined with an empty body, which is useful for `@ifdef` checks.
 
 **Examples:**
 ```
@@ -54,9 +58,9 @@ Object-like macros are used to define constants or feature flags.
 @define COMPUTED (2 * 3 + 1)  # Expands to 7
 ```
 
-#### 2.2.2. Function-Like Macros (`@define`)
+**Function-Like Macros**
 
-Function-like macros provide parameterized text replacement, similar to C preprocessor macros.
+These provide parameterized text replacement, similar to C preprocessor macros.
 
 - **Syntax**: `@define NAME(param1, param2, ...) body`
 - **Important**: There must be **no space** between the macro name and the opening parenthesis `(`. A space will cause it to be parsed as an object-like macro.
@@ -67,54 +71,92 @@ Function-like macros provide parameterized text replacement, similar to C prepro
 @define MAX(a, b) ((a) > (b) ? (a) : (b))
 @define SQR(x) ((x) * (x))
 
-result = MAX(10, 20);  # Expands to: 20
-value = SQR(5);        # Expands to: 25
+result = MAX(10, 20);  # Expands to: ((10) > (20) ? (10) : (20))
+value = SQR(5);        # Expands to: ((5) * (5))
 addr = MAX;            # NOT expanded, remains 'MAX'
 ```
 
-- **Arguments**: Arguments can be complex expressions, and the preprocessor correctly handles nested parentheses. Before substitution, each argument is independently evaluated as a constant expression if possible.
-
-#### 2.2.3. Advanced Macros: Recursion and Conditional Expansion
-
-Macros can be defined recursively. When combined with the ternary conditional operator (`? :`), this enables powerful compile-time computation. The preprocessor's expression evaluator uses short-circuiting for the ternary operator, which ensures that recursion can terminate correctly.
-
-Furthermore, the preprocessor treats a top-level ternary operator within a macro body as a powerful conditional compilation tool, similar to an inline `@if`. If the condition is a constant expression that can be evaluated at compile time, the preprocessor replaces the *entire* ternary expression with only the tokens from the chosen branch. The unelected branch is completely discarded and does not need to be valid or evaluable. This allows for selecting different code structures based on preprocessor conditions, not just different values.
-
-**Example: Conditional Code Selection**
-```
-@define CHECK(cond, val) (cond ? val : static_assert(0, Error))
-
-# Because the condition '1' is constant, this expands ONLY to '10'. 
-# The static_assert(0, Error) branch is never included in the final source code passed to the parser.
-RESULT = CHECK(1, 10) 
-```
-
-**Example: Compile-Time Factorial**
-```
-@define FACTORIAL(n) (n == 0 ? 1 : (n * FACTORIAL(n - 1)))
-
-RESULT = FACTORIAL(5) # The preprocessor evaluates this to 120
-```
-
-**Example: Compile-Time Array Expansion**
-```
-@define MINUS(a, b) ((a) - (b)) # This macro is crucial, otherwise the '- 1' will persist in the expanded array index.
-@define EXPAND(array, count) ((count) <= 0 ? 0 : (EXPAND(array, MINUS(count, 1)) + array[MINUS(count, 1)]))
-RESULT = EXPAND(arr, 5) # Will be expanded to '((5) <= 0 ? 0 : (((4) <= 0 ? 0 : (((3) <= 0 ? 0 : (((2) <= 0 ? 0 : (((1) <= 0 ? 0 : (0 + arr[0])) + arr[1])) + arr[2])) + arr[3])) + arr[4]))'
-```
-
-#### 2.2.4. Undefining Macros (`@undef`)
+#### 2.2.2. `@undef`
 
 You can remove a macro definition using the `@undef` directive.
 
 - **Syntax**: `@undef NAME`
 
-#### 2.2.5. Token Pasting (`@@`)
+### 2.3. Conditional Compilation Directives
 
-The preprocessor supports the `@@` operator for token pasting, which concatenates two tokens in a macro body.
+Conditional directives allow you to include or exclude blocks of code based on certain conditions.
+
+#### 2.3.1. `@if`, `@else`, `@endif`
+
+The `@if` directive provides powerful conditional compilation based on the value of a constant expression.
+
+- **Syntax**:
+  ```
+  @if expression
+    // Code to include if expression evaluates to non-zero
+  @else
+    // Optional: code to include otherwise
+  @endif
+  ```
+- **Behavior**: The directive evaluates the `expression` at compile time. The code block is included if the result is non-zero. For details on what constitutes a valid expression, see [Section 2.6. Constant Expression Evaluation](#26-constant-expression-evaluation).
+
+#### 2.3.2. `@ifdef` and `@ifndef`
+
+These directives check whether a macro is defined, regardless of its value.
+
+- **Syntax**:
+  ```
+  @ifdef MACRO_NAME
+    // Code to include if MACRO_NAME is defined
+  @else
+    // Optional: code to include if not defined
+  @endif
+  ```
+- `@ifndef` is the reverse: it includes code if a macro is *not* defined.
+
+### 2.4. Other Directives
+
+#### 2.4.1. `@error`
+
+You can use `@error` to force a compilation error with a custom message. This is useful for asserting configurations or flagging deprecated macro usage inside a conditional block.
+
+- **Syntax**: `@error [message]`
+
+**Example:**
+```
+@if defined(OLD_FEATURE)
+  @error OLD_FEATURE is deprecated. Please use NEW_FEATURE instead.
+@endif
+```
+
+#### 2.4.2. `@requires`
+
+You can include built-in standard libraries using the `@requires` directive. This is the primary way to access a rich set of pre-defined functions and constants.
+
+- **Syntax**: `@requires library_name`
+- **Library Name**: Must be a valid identifier (e.g., `algorithms`, `meta`).
+
+**Example:**
+```
+@requires algorithms
+@requires meta
+```
+
+### 2.5. The Macro Expansion Process
+
+The preprocessor expands macros according to the following rules:
+
+1.  **Multiple Passes**: The preprocessor makes multiple passes over the source text, expanding macros until no more expansions can be performed. A recursion limit (1000) prevents infinite loops.
+2.  **Token-Based Matching**: Macro replacement is performed on a whole-word basis. For example, if `V` is a macro, it will not be expanded inside the identifier `VALUE`.
+3.  **Argument Expansion**: For function-like macros, the preprocessor fully expands a macro's arguments *before* substituting them into the macro body, with one key exception (see Token Pasting below). The resulting text is then rescanned for further macro expansions.
+4.  **Differences from C/C++**: This preprocessor is similar to C/C++ but lacks a stringification (`#`) operator and variadic macros (`...`, `__VA_ARGS__`). Also, macro definitions must be on a single line.
+
+#### 2.5.1. Token Pasting (`@@`)
+
+The preprocessor supports the `@@` operator for token pasting, which concatenates two tokens into one.
 
 - **Syntax**: `token1 @@ token2`
-- **Behavior**: During macro expansion, the `@@` operator is removed, and the tokens on either side are merged into a single new token. This new token is then available for further macro expansion.
+- **Behavior**: During macro expansion, `@@` is removed, and the adjacent tokens are merged into a single new token. This new token is then available for further macro expansion.
 
 **Example:**
 ```
@@ -125,24 +167,9 @@ The preprocessor supports the `@@` operator for token pasting, which concatenate
 RESULT = CONCAT(x, y)
 ```
 
-- **Empty Arguments**: If an argument next to `@@` is empty, it is treated as a "placemarker". Concatenating a token with a placemarker results in just the token.
+**The Argument Expansion Problem**
 
-**Example with empty argument:**
-```
-@define PREFIX(val) MY_@@val
-
-# Expands to MY_VAR
-a = PREFIX(VAR)
-
-# Expands to just MY_
-b = PREFIX()
-```
-
-#### 2.2.5.1. Forcing Argument Evaluation Before Pasting
-
-A common and powerful pattern is to generate identifiers dynamically, for example, `src0`, `src1`, `src2`, etc., in a loop. This requires pasting a prefix (like `src`) with the result of a compile-time calculation.
-
-However, the `@@` operator follows a rule similar to the C/C++ preprocessor: if a macro parameter is adjacent to `@@` in a macro definition, the corresponding argument passed to the macro will *not* be expanded before pasting.
+A common and powerful pattern is to generate identifiers dynamically (e.g., `src0`, `src1`). However, the `@@` operator has a special rule: if a macro parameter is adjacent to `@@` in a macro definition, the corresponding argument is **not** expanded before pasting.
 
 **Problem:**
 ```
@@ -157,177 +184,229 @@ RESULT = PASTE($src, ONE)
 
 To force an argument to be evaluated *before* pasting, you must use a two-level macro definition. This is a standard C preprocessor technique.
 
-1.  **Inner Macro:** Performs the direct pasting. Its arguments will not be expanded.
+1.  **Inner Macro:** Performs the direct pasting.
 2.  **Outer Macro:** Calls the inner macro. Its arguments *will* be expanded because they are not next to `@@` in its own definition.
 
 ```
 # Inner macro for direct pasting
-@define PASTE(prefix, num) prefix@@num
+@define PASTE_IMPL(prefix, num) prefix@@num
 
 # Outer macro to force argument evaluation
-@define EVAL_AND_PASTE(prefix, num) PASTE(prefix, num)
+@define PASTE(prefix, num) PASTE_IMPL(prefix, num)
 
 @define ONE 1
 
 # This now works correctly:
-# 1. EVAL_AND_PASTE($src, ONE) is called.
+# 1. PASTE($src, ONE) is called.
 # 2. Its arguments are expanded: $src remains $src, ONE becomes 1.
-# 3. PASTE($src, 1) is called.
-# 4. Its arguments are not expanded. It pastes '$src' and '1' into '$src1'.
-RESULT = EVAL_AND_PASTE($src, ONE) # Expands to $src1
+# 3. PASTE_IMPL($src, 1) is called.
+# 4. It pastes '$src' and '1' into '$src1'.
+RESULT = PASTE($src, ONE) # Expands to $src1
 ```
 
-**Example: A General-Purpose Recursive Macro for Code Generation**
+### 2.6. Constant Expression Evaluation
 
-This technique can be combined with recursive macros to generate complex code structures. The following example demonstrates a robust, general-purpose `JOIN` macro that recursively generates a sequence of expressions, such as summing a series of source clips. This pattern is highly effective for reducing repetitive code.
+The preprocessor can evaluate integer and floating-point expressions at compile time. This capability is the engine behind the `@if` directive and allows macros to compute values before the main compilation phase.
+
+An expression is considered a "constant expression" if it consists of literals and other macros that expand to constant values.
+
+The expression evaluator supports:
+- **Literals**: Integers (`123`, `0xFF`) and floating-point numbers (`3.14`, `1.0e-5`).
+- **Macros**: Previously defined macros are expanded before evaluation.
+- **`defined(MACRO)` Operator**: Returns `1` if `MACRO` is defined, `0` otherwise. This is primarily used within `@if` expressions.
+- **Operators**: The following operators are supported, with standard C-like precedence:
+
+| Precedence | Operator             | Description              | Arity   | Associativity |
+| :--------- | :------------------- | :----------------------- | :------ | :------------ |
+| 1          | `\|\|`               | Logical OR               | Binary  | Left          |
+| 2          | `&&`                 | Logical AND              | Binary  | Left          |
+| 3          | `\|`                 | Bitwise OR               | Binary  | Left          |
+|            | `^`                  | Bitwise XOR              | Binary  | Left          |
+|            | `&`                  | Bitwise AND              | Binary  | Left          |
+|            | `~`                  | Bitwise NOT              | Unary   | Right         |
+| 4          | `<`, `<=`, `>`, `>=` | Relational               | Binary  | Left          |
+| 5          | `==`, `!=`           | Equality                 | Binary  | Left          |
+| 6          | `+`, `-`             | Addition, Subtraction    | Binary  | Left          |
+| 7          | `*`, `/`             | Multiplication, Division | Binary  | Left          |
+|            | `%`                  | Modulus                  | Binary  | Left          |
+| 8          | `**`                 | Exponentiation (Power)   | Binary  | Right         |
+| 9          | `-`                  | Negation                 | Unary   | Right         |
+|            | `!`                  | Logical NOT              | Unary   | Right         |
+| 10         | `? :`                | Ternary Conditional      | Ternary | Right         |
+
+- **Short-Circuiting**: The logical operators `&&`, `||`, and the ternary operator `? :` use short-circuit evaluation. This means only the necessary operands are evaluated. This behavior is essential for implementing terminating recursive macros.
+
+### 2.7. Compile-Time Intrinsics
+
+The preprocessor provides special intrinsic functions to interact with the constant expression evaluator.
+
+- `is_consteval(expr)`
+  - Returns `1` if `expr` can be fully evaluated as a compile-time constant; otherwise returns `0`.
+  - This intrinsic never raises an error. An expression that cannot be evaluated (e.g., contains variables) simply yields `0`.
+
+- `consteval(expr)`
+  - Forces compile-time evaluation of `expr`. If successful, it is replaced by the computed numeric result.
+  - If the expression cannot be evaluated at compile-time, a preprocessing error is raised.
+
+- `static_assert(condition, message)`
+  - Evaluates `condition` at compile time. If the expression cannot be evaluated to a constant, or if the result is `0`, it raises a compilation error with the specified `message`.
+  - If the `condition` evaluates to a non-zero value, the intrinsic is replaced by the value `1`. This allows `static_assert` to be chained inside other compile-time expressions.
+
+**Example:**
+```
+@define FAST_PATH(n) ((n) * (n))
+@define SLOW_PATH(x) (fma((x), (x), 0))
+
+# Dispatch to a faster implementation if 'x' is a compile-time constant
+@define DISPATCH(x) (is_consteval(x) ? FAST_PATH(consteval(x)) : SLOW_PATH(x))
+
+@if is_consteval(LEN)
+  # Ensure LEN is a constant before using it to define another macro
+  @define BUF_LEN consteval(LEN)
+@else
+  @define BUF_LEN 256
+@endif
+```
+
+### 2.8. Advanced Techniques and Examples
+
+By combining macros, conditional logic, and compile-time evaluation, you can achieve powerful metaprogramming effects.
+
+#### 2.8.1. Conditional Expansion with the Ternary Operator
+
+A top-level ternary operator (`? :`) within a macro body acts as a powerful **code generation tool**. If the condition is a constant expression, the preprocessor performs *branch elimination*: the entire construct—including the condition, the `? :` symbols, and the surrounding parentheses—is replaced *only* by the tokens from the chosen branch. The condition itself and the unelected branch are completely discarded from the source text passed to the compiler. This means the unelected branch does not need to be syntactically valid or evaluable.
+
+**Example: Conditional Code Selection**
+```
+@define CHECK(cond, val) (cond ? val : static_assert(0, Error))
+
+# Because the condition '1' is constant, this expands ONLY to '10'. 
+# The static_assert(0, Error) branch is never included in the final source code.
+RESULT = CHECK(1, 10) 
+```
+
+#### 2.8.2. Recursive Macros
+
+Macros can be defined recursively. When combined with the short-circuiting ternary operator, this enables powerful compile-time computation.
+
+**Example: Compile-Time Factorial**
+```
+# The recursion terminates because when n == 0, the second branch is not evaluated.
+# Note: Parentheses around parameters are essential to avoid operator precedence issues.
+@define FACTORIAL(n) ((n) == 0 ? 1 : ((n) * FACTORIAL((n) - 1)))
+
+# The preprocessor evaluates this entire expression to the constant value 120.
+RESULT = FACTORIAL(5) 
+```
+
+Note that in this example, the expression `(n) - 1` is passed unevaluated at each step, accumulating into a large final expression `((5) * ((4) * ...))`. This is acceptable for simple arithmetic, but will fail if a step inside the recursion requires a single evaluated number (e.g., for token pasting). See [Section 2.8.4. Forcing Step-by-Step Evaluation in Recursive Macros](#284-forcing-step-by-step-evaluation-in-recursive-macros) for how to force evaluation at each step.
+
+#### 2.8.3. A General-Purpose `JOIN` Macro
+
+These techniques can be combined to generate complex code structures. The following example demonstrates a robust, general-purpose `JOIN` macro that recursively generates a sequence of expressions, such as summing a series of source clips. This pattern is highly effective for reducing repetitive code and is available in the `meta` standard library.
 
 The utility works by defining a set of helper macros:
 - A recursive inner macro (`__JOIN`) that builds the expression sequence.
 - A public-facing macro (`JOIN`) that validates its inputs before delegating to the inner macro.
-- Helper macros for safe decrement (`DEC`), token pasting (`_PASTE`), and compile-time assertions (`ASSERT_CONST_EXPR`).
-
-The core logic relies on the preprocessor's ability to handle recursion with termination via a conditional ternary operator. The two-step token pasting pattern is used to correctly form identifiers like `$src0`, `$src1`, etc.
+- Helper macros for safe decrement (`DEC`), token pasting (`PASTE`), and compile-time assertions (`ASSERT_CONST_EXPR`).
 
 ```
 # -----------------------------------------------------------------------------
-# COMPILE-TIME UTILITY MACROS
-# -----------------------------------------------------------------------------
-# A collection of macros for generating repetitive code structures safely.
+# COMPILE-TIME UTILITY MACROS (Simplified from 'meta' library)
 # -----------------------------------------------------------------------------
 
 # Utility to force a compilation error with a custom message.
 @define ERROR(msg) static_assert(0, msg)
 
 # Asserts that an expression is a compile-time constant and evaluates to true.
-# It leverages the short-circuiting of the ternary operator to conditionally
-# include the static_assert or an error, ensuring validation occurs at compile-time.
-# A notable feature is that `static_assert` returns 1 on success. This allows the
-# macro to also return 1, making it suitable for use as the condition in another
-# ternary operator, as seen in the `JOIN` macro. This behavior may be unexpected
-# for users familiar with C++, where `static_assert` is a non-returning declaration.
-@define ASSERT_CONST_EXPR(expr, name_token, message) ( is_consteval(expr) ? static_assert(expr, name_token message) : ERROR(name_token must be a constant expression) )
+@define ASSERT_CONST_EXPR(expr, name, msg) (is_consteval(expr) ? static_assert(expr, name msg) : ERROR(name must be a constant expression))
 
-# A safe, compile-time decrement macro, crucial for recursion.
-# Ensures that `(n - 1)` is evaluated as part of argument expansion.
+# Safe, compile-time decrement macro.
 @define DEC(n) ((n) - 1)
 
-# The inner macro for token pasting (Step 1 of the two-step pattern).
-# Performs direct concatenation. Arguments are not expanded before pasting.
+# Two-step token pasting macros.
 @define _PASTE(a, b) a@@b
+@define PASTE(a, b) _PASTE(a, b)
 
-# The internal recursive implementation for the JOIN macro.
+# Internal recursive implementation for the JOIN macro.
 # Base Case: When count is 1, it emits `macro(0)`.
 # Recursive Step: For count > 1, it calls itself and appends the next element.
 @define __JOIN(count, macro, sep) ((count) == 1 ? macro(0) : (__JOIN(DEC(count), macro, sep) sep macro(DEC(count))))
 
-# A public-facing macro to generate a sequence of expressions.
-# It validates that `count` is a positive compile-time integer, then delegates
-# to the internal `__JOIN` macro for code generation.
-@define JOIN(count, macro, sep) (ASSERT_CONST_EXPR(count > 0, first argument, must be a positive integer) ? __JOIN(count, macro, sep) : 0)
+# Public-facing macro to generate a sequence of expressions.
+@define JOIN(count, macro, sep) (ASSERT_CONST_EXPR(count > 0, count, must be a positive integer) ? __JOIN(count, macro, sep) : 0)
 
 
 # -----------------------------------------------------------------------------
 # USER CODE EXAMPLE
 # -----------------------------------------------------------------------------
 # This section demonstrates using `JOIN` to generate `$src0 + $src1 + $src2`.
-# -----------------------------------------------------------------------------
-
-# Define the prefix for the identifiers. It must be a function-like macro
-# to ensure it's expanded to `$src` before being passed to `_PASTE`.
-@define PREFIX() $src
 
 # Define the macro that generates each element in the sequence.
-# This is Step 2 of the two-step paste pattern. `JOIN` calls this
-# with evaluated numbers (0, 1, 2), which are then pasted to `PREFIX()`.
-@define GET_X(i) _PASTE(PREFIX(), i)
+# It uses PASTE to combine '$src' with the index 'i'.
+@define GET_SRC(i) PASTE($src, i)
 
 # USAGE:
 # Call the public `JOIN` macro.
-# - `count` is a constant expression that evaluates to 3.
-# - `GET_X` is the macro called with indices 0, 1, and 2.
+# - `count` is 3.
+# - `GET_SRC` is the macro called with indices 0, 1, and 2.
 # - `+` is the separator.
 #
 # This expands recursively to: `(($src0 + $src1) + $src2)`
-RESULT = JOIN(2 + 1, GET_X, +)
+RESULT = JOIN(3, GET_SRC, +)
 ```
 
-#### 2.2.6. Differences from C/C++ Macros
+#### 2.8.4. Forcing Step-by-Step Evaluation in Recursive Macros
 
-This preprocessor is similar to C/C++ but has some key differences:
-- No `#` (stringification) operator.
-- No variadic macros (`...` and `__VA_ARGS__`).
-- Macro definitions must be on a single line (no `\` for continuation).
+A critical subtlety of recursive macros arises when an argument needs to be evaluated at *each* step of the recursion, rather than accumulating into a large expression. This is often necessary when the argument is passed to another macro that requires a simple value, such as a token-pasting macro.
 
-### 2.3. Constant Expression Evaluation
+**The Problem: Unevaluated Expressions as Arguments**
 
-The preprocessor can evaluate constant expressions during macro expansion and for conditional compilation directives like `@if`. An expression is "constant" if it consists of literals and other macros that expand to constant values.
+In the `FACTORIAL` example, the argument `n - 1` is not evaluated to a number at each step. Instead, the preprocessor builds a nested expression like `(5 * (4 * (3 * ...)))`, which is evaluated only at the very end. This works for arithmetic, but fails if an intermediate step requires a single token.
 
-The expression evaluator supports:
-- **Literals**: Integers and floating-point numbers.
-- **Macros**: Previously defined macros are expanded before evaluation.
-- **`defined(MACRO)` Operator**: Returns `1` if `MACRO` is defined, `0` otherwise. This is useful within `@if` expressions.
-- **Operators**: The following operators are supported, with standard C-like precedence:
-  - **Arithmetic**: `+`, `-`, `*`, `/`, `%`, `**` (power)
-  - **Comparison**: `==`, `!=`, `>`, `<`, `>=`, `<=`
-  - **Logical**: `&&`, `||`, `!`
-  - **Bitwise**: `&`, `|`, `^`, `~`
-  - **Ternary Conditional**: `? :` (with short-circuiting)
-  - **Grouping**: `()`
+Let's attempt to write a macro that finds the first input clip with a bit depth greater than 16. This requires checking `__INPUT_BITDEPTH_0__`, `__INPUT_BITDEPTH_1__`, etc., by dynamically building the macro name.
 
-### 2.4. Conditional Compilation
-
-Conditional directives allow you to include or exclude blocks of code based on certain conditions.
-
-#### 2.4.1. `@ifdef` and `@ifndef`
-
-These directives check whether a macro is defined.
-
-- **Syntax**:
-  ```
-  @ifdef MACRO_NAME
-    // Code to include if MACRO_NAME is defined
-  @else
-    // Optional: code to include if not defined
-  @endif
-  ```
-- `@ifndef` is the reverse: it includes code if a macro is *not* defined.
-
-#### 2.4.2. `@if`
-
-The `@if` directive provides more powerful conditional compilation based on the value of a constant expression.
-
-- **Syntax**:
-  ```
-  @if expression
-    // Code to include if expression evaluates to non-zero
-  @else
-    // Optional: code to include otherwise
-  @endif
-  ```
-- **Expression**: The directive evaluates the `expression` using the rules for constant expression evaluation (see section 2.3). The code block is included if the result is non-zero.
-
-### 2.5. Error Directive (`@error`)
-
-You can use `@error` to force a compilation error if the directive is encountered in an active code block.
-
-- **Syntax**: `@error [message]`
-- This is useful for asserting configurations or flagging deprecated macro usage.
-
-**Example:**
+**Incorrect Implementation:**
 ```
-@if defined(OLD_FEATURE)
-  @error OLD_FEATURE is deprecated. Please use NEW_FEATURE instead.
-@endif
+@requires meta
+@define BITDEPTH_OF(i) PASTE(PASTE(__INPUT_BITDEPTH_, i), __)
+
+# Tries to recurse using `i + 1` directly
+@define _FIND_FIRST_GT16(i, n) ((i) >= (n) ? -1 : (BITDEPTH_OF(i) > 16 ? (i) : _FIND_FIRST_GT16((i) + 1, (n))))
+```
+This produces incorrect results. On the first recursion, the argument `(i) + 1` is passed as a sequence of tokens `(`, `i`, `)`, `+`, `1`, not as a computed numeric value. When `BITDEPTH_OF((i) + 1)` is called, `PASTE` concatenates these tokens literally, generating the invalid macro name `__INPUT_BITDEPTH_(0)+1__` instead of the intended `__INPUT_BITDEPTH_1__`. Since this malformed name is not defined as a macro, it remains unexpanded in the output, causing the expression to fail.
+
+**The Solution: Helper Macros to Force Evaluation**
+
+To force evaluation at each step, the expression must be wrapped in another macro. This pattern is used by the `DEC` macro in the `JOIN` example above, and we can define a similar one for incrementing.
+
+**Correct Implementation:**
+```
+@requires meta
+
+@define INC(n) ((n) + 1)
+@define BITDEPTH_OF(i) PASTE(PASTE(__INPUT_BITDEPTH_, i), __)
+
+@define _FIND_FIRST_GT16(i, n) ((i) >= (n) ? -1 : (BITDEPTH_OF(i) > 16 ? (i) : _FIND_FIRST_GT16(INC(i), (n))))
+
+@define FIND_FIRST_GT16() _FIND_FIRST_GT16(0, __INPUT_NUM__)
+
+# Usage:
+# This will expand and evaluate at compile time to the index, or -1.
+index = consteval(FIND_FIRST_GT16())
 ```
 
-### 2.6. Macro Expansion Process
+**Why It Works:**
+The preprocessor's argument expansion rule is the key. Before calling `_FIND_FIRST_GT16`, it first fully expands its arguments.
+1.  The argument is the macro call `INC(i)`.
+2.  The preprocessor expands `INC(i)`, which results in the token sequence for the expression `((i) + 1)`.
+3.  A special rule applies after a macro is fully expanded: if the resulting sequence of tokens forms a valid constant expression, **it is immediately evaluated and replaced by a single numeric token.**
+4.  Therefore, if `i` was `0`, `INC(0)` becomes `((0)+1)`, which is evaluated to the single token `1`.
+5.  The recursive call is then `_FIND_FIRST_GT16(1, (n))`, with `1` being a single token. `BITDEPTH_OF(1)` now works as expected.
 
-The preprocessor expands macros according to the following rules:
-1.  **Multiple Passes**: The preprocessor makes multiple passes over the source text, expanding macros until no more expansions can be performed. A recursion limit (1000) prevents infinite loops.
-2.  **Token-Based Matching**: Macro replacement is performed on a whole-word basis. For example, if `V` is a macro, it will not be expanded inside the identifier `VALUE`.
-3.  **Expansion Order**: The preprocessor fully expands a macro's arguments (if any) before substituting them into the macro body. The resulting text is then rescanned for further macro expansions.
+This technique is essential for writing complex recursive macros that perform operations like token pasting or anything else that depends on single-token arguments within the recursion.
 
-### 2.7. Predefined Macros
+### 2.9. Predefined Macros
 
 The preprocessor provides several built-in macros that expose information about the execution context.
 
@@ -350,55 +429,6 @@ These are defined by the VapourSynth filter when it invokes the transpiler.
 | `__SUBSAMPLE_W__`      | Horizontal chroma subsampling (`1` for 4:2:x, `0` otherwise).            |
 | `__SUBSAMPLE_H__`      | Vertical chroma subsampling (`1` for 4:2:0, `0` otherwise).              |
 | `__PLANE_NO__`         | Current plane being processed (`0`, `1`, or `2`). (**`Expr` mode only**) |
-
-### 2.8. Compile-Time Evaluation Helpers
-
-The preprocessor provides two helper intrinsics to control constant evaluation semantics during preprocessing. They operate only within the preprocessor's evaluation context (e.g., in `@if` expressions or when the preprocessor attempts to fold constant macro arguments).
-
-- `is_consteval(expr)`
-  - Returns `1` if `expr` can be fully evaluated as a compile-time constant under the current macro context; otherwise returns `0`.
-  - Never raises an error. Un-evaluable expressions simply yield `0`.
-  - Works with nested conditionals; non-taken ternary branches are not evaluated.
-
-- `consteval(expr)`
-  - Forces compile-time evaluation of `expr`. If successful, it is replaced by the computed numeric result.
-  - If the expression cannot be evaluated at compile-time, a preprocessing error is raised.
-
-- `static_assert(condition, message)`
-  - If `condition` is `0`, raises a compile-time error with the specified `message`.
-  - Returns `1` if `condition` is non-zero.
-
-**Examples:**
-```
-@define FAST_PATH(n) ((n) * (n))
-@define SLOW_PATH(x) (fma((x), (x), 0))
-
-@define DISPATCH(x) (is_consteval(x) ? FAST_PATH(consteval(x)) : SLOW_PATH(x))
-
-@if is_consteval(LEN)
-  @define BUF_LEN consteval(LEN)
-@else
-  @define BUF_LEN 256
-@endif
-```
-
-### 2.9. Including Standard Libraries (`@requires`)
-
-You can include built-in standard libraries using the `@requires` directive. This is the primary way to access a rich set of pre-defined functions and constants.
-
-- **Syntax**: `@requires library_name`
-- **Library Name**: Must be a valid identifier containing only lowercase letters, digits, and underscores (no dots, hyphens, or other special characters).
-
-**Example:**
-```
-@requires algorithms
-@requires math_extra
-```
-
-**Invalid:**
-```
-@requires math.extra  # Error: dots not allowed in library names
-```
 
 ## 3. Lexical Structure
 
@@ -591,7 +621,7 @@ Access a pixel at a fixed, constant offset from the current coordinate (`$X`, `$
 
 #### Dynamic Absolute Pixel Access
 
-Access a pixel at a dynamically calculated coordinate using the 3-argument `dyn()` function. See section 8.3 for details.
+Access a pixel at a dynamically calculated coordinate using the 3-argument `dyn()` function. See [section 8.3](#83-mode-specific-functions) for details.
 
 ### 7.3. Pixel and Data I/O (`SingleExpr` mode)
 
@@ -609,11 +639,11 @@ h1 = frame.height[1];  # Height of plane 1 (chroma U)
 
 #### Absolute Pixel Reading
 
-Read pixels from specific coordinates and planes using the 4-argument version of `dyn()`. See section 8.3 for details.
+Read pixels from specific coordinates and planes using the 4-argument version of `dyn()`. See [section 8.3](#83-mode-specific-functions) for details.
 
 #### Absolute Pixel Writing
 
-Write values to specific output frame locations using the 4-argument version of `store()`. See section 8.3 for details.
+Write values to specific output frame locations using the 4-argument version of `store()`. See [section 8.3](#83-mode-specific-functions) for details.
 
 ## 8. Functions
 
