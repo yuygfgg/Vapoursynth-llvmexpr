@@ -21,9 +21,28 @@
 
 @requires meta
 
-@define PATCH_RADIUS 2
-@define SEARCH_RADIUS 5
-@define FILTER_STRENGTH 10.0
+# `a` parameter of knlmeanscl
+@ifndef PATCH_RADIUS
+@define PATCH_RADIUS 3
+@endif
+# `s` parameter of knlmeanscl
+@ifndef SEARCH_RADIUS
+@define SEARCH_RADIUS 4
+@endif
+# `h` parameter of knlmeanscl
+@ifndef FILTER_STRENGTH
+@define FILTER_STRENGTH 1.2
+@endif
+# `wmode` parameter of knlmeanscl
+@ifndef WEIGHT_MODE
+@define WEIGHT_MODE 0
+@endif
+
+_ = ASSERT_CONST(PATCH_RADIUS > 0, patch_radius, _must_be_positive)
+_ = ASSERT_CONST(SEARCH_RADIUS > 0, search_radius, _must_be_positive)
+_ = ASSERT_CONST(FILTER_STRENGTH > 0, filter_strength, _must_be_positive)
+_ = ASSERT_CONST(WEIGHT_MODE >= 0 && WEIGHT_MODE <= 3, weight_mode, _must_be_0_1_2_or_3)
+
 @define H_SQUARED (FILTER_STRENGTH * FILTER_STRENGTH)
 
 @define PATCH_DIAMETER (2 * PATCH_RADIUS + 1)
@@ -44,7 +63,26 @@ function patch_distance(cx1, cy1, cx2, cy2) {
 @define _GET_SX(i) ($X + (i) % SEARCH_DIAMETER - SEARCH_RADIUS)
 @define _GET_SY(i) ($Y + (i) / SEARCH_DIAMETER - SEARCH_RADIUS)
 
-@define _MAIN_LOOP_BODY(i) sx = _GET_SX(i); sy = _GET_SY(i); distance = patch_distance($X, $Y, sx, sy); weight = exp(-distance / H_SQUARED); search_pixel_value = dyn($x, sx, sy); total_weight = total_weight + weight; weighted_sum = weighted_sum + (search_pixel_value * weight);
+@if WEIGHT_MODE == 0
+@define CALCULATE_WEIGHT(dist) (exp(-(dist) / H_SQUARED))
+@else
+@if WEIGHT_MODE == 1
+@define CALCULATE_WEIGHT(dist) (max(0.0, 1.0 - (dist) / H_SQUARED))
+@else
+@if WEIGHT_MODE == 2
+@define CALCULATE_WEIGHT(dist) ((max(0.0, 1.0 - (dist) / H_SQUARED)) * (max(0.0, 1.0 - (dist) / H_SQUARED)))
+@else
+@if WEIGHT_MODE == 3
+@define _BASE_WEIGHT(dist) (max(0.0, 1.0 - (dist) / H_SQUARED))
+@define _WEIGHT2(dist) (_BASE_WEIGHT(dist) * _BASE_WEIGHT(dist))
+@define _WEIGHT4(dist) (_WEIGHT2(dist) * _WEIGHT2(dist))
+@define CALCULATE_WEIGHT(dist) (_WEIGHT4(dist) * _WEIGHT4(dist))
+@endif
+@endif
+@endif
+@endif
+
+@define _MAIN_LOOP_BODY(i) sx = _GET_SX(i); sy = _GET_SY(i); distance = patch_distance($X, $Y, sx, sy); weight = CALCULATE_WEIGHT(distance); search_pixel_value = dyn($x, sx, sy); total_weight = total_weight + weight; weighted_sum = weighted_sum + (search_pixel_value * weight);
 
 weighted_sum = 0.0
 total_weight = 0.0
