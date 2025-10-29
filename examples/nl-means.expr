@@ -19,6 +19,10 @@
 @error This expr should be used in Expr mode
 @endif
 
+@if __INPUT_NUM__ != 1
+@error This expr requires exactly one input clip
+@endif
+
 @requires meta
 
 # `a` parameter of knlmeanscl

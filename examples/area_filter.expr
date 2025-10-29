@@ -19,10 +19,20 @@
 @error This expr should be used in SingleExpr mode
 @endif
 
-@if __OUTPUT_BITDEPTH__ == 32
-@define FG_VAL 1
+@if __INPUT_NUM__ != 1
+@error This expr requires exactly one input clip
+@endif
+
+@if __INPUT_FMT_0__ == 1
+@define FG_VAL_INPUT 1
 @else
-@define FG_VAL 2 ** (__OUTPUT_BITDEPTH__ - 1)
+@define FG_VAL_INPUT 2 ** (__INPUT_BITDEPTH_0__ - 1)
+@endif
+
+@if __OUTPUT_FMT__ == 1
+@define FG_VAL_OUTPUT 1
+@else
+@define FG_VAL_OUTPUT 2 ** (__OUTPUT_BITDEPTH__ - 1)
 @endif
 
 @define BG_VAL 0
@@ -160,7 +170,7 @@ while (y < __HEIGHT__) {
         label = label_map[y * __WIDTH__ + x];
         if (label > 0) {
             if (area[label] >= MIN_SIZE_THR) {
-                final_val = FG_VAL;
+                final_val = FG_VAL_INPUT;
             }
         }
         store(x, y, 0, final_val);

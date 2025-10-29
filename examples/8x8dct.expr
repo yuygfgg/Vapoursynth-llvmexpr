@@ -28,6 +28,10 @@
 @error This expr should be used in Expr mode
 @endif
 
+@if __INPUT_NUM__ != 1
+@error This expr requires exactly one input clip
+@endif
+
 # ==============================================================================
 # 1. SETUP: Determine current block and frequency coordinates (u, v)
 # ==============================================================================
