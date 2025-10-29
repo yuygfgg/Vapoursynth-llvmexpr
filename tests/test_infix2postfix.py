@@ -1253,7 +1253,7 @@ RESULT = 1
 """
         success, output = run_infix2postfix(infix, "expr")
         assert not success, "Should fail assigning array to variable"
-        assert "Variable assignment value must be convertible to a value." in output
+        assert "Variable assignment value must be convertible to a value, got Array." in output
 
     def test_array_cannot_be_assigned_in_function(self):
         """Test that arrays cannot be assigned to variables in functions."""
@@ -1267,7 +1267,7 @@ RESULT = process(arr)
 """
         success, output = run_infix2postfix(infix, "expr")
         assert not success, "Should fail assigning array parameter to variable"
-        assert "Variable assignment value must be convertible to a value." in output
+        assert "Variable assignment value must be convertible to a value, got Array." in output
 
     def test_function_cannot_return_array(self):
         """Test that functions cannot return arrays."""
@@ -1733,7 +1733,7 @@ RESULT = 0
 """
         success, output = run_infix2postfix(infix, "expr")
         assert not success
-        assert "Variable assignment value must be convertible to a value." in output
+        assert "Variable assignment value must be convertible to a value, got Void." in output
 
     def test_assign_void_builtin_function_fails(self):
         """Test that assigning the result of a built-in void function (store) fails."""
@@ -1743,7 +1743,7 @@ RESULT = 0
 """
         success, output = run_infix2postfix(infix, "expr")
         assert not success
-        assert "Variable assignment value must be convertible to a value." in output
+        assert "Variable assignment value must be convertible to a value, got Void." in output
 
     def test_pass_void_user_function_as_arg_fails(self):
         """Test that passing a user-defined void function as an argument fails."""
@@ -1755,7 +1755,7 @@ RESULT = takes_value(void_func())
         success, output = run_infix2postfix(infix, "expr")
         assert not success
         assert (
-            "No matching user-defined function for call to 'takes_value(VOID)'"
+            "No matching user-defined function for call to 'takes_value(Void)'"
             in output
         )
 
@@ -1766,7 +1766,7 @@ RESULT = sqrt(store(0, 0, 0))
 """
         success, output = run_infix2postfix(infix, "expr")
         assert not success
-        assert "No matching overload for function 'sqrt(VOID)'" in output
+        assert "No matching overload for function 'sqrt(Void)'" in output
 
 
 class TestPreprocessor:

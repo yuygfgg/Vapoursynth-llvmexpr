@@ -39,21 +39,21 @@
 #include "../ir/SingleExprIRGenerator.hpp"
 #include "../utils/Diagnostics.hpp"
 
-Compiler::Compiler(std::vector<Token> tokens_in, const VSVideoInfo* out_vi,
-                   const std::vector<const VSVideoInfo*>& in_vi, int width_in,
-                   int height_in, bool mirror, std::string dump_path,
-                   const std::map<std::pair<int, std::string>, int>& p_map,
-                   std::string function_name, int opt_level_in,
-                   int approx_math_in,
-                   ExpressionAnalysisResults analysis_results_in, ExprMode mode,
-                   const std::vector<std::string>& output_props)
+Compiler::Compiler(
+    std::vector<Token> tokens_in, const VSVideoInfo* out_vi,
+    const std::vector<const VSVideoInfo*>& in_vi, int width_in, int height_in,
+    bool mirror, std::string dump_path,
+    const std::map<std::pair<int, std::string>, int>& p_map,
+    std::string function_name, int opt_level_in, int approx_math_in,
+    const analysis::ExpressionAnalysisResults& analysis_results_in,
+    ExprMode mode, const std::vector<std::string>& output_props)
     : tokens(std::move(tokens_in)), vo(out_vi), vi(in_vi),
       num_inputs(static_cast<int>(in_vi.size())), width(width_in),
       height(height_in), mirror_boundary(mirror),
       dump_ir_path(std::move(dump_path)), prop_map(p_map),
       func_name(std::move(function_name)), opt_level(opt_level_in),
       approx_math(approx_math_in), expr_mode(mode), output_props(output_props),
-      analysis_results(std::move(analysis_results_in)) {}
+      analysis_results(analysis_results_in) {}
 
 CompiledFunction Compiler::compile() {
     if (approx_math == 2) {
@@ -229,8 +229,7 @@ CompiledFunction Compiler::compile_with_approx_math(int actual_approx_math) {
         Compiler fallback_compiler(std::vector<Token>(tokens), vo, vi, width,
                                    height, mirror_boundary, dump_ir_path,
                                    prop_map, func_name, opt_level, approx_math,
-                                   ExpressionAnalysisResults(analysis_results),
-                                   expr_mode, output_props);
+                                   analysis_results, expr_mode, output_props);
         return fallback_compiler.compile_with_approx_math(0);
     }
 

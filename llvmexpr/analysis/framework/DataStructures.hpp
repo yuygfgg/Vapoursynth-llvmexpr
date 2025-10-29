@@ -17,15 +17,13 @@
  * along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef LLVMEXPR_ANALYSIS_HPP
-#define LLVMEXPR_ANALYSIS_HPP
+#ifndef LLVMEXPR_ANALYSIS_FRAMEWORK_DATA_STRUCTURES_HPP
+#define LLVMEXPR_ANALYSIS_FRAMEWORK_DATA_STRUCTURES_HPP
 
-#include <map>
-#include <string>
 #include <tuple>
 #include <vector>
 
-#include "Tokenizer.hpp"
+namespace analysis {
 
 struct CFGBlock {
     int start_token_idx;
@@ -35,7 +33,7 @@ struct CFGBlock {
 
     int stack_effect = 0;
     int min_stack_needed =
-        0; // min stack depth *during* the block, relative to start
+        0; // min stack depth during the block, relative to start
 };
 
 struct RelYAccess {
@@ -49,30 +47,6 @@ struct RelYAccess {
     }
 };
 
-struct ExpressionAnalysisResults {
-    std::vector<CFGBlock> cfg_blocks;
-    std::map<std::string, int> label_to_block_idx;
-    std::vector<int> stack_depth_in;
-    std::map<std::string, int> static_array_sizes;
-};
+} // namespace analysis
 
-class ExpressionAnalyser {
-  public:
-    ExpressionAnalyser(const std::vector<Token>& tokens,
-                       int expected_final_depth = 1);
-
-    void run();
-
-    [[nodiscard]] const ExpressionAnalysisResults& getResults() const {
-        return results;
-    }
-
-  private:
-    const std::vector<Token>& tokens;
-    ExpressionAnalysisResults results;
-    int expected_final_depth;
-
-    void validate_and_build_cfg();
-};
-
-#endif // LLVMEXPR_ANALYSIS_HPP
+#endif // LLVMEXPR_ANALYSIS_FRAMEWORK_DATA_STRUCTURES_HPP

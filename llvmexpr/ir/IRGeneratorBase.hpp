@@ -31,22 +31,23 @@
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Module.h"
 
-#include "../frontend/Analysis.hpp"
+#include "../analysis/AnalysisResults.hpp"
 #include "../frontend/Tokenizer.hpp"
 #include "../utils/Math.hpp"
 
+using analysis::RelYAccess;
+
 class IRGeneratorBase {
   public:
-    IRGeneratorBase(const std::vector<Token>& tokens_in,
-                    const VSVideoInfo* out_vi,
-                    const std::vector<const VSVideoInfo*>& in_vi, int width_in,
-                    int height_in, bool mirror,
-                    const std::map<std::pair<int, std::string>, int>& p_map,
-                    const ExpressionAnalysisResults& analysis_results_in,
-                    llvm::LLVMContext& context_ref, llvm::Module& module_ref,
-                    llvm::IRBuilder<>& builder_ref,
-                    MathLibraryManager& math_mgr, std::string func_name_in,
-                    int approx_math_in);
+    IRGeneratorBase(
+        const std::vector<Token>& tokens_in, const VSVideoInfo* out_vi,
+        const std::vector<const VSVideoInfo*>& in_vi, int width_in,
+        int height_in, bool mirror,
+        const std::map<std::pair<int, std::string>, int>& p_map,
+        const analysis::ExpressionAnalysisResults& analysis_results_in,
+        llvm::LLVMContext& context_ref, llvm::Module& module_ref,
+        llvm::IRBuilder<>& builder_ref, MathLibraryManager& math_mgr,
+        std::string func_name_in, int approx_math_in);
 
     virtual ~IRGeneratorBase() = default;
 
@@ -68,7 +69,7 @@ class IRGeneratorBase {
     int height;
     bool mirror_boundary;
     const std::map<std::pair<int, std::string>, int>& prop_map;
-    const ExpressionAnalysisResults& analysis_results;
+    const analysis::ExpressionAnalysisResults& analysis_results;
     std::string func_name;
     int approx_math;
 

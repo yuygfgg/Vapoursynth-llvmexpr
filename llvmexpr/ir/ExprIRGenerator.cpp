@@ -35,7 +35,7 @@ ExprIRGenerator::ExprIRGenerator(
     const std::vector<Token>& tokens_in, const VSVideoInfo* out_vi,
     const std::vector<const VSVideoInfo*>& in_vi, int width_in, int height_in,
     bool mirror, const std::map<std::pair<int, std::string>, int>& p_map,
-    const ExpressionAnalysisResults& analysis_results_in,
+    const analysis::ExpressionAnalysisResults& analysis_results_in,
     llvm::LLVMContext& context_ref, llvm::Module& module_ref,
     llvm::IRBuilder<>& builder_ref, MathLibraryManager& math_mgr,
     std::string func_name_in, int approx_math_in)

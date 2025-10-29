@@ -193,7 +193,7 @@ def test_min_max_clip(val: float, min_v: float, max_v: float) -> None:
 @pytest.mark.parametrize(
     "a, b, expr, expected",
     [
-        (5.9, 1.0, "x y bitand", 1.0),
+        (5.9, 1.0, "x y bitand", 0.0),
         (5.0, 2.0, "x y bitor", 7.0),
         (5.0, 1.0, "x y bitxor", 4.0),
         (

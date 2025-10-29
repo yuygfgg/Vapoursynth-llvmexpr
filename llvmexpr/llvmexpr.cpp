@@ -32,7 +32,8 @@
 #include "VSHelper4.h"
 #include "VapourSynth4.h"
 
-#include "frontend/Analysis.hpp"
+#include "analysis/AnalysisResults.hpp"
+#include "analysis/ExpressionAnalyzer.hpp"
 #include "frontend/InfixConverter.hpp"
 #include "frontend/Tokenizer.hpp"
 #include "jit/Compiler.hpp"
@@ -60,7 +61,7 @@ struct ExprData : BaseExprData {
     std::array<PlaneOp, 3> plane_op = {};
     std::array<CompiledFunction, 3> compiled;
     std::array<std::vector<Token>, 3> tokens;
-    std::array<ExpressionAnalysisResults, 3> analysis_results;
+    std::array<std::unique_ptr<analysis::AnalysisManager>, 3> analysis_managers;
 };
 
 struct SingleExprData : BaseExprData {
@@ -68,7 +69,7 @@ struct SingleExprData : BaseExprData {
     std::vector<std::string> output_props;
     std::map<std::string, int> output_prop_map;
     std::vector<Token> tokens;
-    ExpressionAnalysisResults analysis_results;
+    std::unique_ptr<analysis::AnalysisManager> analysis_manager;
 };
 
 struct SingleExprFrameData {
@@ -325,13 +326,13 @@ const VSFrame*
                             std::format("process_plane_{}_{}", plane, key_hash);
 
                         try {
+                            analysis::ExpressionAnalysisResults results(
+                                *d->analysis_managers.at(plane));
                             Compiler compiler(
                                 std::vector<Token>(d->tokens.at(plane)), &d->vi,
                                 vi, width, height, d->mirror_boundary,
                                 d->dump_ir_path, d->prop_map, func_name,
-                                d->opt_level, d->approx_math,
-                                ExpressionAnalysisResults(
-                                    d->analysis_results.at(plane)));
+                                d->opt_level, d->approx_math, results);
                             jit_cache[key] = compiler.compile();
                         } catch (const std::exception& e) {
                             std::string error_msg = std::format(
@@ -442,9 +443,11 @@ exprCreate(const VSMap* in, VSMap* out, [[maybe_unused]] void* userData,
                 }
             }
 
-            ExpressionAnalyser analyser(d->tokens.at(i));
-            analyser.run();
-            d->analysis_results.at(i) = analyser.getResults();
+            auto analyser =
+                std::make_unique<analysis::AnalysisManager>(d->tokens.at(i));
+            analysis::ExpressionAnalyzer expr_analyzer(*analyser);
+            expr_analyzer.analyze();
+            d->analysis_managers.at(i) = std::move(analyser);
         }
 
         parseCommonParams(d.get(), in, vsapi);
@@ -550,12 +553,13 @@ const VSFrame*
                     std::format("process_single_expr_{}", key_hash);
 
                 try {
+                    analysis::ExpressionAnalysisResults results(
+                        *d->analysis_manager);
                     Compiler compiler(
                         std::vector<Token>(d->tokens), &d->vi, vi, d->vi.width,
                         d->vi.height, d->mirror_boundary, d->dump_ir_path,
                         d->prop_map, func_name, d->opt_level, d->approx_math,
-                        ExpressionAnalysisResults(d->analysis_results),
-                        ExprMode::SINGLE_EXPR, d->output_props);
+                        results, ExprMode::SINGLE_EXPR, d->output_props);
                     jit_cache[key] = compiler.compile();
                 } catch (const std::exception& e) {
                     for (const auto& frame : src_frames) {
@@ -663,9 +667,11 @@ singleExprCreate(const VSMap* in, VSMap* out, [[maybe_unused]] void* userData,
             }
         }
 
-        ExpressionAnalyser analyser(d->tokens, 0);
-        analyser.run();
-        d->analysis_results = analyser.getResults();
+        auto analyser =
+            std::make_unique<analysis::AnalysisManager>(d->tokens, 0);
+        analysis::ExpressionAnalyzer expr_analyzer(*analyser);
+        expr_analyzer.analyze();
+        d->analysis_manager = std::move(analyser);
 
         parseCommonParams(d.get(), in, vsapi);
 

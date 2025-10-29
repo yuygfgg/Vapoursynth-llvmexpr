@@ -26,7 +26,7 @@
 
 #include "VapourSynth4.h"
 
-#include "../frontend/Analysis.hpp"
+#include "../analysis/AnalysisResults.hpp"
 #include "../frontend/Tokenizer.hpp"
 #include "Jit.hpp"
 
@@ -37,7 +37,7 @@ class Compiler {
              int height_in, bool mirror, std::string dump_path,
              const std::map<std::pair<int, std::string>, int>& p_map,
              std::string function_name, int opt_level_in, int approx_math_in,
-             ExpressionAnalysisResults analysis_results_in,
+             const analysis::ExpressionAnalysisResults& analysis_results_in,
              ExprMode mode = ExprMode::EXPR,
              const std::vector<std::string>& output_props = {});
 
@@ -60,7 +60,7 @@ class Compiler {
     const std::vector<std::string>& output_props;
 
     // Analysis results
-    ExpressionAnalysisResults analysis_results;
+    const analysis::ExpressionAnalysisResults& analysis_results;
 
     CompiledFunction compile_with_approx_math(int actual_approx_math);
 };

@@ -40,7 +40,7 @@ IRGeneratorBase::IRGeneratorBase(
     const std::vector<Token>& tokens_in, const VSVideoInfo* out_vi,
     const std::vector<const VSVideoInfo*>& in_vi, int width_in, int height_in,
     bool mirror, const std::map<std::pair<int, std::string>, int>& p_map,
-    const ExpressionAnalysisResults& analysis_results_in,
+    const analysis::ExpressionAnalysisResults& analysis_results_in,
     llvm::LLVMContext& context_ref, llvm::Module& module_ref,
     llvm::IRBuilder<>& builder_ref, MathLibraryManager& math_mgr,
     std::string func_name_in, int approx_math_in)
@@ -391,8 +391,10 @@ bool IRGeneratorBase::process_common_token(const Token& token,
 
     auto applyBitwiseOp = [&](auto op) {
         applyStackOp.operator()<2>([&](auto a, auto b) {
-            auto ai = builder.CreateFPToSI(a, i32_ty);
-            auto bi = builder.CreateFPToSI(b, i32_ty);
+            auto a_rounded = createIntrinsicCall(llvm::Intrinsic::nearbyint, a);
+            auto b_rounded = createIntrinsicCall(llvm::Intrinsic::nearbyint, b);
+            auto ai = builder.CreateFPToSI(a_rounded, i32_ty);
+            auto bi = builder.CreateFPToSI(b_rounded, i32_ty);
             auto resi = op(ai, bi);
             return builder.CreateSIToFP(resi, float_ty);
         });
@@ -627,8 +629,10 @@ bool IRGeneratorBase::process_common_token(const Token& token,
     case TokenType::BITNOT: {
         auto* a = rpn_stack.back();
         rpn_stack.pop_back();
+        auto* a_rounded = createIntrinsicCall(llvm::Intrinsic::nearbyint, a);
         rpn_stack.push_back(builder.CreateSIToFP(
-            builder.CreateNot(builder.CreateFPToSI(a, i32_ty)), float_ty));
+            builder.CreateNot(builder.CreateFPToSI(a_rounded, i32_ty)),
+            float_ty));
         return true;
     }
 
@@ -773,11 +777,13 @@ void IRGeneratorBase::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
     }
 
     std::map<int, llvm::BasicBlock*> llvm_blocks;
-    for (int i = 0; i < static_cast<int>(analysis_results.cfg_blocks.size());
-         ++i) {
+    const auto& cfg_blocks = analysis_results.getCFGBlocks();
+    const auto& label_to_block_idx = analysis_results.getLabelToBlockIdx();
+    const auto& stack_depth_in = analysis_results.getStackDepthIn();
+
+    for (int i = 0; i < static_cast<int>(cfg_blocks.size()); ++i) {
         std::string name = std::format("b{}", i);
-        for (const auto& [label_name, block_idx] :
-             analysis_results.label_to_block_idx) {
+        for (const auto& [label_name, block_idx] : label_to_block_idx) {
             if (block_idx == i) {
                 name = label_name;
                 break;
@@ -793,17 +799,15 @@ void IRGeneratorBase::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
 
     // Initial PHI generation for merge blocks
     std::map<int, std::vector<llvm::Value*>> block_initial_stacks;
-    for (int i = 0; i < static_cast<int>(analysis_results.cfg_blocks.size());
-         ++i) {
-        if (analysis_results.cfg_blocks[i].predecessors.size() > 1) {
+    for (int i = 0; i < static_cast<int>(cfg_blocks.size()); ++i) {
+        if (cfg_blocks[i].predecessors.size() > 1) {
             builder.SetInsertPoint(llvm_blocks[i]);
             std::vector<llvm::Value*> initial_stack;
-            int depth = analysis_results.stack_depth_in[i];
+            int depth = stack_depth_in[i];
             initial_stack.reserve(depth);
             for (int j = 0; j < depth; ++j) {
                 initial_stack.push_back(builder.CreatePHI(
-                    float_ty,
-                    analysis_results.cfg_blocks[i].predecessors.size()));
+                    float_ty, cfg_blocks[i].predecessors.size()));
             }
             block_initial_stacks[i] = initial_stack;
         }
@@ -812,9 +816,8 @@ void IRGeneratorBase::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
     // Process blocks
     std::map<int, std::vector<llvm::Value*>> block_final_stacks;
 
-    for (int i = 0; i < static_cast<int>(analysis_results.cfg_blocks.size());
-         ++i) {
-        const auto& block_info = analysis_results.cfg_blocks[i];
+    for (int i = 0; i < static_cast<int>(cfg_blocks.size()); ++i) {
+        const auto& block_info = cfg_blocks[i];
         builder.SetInsertPoint(llvm_blocks[i]);
 
         std::vector<llvm::Value*> rpn_stack;
@@ -881,11 +884,10 @@ void IRGeneratorBase::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
     }
 
     // Populate PHI nodes
-    for (int i = 0; i < static_cast<int>(analysis_results.cfg_blocks.size());
-         ++i) {
-        if (analysis_results.cfg_blocks[i].predecessors.size() > 1) {
+    for (int i = 0; i < static_cast<int>(cfg_blocks.size()); ++i) {
+        if (cfg_blocks[i].predecessors.size() > 1) {
             auto& phis = block_initial_stacks.at(i);
-            for (int pred_idx : analysis_results.cfg_blocks[i].predecessors) {
+            for (int pred_idx : cfg_blocks[i].predecessors) {
                 auto& incoming_stack = block_final_stacks.at(pred_idx);
                 auto* incoming_block = llvm_blocks.at(pred_idx);
                 for (size_t j = 0; j < phis.size(); ++j) {
@@ -901,9 +903,8 @@ void IRGeneratorBase::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
     // Final Result PHI
     builder.SetInsertPoint(exit_bb);
     std::vector<std::pair<llvm::Value*, llvm::BasicBlock*>> final_values;
-    for (int i = 0; i < static_cast<int>(analysis_results.cfg_blocks.size());
-         ++i) {
-        if (analysis_results.cfg_blocks[i].successors.empty()) {
+    for (int i = 0; i < static_cast<int>(cfg_blocks.size()); ++i) {
+        if (cfg_blocks[i].successors.empty()) {
             auto& stack = block_final_stacks.at(i);
             if (!stack.empty()) {
                 final_values.emplace_back(stack.back(), llvm_blocks.at(i));
