@@ -59,6 +59,15 @@ std::string convertInfixToPostfix(const std::string& infix_expr, int num_inputs,
                     macro_name, std::to_string(context->input_bitdepths[i]));
             }
 
+            for (size_t i = 0; i < context->input_formats.size(); ++i) {
+                std::string macro_name = std::format("__INPUT_FMT_{}__", i);
+                preprocessor.addPredefinedMacro(
+                    macro_name, std::to_string(context->input_formats[i]));
+            }
+
+            preprocessor.addPredefinedMacro(
+                "__OUTPUT_FMT__", std::to_string(context->output_format));
+
             preprocessor.addPredefinedMacro(
                 "__SUBSAMPLE_W__", std::to_string(context->subsample_w));
             preprocessor.addPredefinedMacro(

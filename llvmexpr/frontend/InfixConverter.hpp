@@ -34,6 +34,8 @@ struct InfixConversionContext {
     int subsample_w = 0;
     int subsample_h = 0;
     int plane_no = -1; // -1 = applicable
+    int output_format = 0; // 1 for float, -1 for int
+    std::vector<int> input_formats;
 };
 
 std::string

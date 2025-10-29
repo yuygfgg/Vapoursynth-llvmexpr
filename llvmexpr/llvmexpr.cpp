@@ -397,11 +397,16 @@ exprCreate(const VSMap* in, VSMap* out, [[maybe_unused]] void* userData,
                 ctx.subsample_w = d->vi.format.subSamplingW;
                 ctx.subsample_h = d->vi.format.subSamplingH;
                 ctx.plane_no = i;
+                ctx.output_format =
+                    (d->vi.format.sampleType == stFloat) ? 1 : -1;
                 ctx.input_bitdepths.resize(d->num_inputs);
+                ctx.input_formats.resize(d->num_inputs);
                 for (int j = 0; j < d->num_inputs; ++j) {
                     const VSVideoInfo* input_vi =
                         vsapi->getVideoInfo(d->nodes[j]);
                     ctx.input_bitdepths[j] = input_vi->format.bitsPerSample;
+                    ctx.input_formats[j] =
+                        (input_vi->format.sampleType == stFloat) ? 1 : -1;
                 }
                 expr_strs.at(i) = convertInfixToPostfix(
                     input_expr, d->num_inputs, infix2postfix::Mode::Expr, &ctx);
@@ -608,10 +613,14 @@ singleExprCreate(const VSMap* in, VSMap* out, [[maybe_unused]] void* userData,
             ctx.subsample_w = d->vi.format.subSamplingW;
             ctx.subsample_h = d->vi.format.subSamplingH;
             ctx.plane_no = -1; // Not applicable
+            ctx.output_format = (d->vi.format.sampleType == stFloat) ? 1 : -1;
             ctx.input_bitdepths.resize(d->num_inputs);
+            ctx.input_formats.resize(d->num_inputs);
             for (int i = 0; i < d->num_inputs; ++i) {
                 const VSVideoInfo* input_vi = vsapi->getVideoInfo(d->nodes[i]);
                 ctx.input_bitdepths[i] = input_vi->format.bitsPerSample;
+                ctx.input_formats[i] =
+                    (input_vi->format.sampleType == stFloat) ? 1 : -1;
             }
             processed_expr = convertInfixToPostfix(
                 expr_str, d->num_inputs, infix2postfix::Mode::Single, &ctx);

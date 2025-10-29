@@ -364,16 +364,18 @@ The preprocessor provides several built-in macros that expose information about 
 #### Context Macros (when `infix=1` is used)
 These are defined by the VapourSynth filter when it invokes the transpiler.
 
-| Macro                  | Description                                                              |
-| :--------------------- | :----------------------------------------------------------------------- |
-| `__WIDTH__`            | Output frame width (integer, sub-sampling not counted).                  |
-| `__HEIGHT__`           | Output frame height (integer, sub-sampling not counted).                 |
-| `__INPUT_NUM__`        | Number of input clips (integer).                                         |
-| `__OUTPUT_BITDEPTH__`  | Output bit depth.                                                        |
-| `__INPUT_BITDEPTH_N__` | Bit depth of the (N+1)-th input clip (e.g., `__INPUT_BITDEPTH_0__`).     |
-| `__SUBSAMPLE_W__`      | Horizontal chroma subsampling (`1` for 4:2:x, `0` otherwise).            |
-| `__SUBSAMPLE_H__`      | Vertical chroma subsampling (`1` for 4:2:0, `0` otherwise).              |
-| `__PLANE_NO__`         | Current plane being processed (`0`, `1`, or `2`). (**`Expr` mode only**) |
+| Macro                  | Description                                                                                        |
+| :--------------------- | :------------------------------------------------------------------------------------------------- |
+| `__WIDTH__`            | Output frame width (integer, sub-sampling not counted).                                            |
+| `__HEIGHT__`           | Output frame height (integer, sub-sampling not counted).                                           |
+| `__INPUT_NUM__`        | Number of input clips (integer).                                                                   |
+| `__OUTPUT_BITDEPTH__`  | Output bit depth.                                                                                  |
+| `__INPUT_BITDEPTH_N__` | Bit depth of the (N+1)-th input clip (e.g., `__INPUT_BITDEPTH_0__`).                               |
+| `__OUTPUT_FMT__`       | Output format type (`1` for float, `-1` for integer).                                              |
+| `__INPUT_FMT_N__`      | Format type of the (N+1)-th input clip (e.g., `__INPUT_FMT_0__`). `1` for float, `-1` for integer. |
+| `__SUBSAMPLE_W__`      | Horizontal chroma subsampling (`1` for 4:2:x, `0` otherwise).                                      |
+| `__SUBSAMPLE_H__`      | Vertical chroma subsampling (`1` for 4:2:0, `0` otherwise).                                        |
+| `__PLANE_NO__`         | Current plane being processed (`0`, `1`, or `2`). (**`Expr` mode only**)                           |
 
 ### 2.10. Debugging Macros
 
@@ -623,7 +625,7 @@ Functions are called using standard syntax: `functionName(argument1, argument2, 
 | `copysign`                        | 2                   | Magnitude of first operand, sign of second.                                                             |
 | `clamp`                           | 3                   | `clamp(x, lo, hi)`; clamps to `[lo, hi]`.                                                               |
 | `fma`                             | 3                   | Fused multiply-add: `(a * b) + c`.                                                                      |
-| `nth_N`                           | `M` (where `M ≥ N`) | Returns the N-th smallest value (1-indexed). E.g., `nth_3(1,2,3,4,5,6)` returns `3`.                   |
+| `nth_N`                           | `M` (where `M ≥ N`) | Returns the N-th smallest value (1-indexed). E.g., `nth_3(1,2,3,4,5,6)` returns `3`.                    |
 | `new`                             | 1                   | Allocates an array. In `Expr` mode, size must be a literal. In `SingleExpr`, size can be an expression. |
 | `resize`                          | 1                   | Resizes an array in `SingleExpr` mode only. The array must be previously allocated with `new()`.        |
 
