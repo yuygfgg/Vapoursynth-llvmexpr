@@ -1,3 +1,22 @@
+/**
+ * Copyright (C) 2025 yuygfgg
+ * 
+ * This file is part of Vapoursynth-llvmexpr.
+ * 
+ * Vapoursynth-llvmexpr is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * Vapoursynth-llvmexpr is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "CodeGenerator.hpp"
 #include "Builtins.hpp"
 #include "PostfixBuilder.hpp"
@@ -27,7 +46,7 @@ std::string CodeGenerator::generate(Program* program) {
 
 CodeGenerator::ExprResult CodeGenerator::generate(Expr* expr) {
     if (expr == nullptr) {
-        return {.postfix = {}, .type = Type::VALUE};
+        return {.postfix = {}, .type = Type::Value};
     }
     return std::visit([this](auto& e) { return this->handle(e); }, expr->value);
 }
@@ -42,7 +61,7 @@ PostfixBuilder CodeGenerator::generate(Stmt* stmt) {
 CodeGenerator::ExprResult CodeGenerator::handle(const NumberExpr& expr) {
     PostfixBuilder b;
     b.add_number(expr.value.value);
-    return {.postfix = b, .type = Type::LITERAL};
+    return {.postfix = b, .type = Type::Literal};
 }
 
 CodeGenerator::ExprResult CodeGenerator::handle(const VariableExpr& expr) {
@@ -58,9 +77,9 @@ CodeGenerator::ExprResult CodeGenerator::handle(const VariableExpr& expr) {
         b.add_constant(base_name);
 
         if (is_clip_name(base_name)) {
-            return {.postfix = b, .type = Type::CLIP};
+            return {.postfix = b, .type = Type::Clip};
         }
-        return {.postfix = b, .type = Type::VALUE};
+        return {.postfix = b, .type = Type::Value};
     }
 
     std::string var_name = name;
@@ -76,7 +95,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const VariableExpr& expr) {
         return {.postfix = b, .type = expr.symbol->type};
     }
 
-    return {.postfix = b, .type = Type::VALUE};
+    return {.postfix = b, .type = Type::Value};
 }
 
 CodeGenerator::ExprResult CodeGenerator::handle(const UnaryExpr& expr) {
@@ -88,7 +107,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const UnaryExpr& expr) {
             }
             PostfixBuilder b;
             b.add_number(val);
-            return {.postfix = b, .type = Type::LITERAL};
+            return {.postfix = b, .type = Type::Literal};
         }
     }
 
@@ -98,11 +117,11 @@ CodeGenerator::ExprResult CodeGenerator::handle(const UnaryExpr& expr) {
     if (expr.op.type == TokenType::Not) {
         b.add_number("0");
         b.add_op(TokenType::Eq);
-        return {.postfix = b, .type = Type::VALUE};
+        return {.postfix = b, .type = Type::Value};
     }
 
     b.add_unary_op(expr.op.type);
-    return {.postfix = b, .type = Type::VALUE};
+    return {.postfix = b, .type = Type::Value};
 }
 
 CodeGenerator::ExprResult CodeGenerator::handle(const BinaryExpr& expr) {
@@ -124,12 +143,12 @@ CodeGenerator::ExprResult CodeGenerator::handle(const BinaryExpr& expr) {
         b.add_unary_op(TokenType::Not);
 
         b.add_op(expr.op.type);
-        return {.postfix = b, .type = Type::VALUE};
+        return {.postfix = b, .type = Type::Value};
     }
 
     b.append(right.postfix);
     b.add_op(expr.op.type);
-    return {.postfix = b, .type = Type::VALUE};
+    return {.postfix = b, .type = Type::Value};
 }
 
 CodeGenerator::ExprResult CodeGenerator::handle(const TernaryExpr& expr) {
@@ -145,7 +164,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const TernaryExpr& expr) {
     b.append(true_branch.postfix);
     b.append(false_branch.postfix);
     b.add_ternary_op();
-    return {.postfix = b, .type = Type::VALUE};
+    return {.postfix = b, .type = Type::Value};
 }
 
 CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
@@ -156,7 +175,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
 
         PostfixBuilder b =
             inline_function_call(sig, func_def, expr.args, expr.range);
-        return {.postfix = b, .type = Type::VALUE};
+        return {.postfix = b, .type = Type::Value};
     }
 
     // Built-in functions
@@ -165,18 +184,18 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
 
         if (builtin->special_handler) {
             return {.postfix = builtin->special_handler(this, expr),
-                    .type = Type::VALUE};
+                    .type = Type::Value};
         }
 
         PostfixBuilder b;
         for (size_t i = 0; i < expr.args.size(); ++i) {
-            if (builtin->param_types[i] != Type::LITERAL_STRING) {
+            if (builtin->param_types[i] != Type::Literal_string) {
                 auto res = generate(expr.args[i].get());
                 b.append(res.postfix);
             }
         }
         b.add_function_call(expr.callee);
-        return {.postfix = b, .type = Type::VALUE};
+        return {.postfix = b, .type = Type::Value};
     }
 
     // nth_N functions
@@ -194,7 +213,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
         b.add_swapN(arg_count - n);
         b.add_dropN(arg_count - n);
 
-        return {.postfix = b, .type = Type::VALUE};
+        return {.postfix = b, .type = Type::Value};
     }
 
     std::unreachable();
@@ -212,7 +231,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const PropAccessExpr& expr) {
     }
 
     b.add_prop_access(clip_name, expr.prop.value);
-    return {.postfix = b, .type = Type::VALUE};
+    return {.postfix = b, .type = Type::Value};
 }
 
 CodeGenerator::ExprResult
@@ -229,7 +248,7 @@ CodeGenerator::handle(const StaticRelPixelAccessExpr& expr) {
     PostfixBuilder b;
     b.add_static_pixel_access(clip_name, expr.offsetX.value, expr.offsetY.value,
                               expr.boundary_suffix);
-    return {.postfix = b, .type = Type::VALUE};
+    return {.postfix = b, .type = Type::Value};
 }
 
 CodeGenerator::ExprResult
@@ -239,7 +258,7 @@ CodeGenerator::handle(const FrameDimensionExpr& expr) {
 
     PostfixBuilder b;
     b.add_frame_dimension(expr.dimension_name, plane_idx_str);
-    return {.postfix = b, .type = Type::VALUE};
+    return {.postfix = b, .type = Type::Value};
 }
 
 CodeGenerator::ExprResult CodeGenerator::handle(const ArrayAccessExpr& expr) {
@@ -264,7 +283,7 @@ CodeGenerator::ExprResult CodeGenerator::handle(const ArrayAccessExpr& expr) {
     b.append(index_result.postfix);
     b.add_array_load(array_name);
 
-    return {.postfix = b, .type = Type::VALUE};
+    return {.postfix = b, .type = Type::Value};
 }
 
 PostfixBuilder CodeGenerator::handle(const ExprStmt& stmt) {
@@ -413,24 +432,12 @@ PostfixBuilder CodeGenerator::handle(const ReturnStmt& stmt) {
     PostfixBuilder b;
 
     if (stmt.value) {
-        if (!current_function->returns_value) {
-            throw CodeGenError(
-                std::format("Function '{}' should not return a value.",
-                            current_function->name),
-                stmt.range);
-        }
         auto result = generate(stmt.value.get());
         b.append(result.postfix);
         const int call_id = call_site_id_stack.back();
         std::string ret_var_name = std::format("__internal_ret_{}_{}",
                                                current_function->name, call_id);
         b.add_variable_store(ret_var_name);
-    } else {
-        if (current_function->returns_value) {
-            throw CodeGenError(std::format("Function '{}' must return a value.",
-                                           current_function->name),
-                               stmt.range);
-        }
     }
 
     const int call_id = call_site_id_stack.back();
@@ -523,9 +530,9 @@ PostfixBuilder CodeGenerator::inline_function_call(
 
         auto* arg_expr = args[i].get();
 
-        if (param_type == Type::LITERAL || param_type == Type::CLIP) {
+        if (param_type == Type::Literal || param_type == Type::Clip) {
             param_substitutions[param_name] = arg_expr;
-        } else if (param_type == Type::ARRAY) {
+        } else if (param_type == Type::Array) {
             auto* var_expr = get_if<VariableExpr>(arg_expr);
             if (var_expr != nullptr) {
                 std::string arg_var_name = var_expr->name.value;

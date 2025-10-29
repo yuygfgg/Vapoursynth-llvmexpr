@@ -1,3 +1,22 @@
+/**
+ * Copyright (C) 2025 yuygfgg
+ * 
+ * This file is part of Vapoursynth-llvmexpr.
+ * 
+ * Vapoursynth-llvmexpr is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * Vapoursynth-llvmexpr is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "Parser.hpp"
 #include "Builtins.hpp"
 #include <algorithm>
@@ -273,19 +292,19 @@ std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
         do {
             Token type_token;
             Token name_token;
-            Type param_type = Type::VALUE;
+            Type param_type = Type::Value;
 
             if (peek().type == TokenType::Identifier &&
                 peek(1).type == TokenType::Identifier) {
                 type_token = advance(); // Consume potential type
                 if (type_token.value == "Value") {
-                    param_type = Type::VALUE;
+                    param_type = Type::Value;
                 } else if (type_token.value == "Clip") {
-                    param_type = Type::CLIP;
+                    param_type = Type::Clip;
                 } else if (type_token.value == "Literal") {
-                    param_type = Type::LITERAL;
+                    param_type = Type::Literal;
                 } else if (type_token.value == "Array") {
-                    param_type = Type::ARRAY;
+                    param_type = Type::Array;
                 } else {
                     error(type_token,
                           std::format("Unknown type '{}' for parameter.",
@@ -300,7 +319,7 @@ std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
                 type_token = {.type = TokenType::Identifier,
                               .value = "Value",
                               .range = name_token.range};
-                param_type = Type::VALUE;
+                param_type = Type::Value;
             } else {
                 error(peek(), "Expect a parameter declaration.");
                 break; // Avoid infinite loop on error

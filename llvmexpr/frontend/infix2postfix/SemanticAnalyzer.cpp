@@ -1,3 +1,22 @@
+/**
+ * Copyright (C) 2025 yuygfgg
+ * 
+ * This file is part of Vapoursynth-llvmexpr.
+ * 
+ * Vapoursynth-llvmexpr is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * Vapoursynth-llvmexpr is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "SemanticAnalyzer.hpp"
 #include "Builtins.hpp"
 #include "OverloadResolution.hpp"
@@ -262,7 +281,7 @@ std::shared_ptr<Symbol> SemanticAnalyzer::resolveSymbol(const std::string& name,
 // Expression analysis
 Type SemanticAnalyzer::analyzeExpr(Expr* expr) {
     if (expr == nullptr) {
-        return Type::VALUE;
+        return Type::Value;
     }
     return std::visit([this](auto& e) -> Type { return this->analyze(e); },
                       expr->value);
@@ -276,7 +295,7 @@ void SemanticAnalyzer::analyzeStmt(Stmt* stmt) {
 }
 
 Type SemanticAnalyzer::analyze([[maybe_unused]] const NumberExpr& expr) {
-    return Type::LITERAL;
+    return Type::Literal;
 }
 
 Type SemanticAnalyzer::analyze(VariableExpr& expr) {
@@ -293,7 +312,7 @@ Type SemanticAnalyzer::analyze(VariableExpr& expr) {
                     "pixel-by-pixel.",
                     expr.range);
             }
-            return Type::VALUE;
+            return Type::Value;
         }
         if (get_clip_index(base_name) != -1) {
             if (get_clip_index(base_name) > num_inputs - 1) {
@@ -301,15 +320,15 @@ Type SemanticAnalyzer::analyze(VariableExpr& expr) {
                     std::format("Clip index '{}' is out of range", base_name),
                     expr.range);
             }
-            return Type::CLIP;
+            return Type::Clip;
         }
         if (base_name == "width" || base_name == "height" ||
             base_name == "pi" || base_name == "N") {
-            return Type::VALUE;
+            return Type::Value;
         }
         reportError(std::format("Invalid identifier '{}'.", base_name),
                     expr.range);
-        return Type::VALUE;
+        return Type::Value;
     }
 
     auto symbol = current_scope->resolve(name);
@@ -322,7 +341,7 @@ Type SemanticAnalyzer::analyze(VariableExpr& expr) {
                 symbol = std::make_shared<Symbol>();
                 symbol->kind = SymbolKind::VARIABLE;
                 symbol->name = name;
-                symbol->type = Type::VALUE;
+                symbol->type = Type::Value;
                 symbol->definition_range = expr.range;
             }
         } else if (current_function->global_mode == GlobalMode::SPECIFIC) {
@@ -333,7 +352,7 @@ Type SemanticAnalyzer::analyze(VariableExpr& expr) {
                     symbol = std::make_shared<Symbol>();
                     symbol->kind = SymbolKind::VARIABLE;
                     symbol->name = name;
-                    symbol->type = Type::VALUE;
+                    symbol->type = Type::Value;
                     symbol->definition_range = expr.range;
                 }
             }
@@ -344,7 +363,7 @@ Type SemanticAnalyzer::analyze(VariableExpr& expr) {
         reportError(
             std::format("Variable '{}' is used before being defined", name),
             expr.range);
-        return Type::VALUE;
+        return Type::Value;
     }
 
     symbol->is_used = true;
@@ -355,12 +374,12 @@ Type SemanticAnalyzer::analyze(VariableExpr& expr) {
 Type SemanticAnalyzer::analyze(UnaryExpr& expr) {
     if (expr.op.type == TokenType::Minus) {
         if (get_if<NumberExpr>(expr.right.get()) != nullptr) {
-            return Type::LITERAL;
+            return Type::Literal;
         }
     }
 
     auto right_type = analyzeExpr(expr.right.get());
-    if (!isConvertible(right_type, Type::VALUE, mode)) {
+    if (!isConvertible(right_type, Type::Value, mode)) {
         reportError(std::format("Cannot apply unary operator '{}' to type "
                                 "'{}' which is not convertible to a value.",
                                 token_type_to_string(expr.op.type),
@@ -368,21 +387,21 @@ Type SemanticAnalyzer::analyze(UnaryExpr& expr) {
                     expr.range);
     }
 
-    return Type::VALUE;
+    return Type::Value;
 }
 
 Type SemanticAnalyzer::analyze(BinaryExpr& expr) {
     auto left_type = analyzeExpr(expr.left.get());
     auto right_type = analyzeExpr(expr.right.get());
 
-    if (!isConvertible(left_type, Type::VALUE, mode)) {
+    if (!isConvertible(left_type, Type::Value, mode)) {
         reportError(std::format("Left operand of binary operator '{}' has type "
                                 "'{}' which is not convertible to a value.",
                                 token_type_to_string(expr.op.type),
                                 enum_name(left_type)),
                     expr.range);
     }
-    if (!isConvertible(right_type, Type::VALUE, mode)) {
+    if (!isConvertible(right_type, Type::Value, mode)) {
         reportError(
             std::format("Right operand of binary operator '{}' has type "
                         "'{}' which is not convertible to a value.",
@@ -391,12 +410,12 @@ Type SemanticAnalyzer::analyze(BinaryExpr& expr) {
             expr.range);
     }
 
-    return Type::VALUE;
+    return Type::Value;
 }
 
 Type SemanticAnalyzer::analyze(TernaryExpr& expr) {
     auto cond_type = analyzeExpr(expr.cond.get());
-    if (!isConvertible(cond_type, Type::VALUE, mode)) {
+    if (!isConvertible(cond_type, Type::Value, mode)) {
         reportError(std::format("Ternary condition has type '{}' which is not "
                                 "convertible to a value.",
                                 enum_name(cond_type)),
@@ -406,14 +425,14 @@ Type SemanticAnalyzer::analyze(TernaryExpr& expr) {
     auto true_type = analyzeExpr(expr.true_expr.get());
     auto false_type = analyzeExpr(expr.false_expr.get());
 
-    if (!isConvertible(true_type, Type::VALUE, mode) ||
-        !isConvertible(false_type, Type::VALUE, mode)) {
+    if (!isConvertible(true_type, Type::Value, mode) ||
+        !isConvertible(false_type, Type::Value, mode)) {
         reportError("Both branches of a ternary expression must be convertible "
                     "to a value.",
                     expr.range);
     }
 
-    return Type::VALUE;
+    return Type::Value;
 }
 
 Type SemanticAnalyzer::analyze(CallExpr& expr) {
@@ -422,17 +441,17 @@ Type SemanticAnalyzer::analyze(CallExpr& expr) {
     expr.resolved_signature = signature;
 
     if (expr.resolved_signature != nullptr) {
-        return expr.resolved_signature->returns_value ? Type::VALUE
-                                                      : Type::VOID;
+        return expr.resolved_signature->returns_value ? Type::Value
+                                                      : Type::Void;
     }
     if (expr.resolved_builtin != nullptr) {
-        return expr.resolved_builtin->returns_value ? Type::VALUE : Type::VOID;
+        return expr.resolved_builtin->returns_value ? Type::Value : Type::Void;
     }
     if (expr.callee.starts_with("nth_")) {
-        return Type::VALUE;
+        return Type::Value;
     }
 
-    return Type::VALUE;
+    return Type::Value;
 }
 
 const FunctionSignature* SemanticAnalyzer::resolveOverload(
@@ -447,8 +466,8 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
         for (const auto& arg : args) {
             if (auto* var_expr = get_if<VariableExpr>(arg.get())) {
                 auto symbol = current_scope->resolve(var_expr->name.value);
-                if (symbol && symbol->type == Type::ARRAY) {
-                    arg_types.push_back(Type::ARRAY);
+                if (symbol && symbol->type == Type::Array) {
+                    arg_types.push_back(Type::Array);
                     continue;
                 }
             }
@@ -543,12 +562,12 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
                 }
 
                 Type param_type = builtin.param_types[j];
-                if (param_type == Type::LITERAL_STRING) {
+                if (param_type == Type::Literal_string) {
                     auto* var_expr = get_if<VariableExpr>(args[j].get());
                     if (!var_expr || var_expr->name.value.starts_with("$")) {
                         return std::nullopt;
                     }
-                    return Type::LITERAL_STRING;
+                    return Type::Literal_string;
                 }
 
                 if (!arg_types[j].has_value()) {
@@ -634,7 +653,7 @@ const FunctionSignature* SemanticAnalyzer::resolveOverload(
         }
         for (const auto& arg : args) {
             auto arg_type = analyzeExpr(arg.get());
-            if (!isConvertible(arg_type, Type::VALUE, mode)) {
+            if (!isConvertible(arg_type, Type::Value, mode)) {
                 reportError(
                     std::format("Argument to function '{}' has type '{}' which "
                                 "is not convertible to Value.",
@@ -666,7 +685,7 @@ void SemanticAnalyzer::validateClipReference(const std::string& clip_name,
     } else {
         // Check if it's a function parameter of Clip type
         auto symbol = current_scope->resolve(name);
-        if (!symbol || symbol->type != Type::CLIP) {
+        if (!symbol || symbol->type != Type::Clip) {
             reportError(
                 std::format(
                     "Clip '{}' is not a clip constant or Clip parameter.",
@@ -678,7 +697,7 @@ void SemanticAnalyzer::validateClipReference(const std::string& clip_name,
 
 Type SemanticAnalyzer::analyze(const PropAccessExpr& expr) {
     validateClipReference(expr.clip.value, expr.range);
-    return Type::VALUE;
+    return Type::Value;
 }
 
 Type SemanticAnalyzer::analyze(const StaticRelPixelAccessExpr& expr) {
@@ -691,7 +710,7 @@ Type SemanticAnalyzer::analyze(const StaticRelPixelAccessExpr& expr) {
     }
 
     validateClipReference(expr.clip.value, expr.range);
-    return Type::VALUE;
+    return Type::Value;
 }
 
 Type SemanticAnalyzer::analyze(FrameDimensionExpr& expr) {
@@ -703,12 +722,12 @@ Type SemanticAnalyzer::analyze(FrameDimensionExpr& expr) {
     }
 
     auto plane_type = analyzeExpr(expr.plane_index_expr.get());
-    if (plane_type != Type::LITERAL) {
+    if (plane_type != Type::Literal) {
         reportError("Plane index must be a literal constant.",
                     expr.plane_index_expr->range());
     }
 
-    return Type::VALUE;
+    return Type::Value;
 }
 
 Type SemanticAnalyzer::analyze(ArrayAccessExpr& expr) {
@@ -716,13 +735,13 @@ Type SemanticAnalyzer::analyze(ArrayAccessExpr& expr) {
     if (var_expr == nullptr) {
         reportError("Array access requires a variable as the array.",
                     expr.range);
-        return Type::VALUE;
+        return Type::Value;
     }
 
     std::string array_name = var_expr->name.value;
     auto symbol = resolveSymbol(array_name, expr.range);
 
-    if (!symbol || symbol->type != Type::ARRAY) {
+    if (!symbol || symbol->type != Type::Array) {
         reportError(std::format("Variable '{}' is not an array.", array_name),
                     expr.range);
     }
@@ -730,18 +749,18 @@ Type SemanticAnalyzer::analyze(ArrayAccessExpr& expr) {
     expr.array_symbol = symbol;
 
     auto index_type = analyzeExpr(expr.index.get());
-    if (!isConvertible(index_type, Type::VALUE, mode)) {
+    if (!isConvertible(index_type, Type::Value, mode)) {
         reportError("Array index must be convertible to a value.",
                     expr.index->range());
     }
 
-    return Type::VALUE;
+    return Type::Value;
 }
 
 // Statement analysis
 void SemanticAnalyzer::analyze(const ExprStmt& stmt) {
     Type expr_type = analyzeExpr(stmt.expr.get());
-    if (expr_type != Type::VOID) {
+    if (expr_type != Type::Void) {
         reportError("Expression result is unused.", stmt.range);
     }
 }
@@ -770,7 +789,7 @@ void SemanticAnalyzer::analyze(AssignStmt& stmt) {
             std::string var_name = stmt.name.value;
             auto existing_symbol = current_scope->resolve(var_name);
             bool is_already_array =
-                (existing_symbol && existing_symbol->type == Type::ARRAY);
+                (existing_symbol && existing_symbol->type == Type::Array);
 
             if (call_expr->callee == "resize") {
                 if (mode == Mode::Expr) {
@@ -795,35 +814,37 @@ void SemanticAnalyzer::analyze(AssignStmt& stmt) {
 
             if (mode == Mode::Expr) {
                 auto size_type = analyzeExpr(call_expr->args[0].get());
-                if (size_type != Type::LITERAL) {
+                if (size_type != Type::Literal) {
                     reportError("Array size must be a literal constant.",
                                 stmt.range);
                 }
             } else {
                 auto size_type = analyzeExpr(call_expr->args[0].get());
-                if (!isConvertible(size_type, Type::VALUE, mode)) {
+                if (!isConvertible(size_type, Type::Value, mode)) {
                     reportError("Array size must be convertible to a value.",
                                 stmt.range);
                 }
             }
 
             auto symbol = defineSymbol(SymbolKind::VARIABLE, var_name,
-                                       Type::ARRAY, stmt.range);
+                                       Type::Array, stmt.range);
             stmt.symbol = symbol;
 
             return;
         }
     }
     auto value_type = analyzeExpr(stmt.value.get());
-    if (!isConvertible(value_type, Type::VALUE, mode)) {
-        reportError("Variable assignment value must be convertible to a value.",
+    if (!isConvertible(value_type, Type::Value, mode)) {
+        reportError(std::format("Variable assignment value must be convertible "
+                                "to a value, got {}.",
+                                enum_name(value_type)),
                     stmt.range);
     }
 
     std::string var_name = stmt.name.value;
     auto existing_symbol = current_scope->resolve(var_name);
 
-    if (existing_symbol && existing_symbol->type == Type::ARRAY) {
+    if (existing_symbol && existing_symbol->type == Type::Array) {
         reportError(
             std::format(
                 "Variable '{}' is an array and cannot be reassigned to a "
@@ -833,7 +854,7 @@ void SemanticAnalyzer::analyze(AssignStmt& stmt) {
     }
 
     auto symbol =
-        defineSymbol(SymbolKind::VARIABLE, var_name, Type::VALUE, stmt.range);
+        defineSymbol(SymbolKind::VARIABLE, var_name, Type::Value, stmt.range);
     stmt.symbol = symbol;
 }
 
@@ -848,7 +869,7 @@ void SemanticAnalyzer::analyze(ArrayAssignStmt& stmt) {
     analyzeExpr(stmt.target.get());
 
     auto value_type = analyzeExpr(stmt.value.get());
-    if (!isConvertible(value_type, Type::VALUE, mode)) {
+    if (!isConvertible(value_type, Type::Value, mode)) {
         reportError("Array assignment value must be convertible to a value.",
                     stmt.value->range());
     }
@@ -864,7 +885,7 @@ void SemanticAnalyzer::analyze(BlockStmt& stmt) {
 
 void SemanticAnalyzer::analyze(IfStmt& stmt) {
     auto cond_type = analyzeExpr(stmt.condition.get());
-    if (!isConvertible(cond_type, Type::VALUE, mode)) {
+    if (!isConvertible(cond_type, Type::Value, mode)) {
         reportError(std::format("If condition has type '{}' which is not "
                                 "convertible to a value.",
                                 enum_name(cond_type)),
@@ -880,7 +901,7 @@ void SemanticAnalyzer::analyze(IfStmt& stmt) {
 
 void SemanticAnalyzer::analyze(WhileStmt& stmt) {
     auto cond_type = analyzeExpr(stmt.condition.get());
-    if (!isConvertible(cond_type, Type::VALUE, mode)) {
+    if (!isConvertible(cond_type, Type::Value, mode)) {
         reportError(std::format("While condition has type '{}' which is not "
                                 "convertible to a value.",
                                 enum_name(cond_type)),
@@ -897,14 +918,14 @@ void SemanticAnalyzer::analyze(const ReturnStmt& stmt) {
     }
     if (stmt.value) {
         auto result_type = analyzeExpr(stmt.value.get());
-        if (result_type == Type::ARRAY) {
+        if (result_type == Type::Array) {
             reportError("Functions cannot return arrays.", stmt.range);
         }
     }
 }
 
 void SemanticAnalyzer::analyze(LabelStmt& stmt) {
-    auto symbol = defineSymbol(SymbolKind::LABEL, stmt.name.value, Type::VALUE,
+    auto symbol = defineSymbol(SymbolKind::LABEL, stmt.name.value, Type::Value,
                                stmt.range);
     stmt.symbol = symbol;
 }
@@ -1000,7 +1021,7 @@ void SemanticAnalyzer::analyze(FunctionDef& stmt) {
     }
 
     auto func_symbol = defineSymbol(SymbolKind::FUNCTION, stmt.name.value,
-                                    Type::VALUE, stmt.range);
+                                    Type::Value, stmt.range);
     func_symbol->signature = sig;
     stmt.symbol = func_symbol;
 
@@ -1096,7 +1117,7 @@ bool SemanticAnalyzer::builtinParamTypeIsEvaluatable(
     const std::vector<BuiltinFunction>& overloads, size_t param_idx) {
     return std::ranges::all_of(overloads, [param_idx](const auto& o) {
         return !(o.param_types.size() > param_idx &&
-                 o.param_types[param_idx] == Type::LITERAL_STRING);
+                 o.param_types[param_idx] == Type::Literal_string);
     });
 }
 
