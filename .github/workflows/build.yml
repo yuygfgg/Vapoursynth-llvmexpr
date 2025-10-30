@@ -60,6 +60,23 @@ jobs:
           pkg-config --libs --static libzstd || echo "Warning: pkg-config libzstd failed"
           cp $MSYSTEM_PREFIX/lib/libzstd.{a,dll.a}
 
+      - name: Fix SSL certificates for Python (Windows)
+        shell: powershell
+        run: |
+          # Download Mozilla's CA certificate bundle
+          $certUrl = "https://curl.se/ca/cacert.pem"
+          $certFile = "$env:TEMP\cacert.pem"
+          
+          Write-Host "Downloading CA certificate bundle..."
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          Invoke-WebRequest -Uri $certUrl -OutFile $certFile
+          
+          # Import certificates to the trusted root store
+          Write-Host "Importing certificates to trusted root store..."
+          Import-Certificate -FilePath $certFile -CertStoreLocation Cert:\LocalMachine\Root -ErrorAction SilentlyContinue
+          
+          Write-Host "SSL certificates configured successfully"
+
       - name: Show tool versions (Windows)
         shell: msys2 {0}
         run: |
@@ -83,7 +100,6 @@ jobs:
       - name: Configure (Meson) (Windows)
         shell: msys2 {0}
         run: |
-          git config --system http.sslBackend schannel
           CC="clang -fuse-ld=lld" CXX="clang++ -fuse-ld=lld" meson setup builddir \
             -Dstatic-llvm=true \
             --buildtype=release
@@ -214,6 +230,24 @@ jobs:
           pkg-config --libs --static libzstd || echo "Warning: pkg-config libzstd failed"
           cp $MSYSTEM_PREFIX/lib/libzstd.{a,dll.a}
 
+      - name: Fix SSL certificates for Python (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          # Download Mozilla's CA certificate bundle
+          $certUrl = "https://curl.se/ca/cacert.pem"
+          $certFile = "$env:TEMP\cacert.pem"
+          
+          Write-Host "Downloading CA certificate bundle..."
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+          Invoke-WebRequest -Uri $certUrl -OutFile $certFile
+          
+          # Import certificates to the trusted root store
+          Write-Host "Importing certificates to trusted root store..."
+          Import-Certificate -FilePath $certFile -CertStoreLocation Cert:\LocalMachine\Root -ErrorAction SilentlyContinue
+          
+          Write-Host "SSL certificates configured successfully"
+
       # Common steps for Linux
       - name: Download VS headers and patch header location (Linux)
         if: runner.os == 'Linux'
@@ -330,7 +364,6 @@ jobs:
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          git config --system http.sslBackend schannel
           CC="clang -fuse-ld=lld" CXX="clang++ -fuse-ld=lld" meson setup builddir \
             -Dstatic-llvm=true \
             -Denable-sanitizers=true \
