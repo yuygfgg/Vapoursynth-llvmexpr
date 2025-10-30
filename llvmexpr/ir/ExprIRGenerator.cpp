@@ -77,14 +77,6 @@ void ExprIRGenerator::generate_loops() {
         llvm::BasicBlock::Create(context, "entry", func);
     builder.SetInsertPoint(entry_bb);
 
-    // Pre-allocate static arrays
-    for (const auto& [name, size] : analysis_results.getStaticArraySizes()) {
-        llvm::ArrayType* array_ty =
-            llvm::ArrayType::get(builder.getFloatTy(), size);
-        llvm::Value* array_ptr = createAllocaInEntry(array_ty, name + "_array");
-        named_arrays[name] = array_ptr;
-    }
-
     llvm::Function* parent_func = builder.GetInsertBlock()->getParent();
     llvm::BasicBlock* loop_y_header =
         llvm::BasicBlock::Create(context, "loop_y_header", parent_func);
@@ -432,9 +424,17 @@ bool ExprIRGenerator::process_mode_specific_token(
     }
 
     // Array
-    case TokenType::ARRAY_ALLOC_STATIC:
-        // Already handled in generate_loops()
+    case TokenType::ARRAY_ALLOC_STATIC: {
+        const auto& payload = std::get<TokenPayload_ArrayOp>(token.payload);
+        if (!named_arrays.contains(payload.name)) {
+            llvm::ArrayType* array_ty =
+                llvm::ArrayType::get(float_ty, payload.static_size);
+            llvm::Value* array_ptr =
+                createAllocaInEntry(array_ty, payload.name + "_array");
+            named_arrays[payload.name] = array_ptr;
+        }
         return true;
+    }
 
     case TokenType::ARRAY_LOAD: {
         const auto& payload = std::get<TokenPayload_ArrayOp>(token.payload);

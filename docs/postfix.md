@@ -220,15 +220,14 @@ Arrays must be allocated before use. The allocation method depends on whether th
   - Allocates an array with a fixed size known at compile time.
   - `size` must be a positive integer literal (e.g., `buffer{}^256`).
   - Available in both `Expr` and `SingleExpr`.
-  - In `Expr`: Arrays are allocated on the stack with minimal overhead and are friendly to LLVM's auto-vectorizer.
-  - In `SingleExpr`: Arrays are heap-allocated and managed by the host.
+  - Statically allocated arrays are allocated on the stack and are friendly to LLVM's auto-vectorizer. However, do note that their size must be carefully chosen to avoid excessive stack usage.
   - Stack effect: 0 (no values consumed or produced).
 
 - **Dynamic Allocation:** `size arrayname{}^` (**SingleExpr only**)
   - Allocates an array with a size determined at runtime.
   - Pops the `size` value from the stack. If the value is not an integer, it will be **truncated toward zero**.
     - Examples: `10.9` → `10`, `3.1` → `3`, `-2.9` → `-2`
-  - The array is heap-allocated and can be resized by allocating again with a different size.
+  - The array can be heap-allocated and can be resized by allocating again with a different size.
   - **Not available in `Expr` mode** - attempting to use this will result in a compilation error.
   - Stack effect: -1 (consumes the size value).
   - **Example:** `width^0 height^0 * pixelbuffer{}^` allocates an array sized to hold every pixel in plane 0.

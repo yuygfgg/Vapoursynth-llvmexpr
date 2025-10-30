@@ -17,31 +17,26 @@
  * along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef LLVMEXPR_ANALYSIS_STATIC_ARRAY_OPT_PASS_HPP
-#define LLVMEXPR_ANALYSIS_STATIC_ARRAY_OPT_PASS_HPP
+#ifndef LLVMEXPR_ANALYSIS_DYNAMIC_ARRAY_ALLOC_OPT_PASS_HPP
+#define LLVMEXPR_ANALYSIS_DYNAMIC_ARRAY_ALLOC_OPT_PASS_HPP
 
 #include "../framework/Pass.hpp"
+#include <vector>
 
 namespace analysis {
 
 /**
-    Converts dynamic array allocations to static allocations when possible.
-    This optimization transforms ARRAY_ALLOC_DYN to ARRAY_ALLOC_STATIC when:
-    1. Array size is known at compile time (via constant propagation)
-    2. Array size is <= threshold (1024 elements)
-    3. Array is allocated only once in the entire expression
+    Eliminates redundant dynamic array allocations.
+    If between two allocations of the same array, there are no reads or writes
+    to that array on all possible control flow paths, the first allocation is
+    replaced with a DROP instruction to maintain stack effects.
     
-    The transformation involves:
-    - Changing token type from ARRAY_ALLOC_DYN to ARRAY_ALLOC_STATIC
-    - Setting the static_size in the payload
-    - Inserting a DROP instruction to consume the size value from stack
-    
-    Depends on: ConstPropPass, BlockAnalysisPass
+    Depends on: BlockAnalysisPass, BuildCFGPass
  */
-class StaticArrayOptPass : public TransformationPass {
+class DynamicArrayAllocOptPass : public TransformationPass {
   public:
     [[nodiscard]] const char* getName() const override {
-        return "Static Array Optimization Pass";
+        return "Dynamic Array Allocation Optimization Pass";
     }
 
     PreservedAnalyses run(std::vector<Token>& tokens,
@@ -50,4 +45,4 @@ class StaticArrayOptPass : public TransformationPass {
 
 } // namespace analysis
 
-#endif // LLVMEXPR_ANALYSIS_STATIC_ARRAY_OPT_PASS_HPP
+#endif // LLVMEXPR_ANALYSIS_DYNAMIC_ARRAY_ALLOC_OPT_PASS_HPP

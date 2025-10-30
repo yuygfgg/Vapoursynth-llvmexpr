@@ -34,6 +34,8 @@
 
 #include "analysis/AnalysisResults.hpp"
 #include "analysis/ExpressionAnalyzer.hpp"
+#include "analysis/passes/DynamicArrayAllocOptPass.hpp"
+#include "analysis/passes/StaticArrayOptPass.hpp"
 #include "frontend/InfixConverter.hpp"
 #include "frontend/Tokenizer.hpp"
 #include "jit/Compiler.hpp"
@@ -636,6 +638,15 @@ singleExprCreate(const VSMap* in, VSMap* out, [[maybe_unused]] void* userData,
 
         d->tokens =
             tokenize(processed_expr, d->num_inputs, ExprMode::SINGLE_EXPR);
+
+        // Array optimization passes
+        {
+            analysis::AnalysisManager temp_am(d->tokens, d->mirror_boundary, 0);
+            analysis::StaticArrayOptPass static_opt_pass;
+            static_opt_pass.run(d->tokens, temp_am);
+            analysis::DynamicArrayAllocOptPass dyn_opt_pass;
+            dyn_opt_pass.run(d->tokens, temp_am);
+        }
 
         for (const auto& token : d->tokens) {
             if (token.type == TokenType::CONSTANT_PLANE_WIDTH ||

@@ -113,6 +113,7 @@ sources = [
   'llvmexpr/analysis/passes/BlockAnalysisPass.cpp',
   'llvmexpr/analysis/passes/ConstPropPass.cpp',
   'llvmexpr/analysis/passes/StaticArrayOptPass.cpp',
+  'llvmexpr/analysis/passes/DynamicArrayAllocOptPass.cpp',
   'llvmexpr/analysis/passes/VarInitPass.cpp',
   'llvmexpr/analysis/passes/StaticAllocReachabilityPass.cpp',
   'llvmexpr/analysis/passes/ValidationPass.cpp',

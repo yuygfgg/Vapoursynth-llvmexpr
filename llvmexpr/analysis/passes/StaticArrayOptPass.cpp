@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <map>
 #include <optional>
+#include <ranges>
 
 namespace {
 constexpr int SINGLEEXPR_STACK_ALLOC_THRESHOLD = 1024;
@@ -32,15 +33,13 @@ constexpr int SINGLEEXPR_STACK_ALLOC_THRESHOLD = 1024;
 
 namespace analysis {
 
-StaticArrayOptPass::Result
-StaticArrayOptPass::run(const std::vector<Token>& tokens, AnalysisManager& am) {
+PreservedAnalyses StaticArrayOptPass::run(std::vector<Token>& tokens,
+                                          AnalysisManager& am) {
     const auto& const_result = am.getResult<ConstPropPass>();
     const auto& in_stacks = const_result.const_stack_in;
 
     const auto& block_result = am.getResult<BlockAnalysisPass>();
     const auto& cfg_blocks = block_result.cfg_blocks;
-
-    Result result;
 
     std::map<std::string, int> array_alloc_count;
     for (const auto& token : tokens) {
@@ -50,6 +49,8 @@ StaticArrayOptPass::run(const std::vector<Token>& tokens, AnalysisManager& am) {
             array_alloc_count[payload.name]++;
         }
     }
+
+    std::map<int, int> dyn_to_static;
 
     for (size_t block_idx = 0; block_idx < cfg_blocks.size(); ++block_idx) {
         const auto& block = cfg_blocks[block_idx];
@@ -72,27 +73,18 @@ StaticArrayOptPass::run(const std::vector<Token>& tokens, AnalysisManager& am) {
             }
             std::ranges::reverse(args);
 
-            if (token.type == TokenType::ARRAY_ALLOC_STATIC) {
+            if (token.type == TokenType::ARRAY_ALLOC_DYN) {
                 const auto& payload =
                     std::get<TokenPayload_ArrayOp>(token.payload);
-                // Allocate on stack if size <= threshold and only allocated once
-                if (payload.static_size <= SINGLEEXPR_STACK_ALLOC_THRESHOLD &&
-                    array_alloc_count[payload.name] == 1) {
-                    result.static_array_sizes[payload.name] =
-                        payload.static_size;
-                }
-            } else if (token.type == TokenType::ARRAY_ALLOC_DYN) {
-                const auto& payload =
-                    std::get<TokenPayload_ArrayOp>(token.payload);
-                // Allocate on stack if:
+                // Convert to static allocation if:
                 // 1. Size is a compile-time constant (from ConstPropPass)
                 // 2. Size <= threshold
                 // 3. Only allocated once
                 if (args[0].has_value() &&
                     array_alloc_count[payload.name] == 1) {
                     int size = static_cast<int>(args[0].value());
-                    if (size <= SINGLEEXPR_STACK_ALLOC_THRESHOLD) {
-                        result.static_array_sizes[payload.name] = size;
+                    if (size > 0 && size <= SINGLEEXPR_STACK_ALLOC_THRESHOLD) {
+                        dyn_to_static[token_idx] = size;
                     }
                 }
             }
@@ -103,7 +95,35 @@ StaticArrayOptPass::run(const std::vector<Token>& tokens, AnalysisManager& am) {
         }
     }
 
-    return result;
+    std::vector<std::pair<int, Token>> insertions; // position, token to insert
+
+    for (auto& it : std::ranges::reverse_view(dyn_to_static)) {
+        int token_idx = it.first;
+        int size = it.second;
+
+        auto& token = tokens[token_idx];
+        auto& payload = std::get<TokenPayload_ArrayOp>(token.payload);
+
+        token.type = TokenType::ARRAY_ALLOC_STATIC;
+        token.text = payload.name + "{}^" + std::to_string(size);
+        payload.static_size = size;
+
+        Token drop_token{.type = TokenType::DROP,
+                         .text = "drop1",
+                         .payload = TokenPayload_StackOp{.n = 1}};
+
+        insertions.emplace_back(token_idx, drop_token);
+    }
+
+    for (const auto& [pos, drop_token] : insertions) {
+        tokens.insert(tokens.begin() + pos, drop_token);
+    }
+
+    if (!dyn_to_static.empty()) {
+        return PreservedAnalyses::none();
+    }
+
+    return PreservedAnalyses::all();
 }
 
 } // namespace analysis

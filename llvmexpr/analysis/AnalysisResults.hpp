@@ -26,7 +26,6 @@
 #include "passes/CoordinateUsagePass.hpp"
 #include "passes/RelAccessAnalysisPass.hpp"
 #include "passes/StackSafetyPass.hpp"
-#include "passes/StaticArrayOptPass.hpp"
 #include "passes/VariableUsagePass.hpp"
 #include <map>
 #include <string>
@@ -49,11 +48,6 @@ class ExpressionAnalysisResults {
 
     [[nodiscard]] const std::vector<int>& getStackDepthIn() const {
         return manager.getResult<StackSafetyPass>().stack_depth_in;
-    }
-
-    [[nodiscard]] const std::map<std::string, int>&
-    getStaticArraySizes() const {
-        return manager.getResult<StaticArrayOptPass>().static_array_sizes;
     }
 
     [[nodiscard]] const RelAccessAnalysisResult&
