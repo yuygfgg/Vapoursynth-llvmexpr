@@ -16,7 +16,7 @@
 # along with Vapoursynth-llvmexpr.  If not, see <https://www.gnu.org/licenses/>.
 
 project('llvmexpr', 'cpp', 'c',
-  default_options: ['buildtype=release', 'warning_level=2', 'b_lto=true', 'b_ndebug=if-release', 'cpp_std=c++23', 'c_gnu_symbol_visibility=hidden', 'cpp_gnu_symbol_visibility=hidden'],
+  default_options: ['buildtype=release', 'warning_level=2', 'b_ndebug=if-release', 'cpp_std=c++23', 'c_gnu_symbol_visibility=hidden', 'cpp_gnu_symbol_visibility=hidden'],
   license: 'GPL-3.0-or-later',
   meson_version: '>=1.4.0',
   version: '3.2'
@@ -33,6 +33,12 @@ if cc.get_id() != 'clang'
   error('This project requires Clang C compiler. Current compiler: ' + cc.get_id())
 endif
 
+buildtype = get_option('buildtype')
+if buildtype != 'debug' and buildtype != 'debugoptimized'
+  add_project_link_arguments('-flto', language: ['cpp', 'c'])
+  add_project_arguments('-flto', language: ['cpp', 'c'])
+endif
+
 enable_sanitizers = get_option('enable-sanitizers')
 if enable_sanitizers
   sanitizer_args = [
@@ -46,6 +52,8 @@ endif
 vapoursynth_dep = dependency('vapoursynth', version: '>=55').partial_dependency(compile_args: true, includes: true)
 install_dir = vapoursynth_dep.get_variable(pkgconfig: 'libdir') / 'vapoursynth'
 
+ctre_dep = dependency('ctre', fallback: ['ctre', 'ctre_dep'], required: true)
+
 static_llvm = get_option('static-llvm')
 llvm_dep = dependency('llvm', version: '>=20.0.0', method: 'config-tool', modules: ['core', 'orcjit', 'native', 'all-targets'], static: static_llvm)
 
@@ -53,7 +61,7 @@ llvm_inc_dir = include_directories(llvm_dep.get_variable('includedir'), is_syste
 llvm_link_dep = llvm_dep.partial_dependency(link_args: true)
 llvm_dep = declare_dependency(include_directories: llvm_inc_dir, dependencies: llvm_link_dep)
 
-dependencies = [vapoursynth_dep, llvm_dep]
+dependencies = [vapoursynth_dep, llvm_dep, ctre_dep]
 link_args = []
 
 if static_llvm
@@ -117,12 +125,21 @@ sources = [
   'llvmexpr/utils/Diagnostics.cpp',
 ]
 
-shared_module('llvmexpr', sources,
+llvmexpr_module = shared_module('llvmexpr', sources,
   dependencies: dependencies,
   link_args: link_args,
   install: true,
   install_dir: install_dir
 )
+
+if host_machine.system() == 'darwin'
+  custom_target('llvmexpr_dsym',
+    input: llvmexpr_module,
+    output: 'libllvmexpr.dylib.dSYM',
+    command: ['dsymutil', '@INPUT@'],
+    build_by_default: true
+  )
+endif
 
 # Build infix2postfix tool
 infix2postfix_sources = [
@@ -142,7 +159,16 @@ infix2postfix_sources = [
   'llvmexpr/frontend/Tokenizer.cpp',  # Need main project's tokenizer for PostfixHelper
 ]
 
-executable('infix2postfix', infix2postfix_sources,
-  dependencies: [llvm_dep],
+infix2postfix_exe = executable('infix2postfix', infix2postfix_sources,
+  dependencies: [llvm_dep, ctre_dep],
   install: false
 )
+
+if host_machine.system() == 'darwin'
+  custom_target('infix2postfix_dsym',
+    input: infix2postfix_exe,
+    output: 'infix2postfix.dSYM',
+    command: ['dsymutil', '@INPUT@'],
+    build_by_default: true
+  )
+endif

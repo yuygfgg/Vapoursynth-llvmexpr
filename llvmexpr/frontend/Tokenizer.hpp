@@ -21,7 +21,9 @@
 #define LLVMEXPR_TOKENIZER_HPP
 
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -205,14 +207,25 @@ enum class ExprMode : std::uint8_t {
 };
 
 // Utility functions
-inline int parse_std_clip_idx(char c) {
+constexpr int parse_std_clip_idx(char c) {
     if (c >= 'x' && c <= 'z') {
         return c - 'x';
     }
     return c - 'a' + 3;
 }
 
-// Public interface
+using TokenParser = std::optional<Token> (*)(std::string_view);
+
+struct TokenDefinition {
+    TokenType type;
+    std::string_view name;
+    BehaviorResolver behavior;
+    TokenParser parser;
+
+    bool available_in_expr = true;
+    bool available_in_single_expr = true;
+};
+
 std::vector<Token> tokenize(const std::string& expr, int num_inputs,
                             ExprMode mode = ExprMode::EXPR);
 TokenBehavior get_token_behavior(const Token& token);

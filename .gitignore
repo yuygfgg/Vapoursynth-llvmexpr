@@ -14,3 +14,8 @@ exprutils.egg-info/*
 !llvmexpr/frontend/infix2postfix/stdlib/*.expr
 .cursor/rules/build-and-test-rule.mdc
 ARCHITECTURE.md
+
+# Meson subprojects
+subprojects/compile-time-regular-expressions-*
+subprojects/packagecache
+subprojects/.wraplock
