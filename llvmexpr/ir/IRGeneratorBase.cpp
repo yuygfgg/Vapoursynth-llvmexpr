@@ -51,8 +51,7 @@ IRGeneratorBase::IRGeneratorBase(
       approx_math(approx_math_in), context(context_ref), module(module_ref),
       builder(builder_ref), math_manager(math_mgr), func(nullptr),
       rwptrs_arg(nullptr), strides_arg(nullptr), props_arg(nullptr),
-      alias_scope_domain(nullptr), min_rel_x(0), max_rel_x(0), uses_x(false),
-      uses_y(false) {
+      alias_scope_domain(nullptr), uses_x(false), uses_y(false) {
 
     for (const auto& token : tokens) {
         if (token.type == TokenType::CONSTANT_X) {
@@ -68,8 +67,6 @@ IRGeneratorBase::IRGeneratorBase(
 }
 
 void IRGeneratorBase::generate() {
-    collect_rel_y_accesses();
-    collect_rel_x_accesses();
     define_function_signature();
     generate_loops();
 }
@@ -91,42 +88,6 @@ void IRGeneratorBase::assumeAligned(llvm::Value* ptrValue, unsigned alignment) {
     args.push_back(builder.getInt64(static_cast<uint64_t>(alignment)));
     llvm::OperandBundleDefT<llvm::Value*> alignBundle("align", args);
     builder.CreateCall(assumeFn, {cond}, {alignBundle});
-}
-
-void IRGeneratorBase::collect_rel_y_accesses() {
-    std::set<RelYAccess> seen;
-    for (const auto& token : tokens) {
-        if (token.type == TokenType::CLIP_REL) {
-            const auto& payload =
-                std::get<TokenPayload_ClipAccess>(token.payload);
-            bool use_mirror =
-                payload.has_mode ? payload.use_mirror : mirror_boundary;
-            RelYAccess access{payload.clip_idx, payload.rel_y, use_mirror};
-            if (!seen.contains(access)) {
-                seen.insert(access);
-                unique_rel_y_accesses.push_back(access);
-            }
-        } else if (token.type == TokenType::CLIP_CUR) {
-            const auto& payload =
-                std::get<TokenPayload_ClipAccess>(token.payload);
-            RelYAccess access{payload.clip_idx, 0, mirror_boundary};
-            if (!seen.contains(access)) {
-                seen.insert(access);
-                unique_rel_y_accesses.push_back(access);
-            }
-        }
-    }
-}
-
-void IRGeneratorBase::collect_rel_x_accesses() {
-    for (const auto& token : tokens) {
-        if (token.type == TokenType::CLIP_REL) {
-            const auto& payload =
-                std::get<TokenPayload_ClipAccess>(token.payload);
-            min_rel_x = std::min(min_rel_x, payload.rel_x);
-            max_rel_x = std::max(max_rel_x, payload.rel_x);
-        }
-    }
 }
 
 llvm::Value* IRGeneratorBase::get_final_coord(llvm::Value* coord,

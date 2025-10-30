@@ -35,8 +35,6 @@
 #include "../frontend/Tokenizer.hpp"
 #include "../utils/Math.hpp"
 
-using analysis::RelYAccess;
-
 class IRGeneratorBase {
   public:
     IRGeneratorBase(
@@ -91,10 +89,7 @@ class IRGeneratorBase {
     std::vector<llvm::MDNode*> alias_scope_lists;
     std::vector<llvm::MDNode*> noalias_scope_lists;
 
-    std::vector<RelYAccess> unique_rel_y_accesses;
-    std::map<RelYAccess, llvm::Value*> row_ptr_cache;
-    int min_rel_x;
-    int max_rel_x;
+    std::map<analysis::RelYAccess, llvm::Value*> row_ptr_cache;
 
     bool uses_x;
     bool uses_y;
@@ -116,9 +111,6 @@ class IRGeneratorBase {
     template <typename MemInstT>
     void setMemoryInstAttrs(MemInstT* inst, unsigned alignment,
                             int rwptr_index);
-
-    void collect_rel_y_accesses();
-    void collect_rel_x_accesses();
 
     llvm::Value* get_final_coord(llvm::Value* coord, llvm::Value* max_dim,
                                  bool use_mirror);

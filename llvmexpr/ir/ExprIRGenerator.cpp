@@ -172,14 +172,18 @@ void ExprIRGenerator::generate_loops() {
 
     // Pre-calculate and cache row pointers
     row_ptr_cache.clear();
-    for (const auto& access : unique_rel_y_accesses) {
-        llvm::Value* clip_height = builder.getInt32(height);
-        llvm::Value* coord_y =
-            builder.CreateAdd(y_val, builder.getInt32(access.rel_y));
-        llvm::Value* final_y =
-            get_final_coord(coord_y, clip_height, access.use_mirror);
+    const auto& clip_access_result =
+        analysis_results.getRelAccessAnalysisResult();
+    for (const auto& access : clip_access_result.unique_rel_y_accesses) {
+        int clip_idx = access.clip_idx;
+        int vs_clip_idx = clip_idx + 1;
+        int rel_y = access.rel_y;
 
-        int vs_clip_idx = access.clip_idx + 1;
+        llvm::Value* coord_y =
+            builder.CreateAdd(y_val, builder.getInt32(rel_y));
+        llvm::Value* final_y = get_final_coord(
+            coord_y, builder.getInt32(height), access.use_mirror);
+
         llvm::Value* base_ptr = preloaded_base_ptrs[vs_clip_idx];
         llvm::Value* stride = preloaded_strides[vs_clip_idx];
 
@@ -190,13 +194,14 @@ void ExprIRGenerator::generate_loops() {
     }
 
     llvm::Value* width_val = builder.getInt32(width);
-    llvm::Value* start_main_x = builder.getInt32(-min_rel_x);
-    llvm::Value* end_main_x = builder.getInt32(width - max_rel_x);
+    llvm::Value* start_main_x = builder.getInt32(-clip_access_result.min_rel_x);
+    llvm::Value* end_main_x =
+        builder.getInt32(width - clip_access_result.max_rel_x);
 
     bool has_left_peel = // NOLINT(cppcoreguidelines-init-variables)
-        min_rel_x < 0;
+        clip_access_result.min_rel_x < 0;
     bool has_right_peel = // NOLINT(cppcoreguidelines-init-variables)
-        max_rel_x > 0;
+        clip_access_result.max_rel_x > 0;
 
     llvm::BasicBlock* loop_x_start_bb =
         llvm::BasicBlock::Create(context, "loop_x_start", parent_func);
@@ -345,9 +350,9 @@ bool ExprIRGenerator::process_mode_specific_token(
         const auto& payload = std::get<TokenPayload_ClipAccess>(token.payload);
         bool use_mirror = // NOLINT(cppcoreguidelines-init-variables)
             payload.has_mode ? payload.use_mirror : mirror_boundary;
-        RelYAccess access{.clip_idx = payload.clip_idx,
-                          .rel_y = payload.rel_y,
-                          .use_mirror = use_mirror};
+        analysis::RelYAccess access{.clip_idx = payload.clip_idx,
+                                    .rel_y = payload.rel_y,
+                                    .use_mirror = use_mirror};
         llvm::Value* row_ptr = row_ptr_cache.at(access);
         rpn_stack.push_back(generate_load_from_row_ptr(
             row_ptr, payload.clip_idx, x, payload.rel_x, use_mirror,
@@ -386,7 +391,9 @@ bool ExprIRGenerator::process_mode_specific_token(
     }
     case TokenType::CLIP_CUR: {
         const auto& payload = std::get<TokenPayload_ClipAccess>(token.payload);
-        RelYAccess access{payload.clip_idx, 0, mirror_boundary};
+        analysis::RelYAccess access{.clip_idx = payload.clip_idx,
+                                    .rel_y = 0,
+                                    .use_mirror = mirror_boundary};
         llvm::Value* row_ptr = row_ptr_cache.at(access);
         rpn_stack.push_back(
             generate_load_from_row_ptr(row_ptr, payload.clip_idx, x, 0,

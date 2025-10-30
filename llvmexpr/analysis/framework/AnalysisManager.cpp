@@ -22,8 +22,10 @@
 namespace analysis {
 
 AnalysisManager::AnalysisManager(const std::vector<Token>& tokens_in,
+                                 bool mirror_boundary_in,
                                  int expected_final_depth_in)
-    : tokens(tokens_in), expected_final_depth(expected_final_depth_in) {}
+    : tokens(tokens_in), mirror_boundary(mirror_boundary_in),
+      expected_final_depth(expected_final_depth_in) {}
 
 void AnalysisManager::invalidate(const PreservedAnalyses& pa) {
     if (pa.preservedAll()) {

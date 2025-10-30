@@ -117,6 +117,7 @@ sources = [
   'llvmexpr/analysis/passes/StaticAllocReachabilityPass.cpp',
   'llvmexpr/analysis/passes/ValidationPass.cpp',
   'llvmexpr/analysis/passes/StackSafetyPass.cpp',
+  'llvmexpr/analysis/passes/RelAccessAnalysisPass.cpp',
   'llvmexpr/ir/ExprIRGenerator.cpp',
   'llvmexpr/ir/SingleExprIRGenerator.cpp',
   'llvmexpr/ir/IRGeneratorBase.cpp',

@@ -31,7 +31,7 @@ namespace analysis {
 class AnalysisManager {
   public:
     AnalysisManager(const std::vector<Token>& tokens_in,
-                    int expected_final_depth_in = 1);
+                    bool mirror_boundary_in, int expected_final_depth_in = 1);
 
     template <typename PassT> typename PassT::Result& getResult() {
         if (!results.template hasResult<PassT>()) {
@@ -54,6 +54,8 @@ class AnalysisManager {
 
     [[nodiscard]] const std::vector<Token>& getTokens() const { return tokens; }
 
+    [[nodiscard]] bool getMirrorBoundary() const { return mirror_boundary; }
+
     [[nodiscard]] int getExpectedFinalDepth() const {
         return expected_final_depth;
     }
@@ -61,6 +63,7 @@ class AnalysisManager {
   private:
     const std::vector<Token>& tokens;
     AnalysisResults results;
+    bool mirror_boundary;
     int expected_final_depth;
 };
 

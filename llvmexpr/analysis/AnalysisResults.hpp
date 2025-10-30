@@ -23,6 +23,7 @@
 #include "framework/AnalysisManager.hpp"
 #include "passes/BlockAnalysisPass.hpp"
 #include "passes/BuildCFGPass.hpp"
+#include "passes/RelAccessAnalysisPass.hpp"
 #include "passes/StackSafetyPass.hpp"
 #include "passes/StaticArrayOptPass.hpp"
 #include <map>
@@ -51,6 +52,11 @@ class ExpressionAnalysisResults {
     [[nodiscard]] const std::map<std::string, int>&
     getStaticArraySizes() const {
         return manager.getResult<StaticArrayOptPass>().static_array_sizes;
+    }
+
+    [[nodiscard]] const RelAccessAnalysisResult&
+    getRelAccessAnalysisResult() const {
+        return manager.getResult<RelAccessAnalysisPass>();
     }
 
     [[nodiscard]] const AnalysisManager& getManager() const { return manager; }

@@ -143,8 +143,6 @@ void parseFormatParam(BaseExprData* d, const VSMap* in, const VSAPI* vsapi,
 void parseCommonParams(BaseExprData* d, const VSMap* in, const VSAPI* vsapi) {
     int err = 0;
 
-    d->mirror_boundary = vsapi->mapGetInt(in, "boundary", 0, &err) != 0;
-
     const char* dump_path = vsapi->mapGetData(in, "dump_ir", 0, &err);
     if ((err == 0) && (dump_path != nullptr)) {
         d->dump_ir_path = dump_path;
@@ -378,6 +376,8 @@ exprCreate(const VSMap* in, VSMap* out, [[maybe_unused]] void* userData,
         validateAndInitClips(d.get(), in, vsapi);
         parseFormatParam(d.get(), in, vsapi, core);
 
+        d->mirror_boundary = vsapi->mapGetInt(in, "boundary", 0, &err) != 0;
+
         const int nexpr = vsapi->mapNumElements(in, "expr");
         if (nexpr == 0) {
             throw std::runtime_error(
@@ -443,8 +443,8 @@ exprCreate(const VSMap* in, VSMap* out, [[maybe_unused]] void* userData,
                 }
             }
 
-            auto analyser =
-                std::make_unique<analysis::AnalysisManager>(d->tokens.at(i));
+            auto analyser = std::make_unique<analysis::AnalysisManager>(
+                d->tokens.at(i), d->mirror_boundary);
             analysis::ExpressionAnalyzer expr_analyzer(*analyser);
             expr_analyzer.analyze();
             d->analysis_managers.at(i) = std::move(analyser);
@@ -600,6 +600,8 @@ singleExprCreate(const VSMap* in, VSMap* out, [[maybe_unused]] void* userData,
         validateAndInitClips(d.get(), in, vsapi);
         parseFormatParam(d.get(), in, vsapi, core);
 
+        d->mirror_boundary = vsapi->mapGetInt(in, "boundary", 0, &err) != 0;
+
         const char* expr_str = vsapi->mapGetData(in, "expr", 0, &err);
         if (err != 0) {
             throw std::runtime_error("An expression must be provided.");
@@ -667,8 +669,8 @@ singleExprCreate(const VSMap* in, VSMap* out, [[maybe_unused]] void* userData,
             }
         }
 
-        auto analyser =
-            std::make_unique<analysis::AnalysisManager>(d->tokens, 0);
+        auto analyser = std::make_unique<analysis::AnalysisManager>(
+            d->tokens, d->mirror_boundary, 0);
         analysis::ExpressionAnalyzer expr_analyzer(*analyser);
         expr_analyzer.analyze();
         d->analysis_manager = std::move(analyser);
