@@ -91,8 +91,6 @@ class IRGeneratorBase {
 
     std::map<analysis::RelYAccess, llvm::Value*> row_ptr_cache;
 
-    bool uses_x;
-    bool uses_y;
     // NOLINTEND(cppcoreguidelines-non-private-member-variables-in-classes)
 
     virtual void define_function_signature() = 0;

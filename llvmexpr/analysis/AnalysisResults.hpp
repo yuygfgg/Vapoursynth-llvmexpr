@@ -23,9 +23,11 @@
 #include "framework/AnalysisManager.hpp"
 #include "passes/BlockAnalysisPass.hpp"
 #include "passes/BuildCFGPass.hpp"
+#include "passes/CoordinateUsagePass.hpp"
 #include "passes/RelAccessAnalysisPass.hpp"
 #include "passes/StackSafetyPass.hpp"
 #include "passes/StaticArrayOptPass.hpp"
+#include "passes/VariableUsagePass.hpp"
 #include <map>
 #include <string>
 #include <vector>
@@ -57,6 +59,15 @@ class ExpressionAnalysisResults {
     [[nodiscard]] const RelAccessAnalysisResult&
     getRelAccessAnalysisResult() const {
         return manager.getResult<RelAccessAnalysisPass>();
+    }
+
+    [[nodiscard]] const CoordinateUsageResult&
+    getCoordinateUsageResult() const {
+        return manager.getResult<CoordinateUsagePass>();
+    }
+
+    [[nodiscard]] const VariableUsageResult& getVariableUsageResult() const {
+        return manager.getResult<VariableUsagePass>();
     }
 
     [[nodiscard]] const AnalysisManager& getManager() const { return manager; }

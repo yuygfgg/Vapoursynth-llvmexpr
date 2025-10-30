@@ -21,8 +21,10 @@
 #include "framework/AnalysisError.hpp"
 #include "llvmexpr/analysis/passes/StackSafetyPass.hpp"
 #include "llvmexpr/analysis/passes/ValidationPass.hpp"
+#include "passes/CoordinateUsagePass.hpp"
 #include "passes/RelAccessAnalysisPass.hpp"
 #include "passes/StaticArrayOptPass.hpp"
+#include "passes/VariableUsagePass.hpp"
 
 namespace analysis {
 
@@ -37,6 +39,8 @@ void ExpressionAnalyzer::analyze() {
     manager.getResult<StackSafetyPass>();
     manager.getResult<StaticArrayOptPass>();
     manager.getResult<RelAccessAnalysisPass>();
+    manager.getResult<CoordinateUsagePass>();
+    manager.getResult<VariableUsagePass>();
 }
 
 } // namespace analysis

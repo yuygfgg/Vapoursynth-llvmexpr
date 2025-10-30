@@ -118,6 +118,8 @@ sources = [
   'llvmexpr/analysis/passes/ValidationPass.cpp',
   'llvmexpr/analysis/passes/StackSafetyPass.cpp',
   'llvmexpr/analysis/passes/RelAccessAnalysisPass.cpp',
+  'llvmexpr/analysis/passes/CoordinateUsagePass.cpp',
+  'llvmexpr/analysis/passes/VariableUsagePass.cpp',
   'llvmexpr/ir/ExprIRGenerator.cpp',
   'llvmexpr/ir/SingleExprIRGenerator.cpp',
   'llvmexpr/ir/IRGeneratorBase.cpp',

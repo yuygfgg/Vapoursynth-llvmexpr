@@ -51,20 +51,7 @@ IRGeneratorBase::IRGeneratorBase(
       approx_math(approx_math_in), context(context_ref), module(module_ref),
       builder(builder_ref), math_manager(math_mgr), func(nullptr),
       rwptrs_arg(nullptr), strides_arg(nullptr), props_arg(nullptr),
-      alias_scope_domain(nullptr), uses_x(false), uses_y(false) {
-
-    for (const auto& token : tokens) {
-        if (token.type == TokenType::CONSTANT_X) {
-            uses_x = true;
-        }
-        if (token.type == TokenType::CONSTANT_Y) {
-            uses_y = true;
-        }
-        if (uses_x && uses_y) {
-            break;
-        }
-    }
-}
+      alias_scope_domain(nullptr) {}
 
 void IRGeneratorBase::generate() {
     define_function_signature();
@@ -723,15 +710,7 @@ void IRGeneratorBase::generate_ir_from_tokens(llvm::Value* x, llvm::Value* y,
     }
 
     std::unordered_map<std::string, llvm::Value*> named_vars;
-    std::set<std::string> all_vars;
-
-    for (const auto& token : tokens) {
-        if (token.type == TokenType::VAR_STORE ||
-            token.type == TokenType::VAR_LOAD) {
-            const auto& payload = std::get<TokenPayload_Var>(token.payload);
-            all_vars.insert(payload.name);
-        }
-    }
+    const auto& all_vars = analysis_results.getVariableUsageResult().all_vars;
 
     for (const std::string& var_name : all_vars) {
         named_vars[var_name] = createAllocaInEntry(float_ty, var_name);

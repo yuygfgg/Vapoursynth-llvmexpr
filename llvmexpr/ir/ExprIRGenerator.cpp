@@ -78,15 +78,11 @@ void ExprIRGenerator::generate_loops() {
     builder.SetInsertPoint(entry_bb);
 
     // Pre-allocate static arrays
-    for (const auto& token : tokens) {
-        if (token.type == TokenType::ARRAY_ALLOC_STATIC) {
-            const auto& payload = std::get<TokenPayload_ArrayOp>(token.payload);
-            llvm::ArrayType* array_ty =
-                llvm::ArrayType::get(builder.getFloatTy(), payload.static_size);
-            llvm::Value* array_ptr =
-                createAllocaInEntry(array_ty, payload.name + "_array");
-            named_arrays[payload.name] = array_ptr;
-        }
+    for (const auto& [name, size] : analysis_results.getStaticArraySizes()) {
+        llvm::ArrayType* array_ty =
+            llvm::ArrayType::get(builder.getFloatTy(), size);
+        llvm::Value* array_ptr = createAllocaInEntry(array_ty, name + "_array");
+        named_arrays[name] = array_ptr;
     }
 
     llvm::Function* parent_func = builder.GetInsertBlock()->getParent();
@@ -103,12 +99,14 @@ void ExprIRGenerator::generate_loops() {
         builder.CreateAlloca(builder.getInt32Ty(), nullptr, "x.var");
     builder.CreateStore(builder.getInt32(0), y_var);
 
+    const auto& coord_usage = analysis_results.getCoordinateUsageResult();
+
     llvm::Value* x_fp_var = nullptr;
-    if (uses_x) {
+    if (coord_usage.uses_x) {
         x_fp_var = createAllocaInEntry(builder.getFloatTy(), "x_fp.var");
     }
     llvm::Value* y_fp_var = nullptr;
-    if (uses_y) {
+    if (coord_usage.uses_y) {
         y_fp_var = createAllocaInEntry(builder.getFloatTy(), "y_fp.var");
         builder.CreateStore(llvm::ConstantFP::get(builder.getFloatTy(), 0.0),
                             y_fp_var);
@@ -212,7 +210,7 @@ void ExprIRGenerator::generate_loops() {
     builder.SetInsertPoint(loop_x_start_bb);
 
     builder.CreateStore(builder.getInt32(0), x_var);
-    if (uses_x) {
+    if (coord_usage.uses_x) {
         builder.CreateStore(llvm::ConstantFP::get(builder.getFloatTy(), 0.0),
                             x_fp_var);
     }
@@ -289,7 +287,7 @@ void ExprIRGenerator::generate_loops() {
     builder.SetInsertPoint(loop_x_exit_bb);
     llvm::Value* y_next = builder.CreateAdd(y_val, builder.getInt32(1));
     builder.CreateStore(y_next, y_var);
-    if (uses_y) {
+    if (coord_usage.uses_y) {
         llvm::Value* y_fp_val =
             builder.CreateLoad(builder.getFloatTy(), y_fp_var);
         llvm::Value* y_fp_next = builder.CreateFAdd(
@@ -307,16 +305,17 @@ void ExprIRGenerator::generate_x_loop_body(llvm::Value* x_var,
                                            llvm::Value* y_var,
                                            llvm::Value* y_fp_var,
                                            bool no_x_bounds_check) {
+    const auto& coord_usage = analysis_results.getCoordinateUsageResult();
     llvm::Value* x_val = builder.CreateLoad(builder.getInt32Ty(), x_var, "x");
     llvm::Value* y_val =
         builder.CreateLoad(builder.getInt32Ty(), y_var, "y_in_x_loop");
 
     llvm::Value* x_fp = nullptr;
-    if (uses_x) {
+    if (coord_usage.uses_x) {
         x_fp = builder.CreateLoad(builder.getFloatTy(), x_fp_var, "x_fp");
     }
     llvm::Value* y_fp = nullptr;
-    if (uses_y) {
+    if (coord_usage.uses_y) {
         y_fp = builder.CreateLoad(builder.getFloatTy(), y_fp_var, "y_fp");
     }
 
@@ -324,7 +323,7 @@ void ExprIRGenerator::generate_x_loop_body(llvm::Value* x_var,
 
     llvm::Value* x_next = builder.CreateAdd(x_val, builder.getInt32(1));
     builder.CreateStore(x_next, x_var);
-    if (uses_x) {
+    if (coord_usage.uses_x) {
         llvm::Value* x_fp_next = builder.CreateFAdd(
             x_fp, llvm::ConstantFP::get(builder.getFloatTy(), 1.0));
         builder.CreateStore(x_fp_next, x_fp_var);
