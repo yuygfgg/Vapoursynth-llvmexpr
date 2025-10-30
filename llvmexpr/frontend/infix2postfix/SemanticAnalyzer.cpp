@@ -189,7 +189,7 @@ bool SemanticAnalyzer::analyze(Program* program) {
     // Check for unused global variables and functions
     for (const auto& [name, symbol] : global_scope->get_symbols()) {
         if (!symbol->is_used) {
-            if (symbol->name == "RESULT") {
+            if (symbol->name == "RESULT" || symbol->name == "_") {
                 continue;
             }
 
@@ -267,6 +267,11 @@ std::shared_ptr<Symbol> SemanticAnalyzer::defineSymbol(SymbolKind kind,
 
 std::shared_ptr<Symbol> SemanticAnalyzer::resolveSymbol(const std::string& name,
                                                         const Range& range) {
+    if (name == "_") {
+        reportError("The special variable '_' cannot be used in an expression. "
+                    "It is only for discarding values.",
+                    range);
+    }
     auto symbol = current_scope->resolve(name);
     if (!symbol) {
         reportError(
@@ -300,6 +305,12 @@ Type SemanticAnalyzer::analyze([[maybe_unused]] const NumberExpr& expr) {
 
 Type SemanticAnalyzer::analyze(VariableExpr& expr) {
     std::string name = expr.name.value;
+
+    if (name == "_") {
+        reportError("The special variable '_' cannot be used in an expression. "
+                    "It is only for discarding values.",
+                    expr.range);
+    }
 
     if (name.starts_with("$")) {
         std::string base_name = name.substr(1);
@@ -1045,6 +1056,9 @@ void SemanticAnalyzer::analyze(FunctionDef& stmt) {
         // Check for unused local variables and parameters
         for (const auto& [name, symbol] : current_scope->get_symbols()) {
             if (!symbol->is_used) {
+                if (symbol->name == "_") {
+                    continue;
+                }
                 // Skip warnings for symbols in standard library functions
                 if (symbol->definition_range.start.line <= library_line_count) {
                     continue;

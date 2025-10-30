@@ -469,6 +469,20 @@ In `SingleExpr` mode, assigning to `RESULT` has no effect. Output in this mode i
 - **Declaration:** Variables are declared implicitly upon their first assignment.
 - **Usage:** A variable must be guaranteed to be assigned a value before it is used in an expression. The transpiler performs a static analysis to ensure a variable is defined on all possible execution paths before any use. Referencing a variable that is not guaranteed to be initialized will result in a syntax error.
 
+The identifier `_` is treated as a special "write-only" variable for discarding values. You can assign any value to it, but you cannot read from it. This is useful for explicitly ignoring a value you don't need.
+
+- **No Unused Warnings:** Assigning a value to `_` will not trigger an "unused variable" warning.
+- **Usage Error:** Attempting to use `_` in an expression (i.e., read its value) will result in a compile-time error.
+
+**Example:**
+```
+# Correct: assigning a value to _ is allowed
+_ = 10 * 2
+
+# Error: attempting to read the value of _
+# result = _ + 10 
+```
+
 ### 5.2. Constants
 
 Constants represent fixed values and are **always** identified by a `$` prefix. They are treated as literal values and do not require prior assignment.
