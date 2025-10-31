@@ -69,7 +69,7 @@ std::unique_ptr<Stmt> Parser::parseDeclaration() {
         auto funcDef = parseFunctionDef();
         // Attach the global declaration to the function
         funcDef->global_decl = std::move(globalDecl);
-        stmt = make_node<Stmt, FunctionDef>(std::move(*funcDef));
+        stmt = make_node<FunctionDef>(std::move(*funcDef));
     } else if (peek().type == TokenType::Function) {
         auto funcDef = parseFunctionDef();
         stmt = std::make_unique<Stmt>(FunctionDef(std::move(*funcDef)));
@@ -152,8 +152,8 @@ std::unique_ptr<Stmt> Parser::parseIfStatement() {
             elseBranch = std::make_unique<Stmt>(std::move(*parseBlock()));
         }
     }
-    return make_node<Stmt, IfStmt>(std::move(condition), std::move(thenBranch),
-                                   std::move(elseBranch));
+    return make_node<IfStmt>(std::move(condition), std::move(thenBranch),
+                             std::move(elseBranch));
 }
 
 std::unique_ptr<Stmt> Parser::parseWhileStatement() {
@@ -168,7 +168,7 @@ std::unique_ptr<Stmt> Parser::parseWhileStatement() {
     }
     auto body = std::make_unique<Stmt>(std::move(*parseBlock()));
 
-    return make_node<Stmt, WhileStmt>(std::move(condition), std::move(body));
+    return make_node<WhileStmt>(std::move(condition), std::move(body));
 }
 
 std::unique_ptr<Stmt> Parser::parseGotoStatement() {
@@ -178,7 +178,7 @@ std::unique_ptr<Stmt> Parser::parseGotoStatement() {
     if (label.value.starts_with("__internal_")) {
         error(label, "goto target cannot start with '__internal_'.");
     }
-    return make_node<Stmt, GotoStmt>(keyword, label, nullptr);
+    return make_node<GotoStmt>(keyword, label, nullptr);
 }
 
 std::unique_ptr<Stmt> Parser::parseLabelStatement() {
@@ -187,7 +187,7 @@ std::unique_ptr<Stmt> Parser::parseLabelStatement() {
         error(name, "Label name cannot start with '__internal_'.");
     }
     consume(TokenType::Colon, "Expect ':' after label name.");
-    return make_node<Stmt, LabelStmt>(name);
+    return make_node<LabelStmt>(name);
 }
 
 std::unique_ptr<Stmt> Parser::parseReturnStatement() {
@@ -200,7 +200,7 @@ std::unique_ptr<Stmt> Parser::parseReturnStatement() {
         peek().type != TokenType::RBrace) {
         value = parseTernary();
     }
-    return make_node<Stmt, ReturnStmt>(keyword, std::move(value));
+    return make_node<ReturnStmt>(keyword, std::move(value));
 }
 
 std::unique_ptr<BlockStmt> Parser::parseBlock() {
@@ -243,7 +243,7 @@ std::unique_ptr<Stmt> Parser::parseExprStatement() {
         }
         advance(); // '='
         auto value = parseTernary();
-        return make_node<Stmt, AssignStmt>(name, std::move(value));
+        return make_node<AssignStmt>(name, std::move(value));
     }
 
     if (peek().type == TokenType::Identifier &&
@@ -254,17 +254,17 @@ std::unique_ptr<Stmt> Parser::parseExprStatement() {
             auto right_expr = parseTernary();
 
             if (get_if<ArrayAccessExpr>(left_expr.get()) != nullptr) {
-                return make_node<Stmt, ArrayAssignStmt>(std::move(left_expr),
-                                                        std::move(right_expr));
+                return make_node<ArrayAssignStmt>(std::move(left_expr),
+                                                  std::move(right_expr));
             }
             error(peek(), "Invalid assignment target.");
         }
 
-        return make_node<Stmt, ExprStmt>(std::move(left_expr));
+        return make_node<ExprStmt>(std::move(left_expr));
     }
 
     auto expr = parseTernary();
-    return make_node<Stmt, ExprStmt>(std::move(expr));
+    return make_node<ExprStmt>(std::move(expr));
 }
 
 std::unique_ptr<FunctionDef> Parser::parseFunctionDef() {
@@ -421,8 +421,8 @@ std::unique_ptr<Expr> Parser::parseTernary() {
         auto thenBranch = parseTernary();
         consume(TokenType::Colon, "Expect ':' for ternary operator.");
         auto elseBranch = parseTernary();
-        expr = make_node<Expr, TernaryExpr>(
-            std::move(expr), std::move(thenBranch), std::move(elseBranch));
+        expr = make_node<TernaryExpr>(std::move(expr), std::move(thenBranch),
+                                      std::move(elseBranch));
     }
     return expr;
 }
@@ -434,8 +434,7 @@ std::unique_ptr<Expr> Parser::parseBinary(NextLevel next_level,
     while (match({token_types...})) {
         Token op = previous();
         auto right = (this->*next_level)();
-        expr =
-            make_node<Expr, BinaryExpr>(std::move(expr), op, std::move(right));
+        expr = make_node<BinaryExpr>(std::move(expr), op, std::move(right));
     }
     return expr;
 }
@@ -484,8 +483,7 @@ std::unique_ptr<Expr> Parser::parseExponent() {
     if (match({TokenType::StarStar})) {
         Token op = previous();
         auto right = parseExponent();
-        expr =
-            make_node<Expr, BinaryExpr>(std::move(expr), op, std::move(right));
+        expr = make_node<BinaryExpr>(std::move(expr), op, std::move(right));
     }
     return expr;
 }
@@ -497,10 +495,10 @@ std::unique_ptr<Expr> Parser::parseUnary() {
             Token number = advance();
             number.value = std::format("-{}", number.value);
             number.range.start = op.range.start;
-            return make_node<Expr, NumberExpr>(number);
+            return make_node<NumberExpr>(number);
         }
         auto right = parseUnary();
-        return make_node<Expr, UnaryExpr>(op, std::move(right));
+        return make_node<UnaryExpr>(op, std::move(right));
     }
     return parsePostfix();
 }
@@ -547,7 +545,7 @@ std::unique_ptr<Expr> Parser::parsePostfix() {
                     Token* y_tok = get_constant_token(index2.get());
 
                     if ((x_tok != nullptr) && (y_tok != nullptr)) {
-                        return make_node<Expr, StaticRelPixelAccessExpr>(
+                        return make_node<StaticRelPixelAccessExpr>(
                             var->name, *x_tok, *y_tok, suffix);
                     }
                 }
@@ -555,8 +553,8 @@ std::unique_ptr<Expr> Parser::parsePostfix() {
             } else {
                 // Array access: array[index]
                 consume(TokenType::RBracket, "Expect ']' after array index.");
-                expr = make_node<Expr, ArrayAccessExpr>(std::move(expr),
-                                                        std::move(index1));
+                expr = make_node<ArrayAccessExpr>(std::move(expr),
+                                                  std::move(index1));
             }
         } else if (match({TokenType::Dot})) {
             Token prop = consume(TokenType::Identifier,
@@ -569,11 +567,11 @@ std::unique_ptr<Expr> Parser::parsePostfix() {
                         auto plane_index_expr = parseTernary();
                         consume(TokenType::RBracket,
                                 "Expect ']' after plane index");
-                        return make_node<Expr, FrameDimensionExpr>(
+                        return make_node<FrameDimensionExpr>(
                             prop, std::move(plane_index_expr));
                     }
                 }
-                return make_node<Expr, PropAccessExpr>(var->name, prop);
+                return make_node<PropAccessExpr>(var->name, prop);
             }
             error(prop, "Invalid property access target.");
         } else {
@@ -592,21 +590,21 @@ std::unique_ptr<Expr> Parser::finishCall(std::unique_ptr<Expr> callee) {
             } while (match({TokenType::Comma}));
         }
         consume(TokenType::RParen, "Expect ')' after arguments.");
-        return make_node<Expr, CallExpr>(var->name, std::move(args));
+        return make_node<CallExpr>(var->name, std::move(args));
     }
     error(peek(), "Invalid call target.");
     Token placeholder{
         .type = TokenType::Identifier, .value = "error", .range = peek().range};
-    return make_node<Expr, CallExpr>(placeholder,
-                                     std::vector<std::unique_ptr<Expr>>{});
+    return make_node<CallExpr>(placeholder,
+                               std::vector<std::unique_ptr<Expr>>{});
 }
 
 std::unique_ptr<Expr> Parser::parsePrimary() {
     if (match({TokenType::Number})) {
-        return make_node<Expr, NumberExpr>(previous());
+        return make_node<NumberExpr>(previous());
     }
     if (match({TokenType::Identifier})) {
-        return make_node<Expr, VariableExpr>(previous());
+        return make_node<VariableExpr>(previous());
     }
     if (match({TokenType::LParen})) {
         auto expr = parseTernary();
@@ -616,7 +614,7 @@ std::unique_ptr<Expr> Parser::parsePrimary() {
     error(peek(), "Expect expression.");
     Token placeholder{
         .type = TokenType::Number, .value = "0", .range = peek().range};
-    return make_node<Expr, NumberExpr>(placeholder);
+    return make_node<NumberExpr>(placeholder);
 }
 
 bool Parser::match(const std::vector<TokenType>& types) {

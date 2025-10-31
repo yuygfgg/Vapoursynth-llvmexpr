@@ -24,6 +24,7 @@
 #include "types.hpp"
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <variant>
 #include <vector>
 
@@ -414,12 +415,27 @@ struct Program {
     std::vector<std::unique_ptr<Stmt>> statements;
 };
 
-template <typename Wrapper, typename T, typename... Args>
-auto make_node(Args&&... args) {
-    static_assert(std::is_same_v<Wrapper, Expr> ||
-                      std::is_same_v<Wrapper, Stmt>,
-                  "Wrapper must be Expr or Stmt");
-    return std::make_unique<Wrapper>(T(std::forward<Args>(args)...));
+template <class, class> struct is_variant_member;
+
+template <class T, class... Types>
+struct is_variant_member<T, std::variant<Types...>>
+    : std::disjunction<std::is_same<T, Types>...> {};
+
+template <class T, class V>
+inline constexpr bool is_variant_member_v = is_variant_member<T, V>::value;
+
+template <typename T> struct node_wrapper {
+    static_assert(is_variant_member_v<T, Expr::ExprVariant> ||
+                      is_variant_member_v<T, Stmt::StmtVariant>,
+                  "T must be a member of either ExprVariant or StmtVariant");
+    using type = std::conditional_t<is_variant_member_v<T, Expr::ExprVariant>,
+                                    Expr, Stmt>;
+};
+
+template <typename T> using node_wrapper_t = typename node_wrapper<T>::type;
+
+template <typename T, typename... Args> auto make_node(Args&&... args) {
+    return std::make_unique<node_wrapper_t<T>>(T(std::forward<Args>(args)...));
 }
 
 template <typename T, typename Wrapper>
