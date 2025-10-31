@@ -484,12 +484,19 @@ PostfixBuilder CodeGenerator::handle([[maybe_unused]] const GlobalDecl& stmt) {
 
 void CodeGenerator::check_stack_effect(const std::string& s, int expected,
                                        const Range& range) {
+#ifdef NDEBUG
+    (void)s;
+    (void)expected;
+    (void)range;
+    return;
+#else
     int effect = compute_stack_effect(s, range);
     if (effect != expected) {
         throw CodeGenError(std::format("Unbalanced stack. Expected {}, got {}",
                                        expected, effect),
                            range);
     }
+#endif
 }
 
 int CodeGenerator::compute_stack_effect(const std::string& s,
@@ -616,6 +623,7 @@ PostfixBuilder CodeGenerator::inline_function_call(
     inlined_builder.append(param_assignments);
     inlined_builder.append(body_builder);
 
+#ifndef NDEBUG
     int expected_effect = sig.returns_value ? 1 : 0;
     try {
         int actual_effect =
@@ -632,6 +640,7 @@ PostfixBuilder CodeGenerator::inline_function_call(
             std::format("In function '{}': {}", func_name, e.what()),
             sig.range);
     }
+#endif
 
     return inlined_builder;
 }
