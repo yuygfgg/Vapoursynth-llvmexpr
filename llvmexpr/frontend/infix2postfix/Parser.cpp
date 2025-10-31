@@ -129,7 +129,7 @@ std::unique_ptr<Stmt> Parser::parseStatement() {
 }
 
 std::unique_ptr<Stmt> Parser::parseIfStatement() {
-    Token keyword = consume(TokenType::If, "Expect 'if'.");
+    consume(TokenType::If, "Expect 'if'.");
     consume(TokenType::LParen, "Expect '(' after 'if'.");
     auto condition = parseTernary();
     consume(TokenType::RParen, "Expect ')' after if condition.");

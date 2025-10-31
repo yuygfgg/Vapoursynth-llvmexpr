@@ -483,12 +483,9 @@ void ExprIRGenerator::finalize_and_store_result(llvm::Value* result_val,
                                                 llvm::Value* x,
                                                 llvm::Value* y) {
     bool has_exit = false;
-    for (const auto& token : tokens) {
-        if (token.type == TokenType::EXIT_NO_WRITE) {
-            has_exit = true;
-            break;
-        }
-    }
+    has_exit = std::ranges::any_of(tokens, [](const auto& token) {
+        return token.type == TokenType::EXIT_NO_WRITE;
+    });
 
     if (has_exit) {
         llvm::Function* parent_func = builder.GetInsertBlock()->getParent();

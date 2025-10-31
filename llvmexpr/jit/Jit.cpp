@@ -121,8 +121,8 @@ void OrcJit::addModule(std::unique_ptr<llvm::Module> M,
         if (!F.isDeclaration()) {
             std::string func_name = F.getName().str();
 
-            if (func_name.find("process_plane_") != 0) {
-                if (func_name.find("fast_") == 0 ||
+            if (!func_name.starts_with("process_plane_")) {
+                if (func_name.starts_with("fast_") ||
                     func_name.find("_v4") != std::string::npos ||
                     func_name.find("_v8") != std::string::npos ||
                     func_name.find("_v16") != std::string::npos) {

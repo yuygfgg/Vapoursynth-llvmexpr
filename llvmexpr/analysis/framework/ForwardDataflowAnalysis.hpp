@@ -22,6 +22,8 @@
 
 #include "../../frontend/Tokenizer.hpp"
 #include "DataStructures.hpp"
+#include <algorithm>
+#include <iterator>
 #include <vector>
 
 namespace analysis {
@@ -77,9 +79,12 @@ template <typename DomainT> class ForwardDataflowAnalysis {
                 } else {
                     std::vector<DomainT> pred_outs;
                     pred_outs.reserve(cfg_blocks[i].predecessors.size());
-                    for (int pred_idx : cfg_blocks[i].predecessors) {
-                        pred_outs.push_back(out_sets[pred_idx]);
-                    }
+                    std::transform(cfg_blocks[i].predecessors.begin(),
+                                   cfg_blocks[i].predecessors.end(),
+                                   std::back_inserter(pred_outs),
+                                   [&out_sets](int pred_idx) {
+                                       return out_sets[pred_idx];
+                                   });
                     new_in = meetOperation(pred_outs);
                 }
 

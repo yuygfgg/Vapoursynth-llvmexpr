@@ -2112,11 +2112,12 @@ struct SortingNetworkView {
 };
 
 constexpr SortingNetworkView get_optimal_sorting_network(int n) {
-    for (const auto& meta : optimal_sorting_networks_meta) {
-        if (meta.n_inputs == n) {
-            return {.data = &all_sorting_network_comparators.at(meta.offset),
-                    .count = meta.count};
-        }
+    const auto* it = std::ranges::find_if(
+        optimal_sorting_networks_meta,
+        [n](const auto& meta) { return meta.n_inputs == n; });
+    if (it != optimal_sorting_networks_meta.end()) {
+        return {.data = &all_sorting_network_comparators.at(it->offset),
+                .count = it->count};
     }
     return {};
 }
@@ -2151,9 +2152,7 @@ constexpr std::vector<std::pair<int, int>> get_sorting_network(int n) {
     auto optimal = get_optimal_sorting_network(n);
     if (!optimal.empty()) {
         out.reserve(optimal.count);
-        for (const auto& comp : optimal) {
-            out.push_back(comp);
-        }
+        std::ranges::copy(optimal, std::back_inserter(out));
         return out;
     }
 
@@ -2166,7 +2165,7 @@ constexpr std::vector<std::pair<int, int>> get_sorting_network(int n) {
 
     auto it = std::ranges::remove_if(
         out, [n](const auto& pair) { return pair.second >= n; });
-    out.erase(it.begin(), out.end());
+    out.erase(it.begin(), it.end());
 
     return out;
 }

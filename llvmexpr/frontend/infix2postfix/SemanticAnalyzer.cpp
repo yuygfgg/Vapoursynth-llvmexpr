@@ -35,7 +35,7 @@ SemanticAnalyzer::SemanticAnalyzer(Mode mode, int num_inputs,
       global_scope(std::make_unique<SymbolTable>()),
       current_scope(global_scope.get()) {}
 
-bool SemanticAnalyzer::analyze(Program* program) {
+bool SemanticAnalyzer::analyze(const Program* program) {
     if (program == nullptr) {
         reportError("Program AST is null", Range{});
         return false;
@@ -886,7 +886,7 @@ void SemanticAnalyzer::analyze(ArrayAssignStmt& stmt) {
     }
 }
 
-void SemanticAnalyzer::analyze(BlockStmt& stmt) {
+void SemanticAnalyzer::analyze(const BlockStmt& stmt) {
     ScopeGuard scope_guard(this);
 
     for (const auto& s : stmt.statements) {
@@ -1016,12 +1016,10 @@ void SemanticAnalyzer::analyze(FunctionDef& stmt) {
 
     if (sig->has_return && sig->returns_value) {
         bool body_always_returns = false;
-        for (const auto& s : stmt.body->statements) {
-            if (path_always_returns(s.get())) {
-                body_always_returns = true;
-                break;
-            }
-        }
+        body_always_returns =
+            std::ranges::any_of(stmt.body->statements, [this](const auto& s) {
+                return path_always_returns(s.get());
+            });
         if (!body_always_returns) {
             reportError(
                 std::format(
@@ -1045,9 +1043,8 @@ void SemanticAnalyzer::analyze(FunctionDef& stmt) {
 
         // Add parameters
         for (const auto& param : stmt.params) {
-            auto param_symbol =
-                defineSymbol(SymbolKind::PARAMETER, param.name.value,
-                             param.type, stmt.range);
+            defineSymbol(SymbolKind::PARAMETER, param.name.value, param.type,
+                         stmt.range);
         }
 
         // Analyze function body
@@ -1185,11 +1182,13 @@ void SemanticAnalyzer::validateFunctionCall(const CallExpr& expr) {
 
     const FunctionSignature* sig = expr.resolved_signature;
     if (sig == nullptr) {
-        for (const auto& s : function_signatures.at(expr.callee)) {
-            if (s.params.size() == expr.args.size()) {
-                sig = &s;
-                break;
-            }
+        auto it =
+            std::ranges::find_if(function_signatures.at(expr.callee),
+                                 [&](const FunctionSignature& s) {
+                                     return s.params.size() == expr.args.size();
+                                 });
+        if (it != function_signatures.at(expr.callee).end()) {
+            sig = &*it;
         }
     }
 

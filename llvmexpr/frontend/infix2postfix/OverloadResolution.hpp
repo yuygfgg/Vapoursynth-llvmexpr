@@ -21,6 +21,7 @@
 #define LLVMEXPR_INFIX2POSTFIX_OVERLOADRESOLUTION_HPP
 
 #include "types.hpp"
+#include <algorithm>
 #include <optional>
 #include <vector>
 
@@ -70,12 +71,10 @@ bool isAmbiguous(const std::vector<OverloadCandidate<T>>& candidates,
     }
 
     int count = 0;
-    for (const auto& cand : candidates) {
-        if (cand.conversion_count == best->conversion_count &&
-            cand.first_conversion_index == best->first_conversion_index) {
-            count++;
-        }
-    }
+    count = std::ranges::count_if(candidates, [best](const auto& cand) {
+        return cand.conversion_count == best->conversion_count &&
+               cand.first_conversion_index == best->first_conversion_index;
+    });
     return count > 1;
 }
 

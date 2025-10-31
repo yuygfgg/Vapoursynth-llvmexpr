@@ -51,7 +51,7 @@ class SemanticAnalyzer {
         SemanticAnalyzer* analyzer;
     };
 
-    bool analyze(Program* program);
+    bool analyze(const Program* program);
 
     [[nodiscard]] const std::vector<Diagnostic>& getDiagnostics() const {
         return diagnostics;
@@ -87,7 +87,7 @@ class SemanticAnalyzer {
     void analyzeStmt(Stmt* stmt);
     void analyze(const ExprStmt& stmt);
     void analyze(AssignStmt& stmt);
-    void analyze(BlockStmt& stmt);
+    void analyze(const BlockStmt& stmt);
     void analyze(IfStmt& stmt);
     void analyze(WhileStmt& stmt);
     void analyze(const ReturnStmt& stmt);

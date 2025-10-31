@@ -113,11 +113,14 @@ Token Tokenizer::nextToken() {
 
     if (operator_map.contains(c)) {
         const auto& possible_tokens = operator_map.at(c);
-        for (const auto& mapping : possible_tokens) {
-            if (source.substr(current, mapping.str.length()) == mapping.str) {
-                current += mapping.str.length();
-                return makeToken(mapping.type);
-            }
+        auto it =
+            std::ranges::find_if(possible_tokens, [&](const auto& mapping) {
+                return source.substr(current, mapping.str.length()) ==
+                       mapping.str;
+            });
+        if (it != possible_tokens.end()) {
+            current += it->str.length();
+            return makeToken(it->type);
         }
     }
 

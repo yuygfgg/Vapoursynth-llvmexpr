@@ -43,10 +43,11 @@ bool AnalysisEngine::runAnalysis() {
     auto parse_result = parser.parse();
     ast = std::move(parse_result.ast);
 
-    for (const auto& error : parse_result.errors) {
-        diagnostics.emplace_back(DiagnosticSeverity::ERROR, error.message,
-                                 error.range);
-    }
+    std::ranges::transform(parse_result.errors, std::back_inserter(diagnostics),
+                           [](const auto& error) {
+                               return Diagnostic(DiagnosticSeverity::ERROR,
+                                                 error.message, error.range);
+                           });
 
     if (!ast || hasErrors()) {
         return false;
@@ -107,11 +108,11 @@ std::string AnalysisEngine::formatDiagnostics() const {
         std::string severity_name = std::string(enum_name(diag.severity));
 
         const LineMapping* mapping = nullptr;
-        for (const auto& m : line_map) {
-            if (m.preprocessed_line == diag.range.start.line) {
-                mapping = &m;
-                break;
-            }
+        auto it = std::ranges::find_if(line_map, [&](const auto& m) {
+            return m.preprocessed_line == diag.range.start.line;
+        });
+        if (it != line_map.end()) {
+            mapping = &(*it);
         }
 
         Range range = diag.range;

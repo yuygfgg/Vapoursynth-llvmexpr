@@ -200,9 +200,8 @@ template <int VectorWidth> class MathFunctionGenerator {
         builder.SetInsertPoint(entry_bb);
 
         std::vector<llvm::Value*> args;
-        for (auto& arg : func->args()) {
-            args.push_back(&arg);
-        }
+        std::ranges::transform(func->args(), std::back_inserter(args),
+                               [](auto& arg) { return &arg; });
         if (arity > 0) {
             args[0]->setName("x");
             if (arity > 1) {
@@ -249,8 +248,7 @@ template <int VectorWidth> struct MathFunctionImpl<VectorWidth, MathOp::Exp> {
                 auto* exp_p5 = gen->getConstant(5.0000001201E-1F);
                 auto* half = gen->getConstant(0.5F);
                 auto* one = gen->getConstant(1.0F);
-                auto* neg_exp_c1 =
-                    gen->getConstant(-0.693359375F);
+                auto* neg_exp_c1 = gen->getConstant(-0.693359375F);
                 auto* neg_exp_c2 = gen->getConstant(2.12194440e-4F);
                 auto* const_0x7f = gen->getInt32Constant(0x7F);
                 auto* const_23 = gen->getInt32Constant(23);
@@ -793,7 +791,7 @@ class MathLibraryManager {
                                 std::integer_sequence<int, vlen...>) {
             (
                 [&] {
-                    llvm::Function* vecFunc = dispatch<op, vlen>();
+                    const llvm::Function* vecFunc = dispatch<op, vlen>();
 
                     if (vecFunc) {
 #if defined(__x86_64__) || defined(__ARM_NEON__)

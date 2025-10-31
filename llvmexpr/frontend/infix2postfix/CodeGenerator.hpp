@@ -51,7 +51,7 @@ class CodeGenerator {
 
     CodeGenerator(Mode mode, int num_inputs);
 
-    std::string generate(Program* program);
+    std::string generate(const Program* program);
 
     [[nodiscard]] Mode get_mode() const { return mode; }
     ExprResult generate_expr(Expr* expr);

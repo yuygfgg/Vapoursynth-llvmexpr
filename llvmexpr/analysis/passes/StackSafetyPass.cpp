@@ -53,7 +53,7 @@ StackSafetyPass::Result StackSafetyPass::run(const std::vector<Token>& tokens,
                 "worklist_size = {}, next_block_candidate = {}",
                 processed_count, cfg_blocks.size(),
                 cfg_blocks.size() * cfg_blocks.size(), worklist.size(),
-                worklist.empty() ? -1 : worklist.back()));
+                worklist.back()));
         }
 
         int block_idx = worklist.back();

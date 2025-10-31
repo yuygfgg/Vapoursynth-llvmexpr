@@ -21,6 +21,7 @@
 #define LLVMEXPR_INFIX2POSTFIX_TYPES_HPP
 
 #include "llvmexpr/frontend/Tokenizer.hpp"
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <format>
@@ -162,10 +163,11 @@ constexpr std::array token_mappings = {
 };
 
 inline std::string token_type_to_string(TokenType type) {
-    for (const auto& mapping : token_mappings) {
-        if (mapping.type == type) {
-            return std::string(mapping.str);
-        }
+    if (const auto* it = std::ranges::find_if(
+            token_mappings,
+            [type](const auto& mapping) { return mapping.type == type; });
+        it != token_mappings.end()) {
+        return std::string(it->str);
     }
     // Handle special cases not in the table
     switch (type) {

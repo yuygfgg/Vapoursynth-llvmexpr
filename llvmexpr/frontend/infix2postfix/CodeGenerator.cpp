@@ -31,7 +31,7 @@ namespace infix2postfix {
 CodeGenerator::CodeGenerator(Mode mode, int num_inputs)
     : mode(mode), num_inputs(num_inputs) {}
 
-std::string CodeGenerator::generate(Program* program) {
+std::string CodeGenerator::generate(const Program* program) {
     PostfixBuilder builder;
     for (const auto& stmt : program->statements) {
         generate(stmt.get(), builder);
