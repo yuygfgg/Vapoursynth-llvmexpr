@@ -54,45 +54,46 @@ class CodeGenerator {
     std::string generate(Program* program);
 
     [[nodiscard]] Mode get_mode() const { return mode; }
-    ExprResult generate_expr(Expr* expr) { return generate(expr); }
+    ExprResult generate_expr(Expr* expr);
 
   private:
-    ExprResult generate(Expr* expr);
-    PostfixBuilder generate(Stmt* stmt);
+    Type generate(Expr* expr, PostfixBuilder& builder);
+    void generate(Stmt* stmt, PostfixBuilder& builder);
+    std::string generate_expr_to_string(Expr* expr);
 
     // Expression handlers
-    ExprResult handle(const NumberExpr& expr);
-    ExprResult handle(const VariableExpr& expr);
-    ExprResult handle(const UnaryExpr& expr);
-    ExprResult handle(const BinaryExpr& expr);
-    ExprResult handle(const TernaryExpr& expr);
-    ExprResult handle(const CallExpr& expr);
-    ExprResult handle(const PropAccessExpr& expr);
-    ExprResult handle(const StaticRelPixelAccessExpr& expr);
-    ExprResult handle(const FrameDimensionExpr& expr);
-    ExprResult handle(const ArrayAccessExpr& expr);
+    Type handle(const NumberExpr& expr, PostfixBuilder& builder);
+    Type handle(const VariableExpr& expr, PostfixBuilder& builder);
+    Type handle(const UnaryExpr& expr, PostfixBuilder& builder);
+    Type handle(const BinaryExpr& expr, PostfixBuilder& builder);
+    Type handle(const TernaryExpr& expr, PostfixBuilder& builder);
+    Type handle(const CallExpr& expr, PostfixBuilder& builder);
+    Type handle(const PropAccessExpr& expr, PostfixBuilder& builder);
+    Type handle(const StaticRelPixelAccessExpr& expr, PostfixBuilder& builder);
+    Type handle(const FrameDimensionExpr& expr, PostfixBuilder& builder);
+    Type handle(const ArrayAccessExpr& expr, PostfixBuilder& builder);
 
     // Statement handlers
-    PostfixBuilder handle(const ExprStmt& stmt);
-    PostfixBuilder handle(const AssignStmt& stmt);
-    PostfixBuilder handle(const BlockStmt& stmt);
-    PostfixBuilder handle(const IfStmt& stmt);
-    PostfixBuilder handle(const WhileStmt& stmt);
-    PostfixBuilder handle(const ReturnStmt& stmt);
-    PostfixBuilder handle(const LabelStmt& stmt);
-    PostfixBuilder handle(const GotoStmt& stmt);
-    PostfixBuilder handle(const FunctionDef& stmt);
-    PostfixBuilder handle(const GlobalDecl& stmt);
-    PostfixBuilder handle(const ArrayAssignStmt& stmt);
+    void handle(const ExprStmt& stmt, PostfixBuilder& builder);
+    void handle(const AssignStmt& stmt, PostfixBuilder& builder);
+    void handle(const BlockStmt& stmt, PostfixBuilder& builder);
+    void handle(const IfStmt& stmt, PostfixBuilder& builder);
+    void handle(const WhileStmt& stmt, PostfixBuilder& builder);
+    void handle(const ReturnStmt& stmt, PostfixBuilder& builder);
+    void handle(const LabelStmt& stmt, PostfixBuilder& builder);
+    void handle(const GotoStmt& stmt, PostfixBuilder& builder);
+    void handle(const FunctionDef& stmt, PostfixBuilder& builder);
+    void handle(const GlobalDecl& stmt, PostfixBuilder& builder);
+    void handle(const ArrayAssignStmt& stmt, PostfixBuilder& builder);
 
     void check_stack_effect(const std::string& s, int expected,
                             const Range& range);
     int compute_stack_effect(const std::string& s, const Range& range);
 
-    PostfixBuilder
-    inline_function_call(const FunctionSignature& sig, FunctionDef* func_def,
-                         const std::vector<std::unique_ptr<Expr>>& args,
-                         const Range& call_range);
+    void inline_function_call(const FunctionSignature& sig,
+                              FunctionDef* func_def,
+                              const std::vector<std::unique_ptr<Expr>>& args,
+                              const Range& call_range, PostfixBuilder& builder);
 
     Mode mode;
     int num_inputs;

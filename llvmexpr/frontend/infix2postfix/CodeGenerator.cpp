@@ -34,7 +34,7 @@ CodeGenerator::CodeGenerator(Mode mode, int num_inputs)
 std::string CodeGenerator::generate(Program* program) {
     PostfixBuilder builder;
     for (const auto& stmt : program->statements) {
-        builder.append(generate(stmt.get()));
+        generate(stmt.get(), builder);
     }
 
     if (mode == Mode::Expr) {
@@ -44,42 +44,58 @@ std::string CodeGenerator::generate(Program* program) {
     return builder.get_expression();
 }
 
-CodeGenerator::ExprResult CodeGenerator::generate(Expr* expr) {
+CodeGenerator::ExprResult CodeGenerator::generate_expr(Expr* expr) {
+    PostfixBuilder b;
+    Type t = generate(expr, b);
+    return {.postfix = b, .type = t};
+}
+
+std::string CodeGenerator::generate_expr_to_string(Expr* expr) {
     if (expr == nullptr) {
-        return {.postfix = {}, .type = Type::Value};
+        return "";
     }
-    return std::visit([this](auto& e) { return this->handle(e); }, expr->value);
+    PostfixBuilder temp_builder;
+    generate(expr, temp_builder);
+    return temp_builder.get_expression();
 }
 
-PostfixBuilder CodeGenerator::generate(Stmt* stmt) {
+Type CodeGenerator::generate(Expr* expr, PostfixBuilder& builder) {
+    if (expr == nullptr) {
+        return Type::Value;
+    }
+    return std::visit(
+        [this, &builder](auto& e) { return this->handle(e, builder); },
+        expr->value);
+}
+
+void CodeGenerator::generate(Stmt* stmt, PostfixBuilder& builder) {
     if (stmt == nullptr) {
-        return {};
+        return;
     }
-    return std::visit([this](auto& s) { return this->handle(s); }, stmt->value);
+    std::visit([this, &builder](auto& s) { this->handle(s, builder); },
+               stmt->value);
 }
 
-CodeGenerator::ExprResult CodeGenerator::handle(const NumberExpr& expr) {
-    PostfixBuilder b;
-    b.add_number(expr.value.value);
-    return {.postfix = b, .type = Type::Literal};
+Type CodeGenerator::handle(const NumberExpr& expr, PostfixBuilder& builder) {
+    builder.add_number(expr.value.value);
+    return Type::Literal;
 }
 
-CodeGenerator::ExprResult CodeGenerator::handle(const VariableExpr& expr) {
-    PostfixBuilder b;
+Type CodeGenerator::handle(const VariableExpr& expr, PostfixBuilder& builder) {
     std::string name = expr.name.value;
 
     if (param_substitutions.contains(name)) {
-        return generate(param_substitutions.at(name));
+        return generate(param_substitutions.at(name), builder);
     }
 
     if (name.starts_with("$")) {
         std::string base_name = name.substr(1);
-        b.add_constant(base_name);
+        builder.add_constant(base_name);
 
         if (is_clip_name(base_name)) {
-            return {.postfix = b, .type = Type::Clip};
+            return Type::Clip;
         }
-        return {.postfix = b, .type = Type::Value};
+        return Type::Value;
     }
 
     std::string var_name = name;
@@ -89,93 +105,88 @@ CodeGenerator::ExprResult CodeGenerator::handle(const VariableExpr& expr) {
         var_name = expr.symbol->name;
     }
 
-    b.add_variable_load(var_name);
+    builder.add_variable_load(var_name);
 
     if (expr.symbol) {
-        return {.postfix = b, .type = expr.symbol->type};
+        return expr.symbol->type;
     }
 
-    return {.postfix = b, .type = Type::Value};
+    return Type::Value;
 }
 
-CodeGenerator::ExprResult CodeGenerator::handle(const UnaryExpr& expr) {
+Type CodeGenerator::handle(const UnaryExpr& expr, PostfixBuilder& builder) {
     if (expr.op.type == TokenType::Minus) {
         if (auto* num = get_if<NumberExpr>(expr.right.get())) {
             std::string val = num->value.value;
             if (!val.starts_with("-")) {
                 val = std::format("-{}", val);
             }
-            PostfixBuilder b;
-            b.add_number(val);
-            return {.postfix = b, .type = Type::Literal};
+            builder.add_number(val);
+            return Type::Literal;
         }
     }
 
-    auto right = generate(expr.right.get());
-    PostfixBuilder b = right.postfix;
+    generate(expr.right.get(), builder);
 
     if (expr.op.type == TokenType::Not) {
-        b.add_number("0");
-        b.add_op(TokenType::Eq);
-        return {.postfix = b, .type = Type::Value};
+        builder.add_number("0");
+        builder.add_op(TokenType::Eq);
+        return Type::Value;
     }
 
-    b.add_unary_op(expr.op.type);
-    return {.postfix = b, .type = Type::Value};
+    builder.add_unary_op(expr.op.type);
+    return Type::Value;
 }
 
-CodeGenerator::ExprResult CodeGenerator::handle(const BinaryExpr& expr) {
-    auto left = generate(expr.left.get());
-    auto right = generate(expr.right.get());
-
-    PostfixBuilder b;
-    b.append(left.postfix);
+Type CodeGenerator::handle(const BinaryExpr& expr, PostfixBuilder& builder) {
+    generate(expr.left.get(), builder);
 
     if (expr.op.type == TokenType::LogicalAnd ||
         expr.op.type == TokenType::LogicalOr) {
-        b.add_number("0");
-        b.add_op(TokenType::Eq);
-        b.add_unary_op(TokenType::Not);
+        builder.add_number("0");
+        builder.add_op(TokenType::Eq);
+        builder.add_unary_op(TokenType::Not);
 
-        b.append(right.postfix);
-        b.add_number("0");
-        b.add_op(TokenType::Eq);
-        b.add_unary_op(TokenType::Not);
+        generate(expr.right.get(), builder);
+        builder.add_number("0");
+        builder.add_op(TokenType::Eq);
+        builder.add_unary_op(TokenType::Not);
 
-        b.add_op(expr.op.type);
-        return {.postfix = b, .type = Type::Value};
+        builder.add_op(expr.op.type);
+        return Type::Value;
     }
 
-    b.append(right.postfix);
-    b.add_op(expr.op.type);
-    return {.postfix = b, .type = Type::Value};
+    generate(expr.right.get(), builder);
+    builder.add_op(expr.op.type);
+    return Type::Value;
 }
 
-CodeGenerator::ExprResult CodeGenerator::handle(const TernaryExpr& expr) {
-    auto cond = generate(expr.cond.get());
-    auto true_branch = generate(expr.true_expr.get());
-    auto false_branch = generate(expr.false_expr.get());
+Type CodeGenerator::handle(const TernaryExpr& expr, PostfixBuilder& builder) {
+    generate(expr.cond.get(), builder);
+    builder.add_number("0");
+    builder.add_op(TokenType::Eq);
+    builder.add_unary_op(TokenType::Not);
 
-    PostfixBuilder b;
-    b.append(cond.postfix);
-    b.add_number("0");
-    b.add_op(TokenType::Eq);
-    b.add_unary_op(TokenType::Not);
-    b.append(true_branch.postfix);
-    b.append(false_branch.postfix);
-    b.add_ternary_op();
-    return {.postfix = b, .type = Type::Value};
+    PostfixBuilder true_branch_builder;
+    generate(expr.true_expr.get(), true_branch_builder);
+
+    PostfixBuilder false_branch_builder;
+    generate(expr.false_expr.get(), false_branch_builder);
+
+    builder.append(true_branch_builder);
+    builder.append(false_branch_builder);
+    builder.add_ternary_op();
+    return Type::Value;
 }
 
-CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
+Type CodeGenerator::handle(const CallExpr& expr, PostfixBuilder& builder) {
     // User-defined functions are inlined
     if (expr.resolved_signature != nullptr && expr.resolved_def != nullptr) {
         const auto& sig = *expr.resolved_signature;
         FunctionDef* func_def = expr.resolved_def;
 
-        PostfixBuilder b =
-            inline_function_call(sig, func_def, expr.args, expr.range);
-        return {.postfix = b, .type = Type::Value};
+        inline_function_call(sig, func_def, expr.args, expr.range, builder);
+        return Type::Value;
     }
 
     // Built-in functions
@@ -183,19 +194,17 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
         const BuiltinFunction* builtin = expr.resolved_builtin;
 
         if (builtin->special_handler) {
-            return {.postfix = builtin->special_handler(this, expr),
-                    .type = Type::Value};
+            builder.append(builtin->special_handler(this, expr));
+            return Type::Value;
         }
 
-        PostfixBuilder b;
         for (size_t i = 0; i < expr.args.size(); ++i) {
             if (builtin->param_types[i] != Type::Literal_string) {
-                auto res = generate(expr.args[i].get());
-                b.append(res.postfix);
+                generate(expr.args[i].get(), builder);
             }
         }
-        b.add_function_call(expr.callee);
-        return {.postfix = b, .type = Type::Value};
+        builder.add_function_call(expr.callee);
+        return Type::Value;
     }
 
     // nth_N functions
@@ -203,65 +212,60 @@ CodeGenerator::ExprResult CodeGenerator::handle(const CallExpr& expr) {
         std::string n_str = expr.callee.substr(4);
         int n = std::stoi(n_str);
         int arg_count = static_cast<int>(expr.args.size());
-        PostfixBuilder b;
-        for (const auto& arg : expr.args) {
-            auto res = generate(arg.get());
-            b.append(res.postfix);
-        }
-        b.add_sortN(arg_count);
-        b.add_dropN(n - 1);
-        b.add_swapN(arg_count - n);
-        b.add_dropN(arg_count - n);
 
-        return {.postfix = b, .type = Type::Value};
+        for (const auto& arg : expr.args) {
+            generate(arg.get(), builder);
+        }
+        builder.add_sortN(arg_count);
+        builder.add_dropN(n - 1);
+        builder.add_swapN(arg_count - n);
+        builder.add_dropN(arg_count - n);
+
+        return Type::Value;
     }
 
     std::unreachable();
 }
 
-CodeGenerator::ExprResult CodeGenerator::handle(const PropAccessExpr& expr) {
-    PostfixBuilder b;
+Type CodeGenerator::handle(const PropAccessExpr& expr,
+                           PostfixBuilder& builder) {
     std::string clip_name = expr.clip.value;
     if (param_substitutions.contains(clip_name)) {
         auto* subst_expr = param_substitutions.at(clip_name);
-        auto res = generate(subst_expr);
-        clip_name = res.postfix.get_expression();
+        clip_name = generate_expr_to_string(subst_expr);
     } else {
         clip_name = clip_name.substr(1);
     }
 
-    b.add_prop_access(clip_name, expr.prop.value);
-    return {.postfix = b, .type = Type::Value};
+    builder.add_prop_access(clip_name, expr.prop.value);
+    return Type::Value;
 }
 
-CodeGenerator::ExprResult
-CodeGenerator::handle(const StaticRelPixelAccessExpr& expr) {
+Type CodeGenerator::handle(const StaticRelPixelAccessExpr& expr,
+                           PostfixBuilder& builder) {
     std::string clip_name = expr.clip.value;
     if (param_substitutions.contains(clip_name)) {
         auto* subst_expr = param_substitutions.at(clip_name);
-        auto res = generate(subst_expr);
-        clip_name = res.postfix.get_expression();
+        clip_name = generate_expr_to_string(subst_expr);
     } else {
         clip_name = clip_name.substr(1);
     }
 
-    PostfixBuilder b;
-    b.add_static_pixel_access(clip_name, expr.offsetX.value, expr.offsetY.value,
-                              expr.boundary_suffix);
-    return {.postfix = b, .type = Type::Value};
+    builder.add_static_pixel_access(clip_name, expr.offsetX.value,
+                                    expr.offsetY.value, expr.boundary_suffix);
+    return Type::Value;
 }
 
-CodeGenerator::ExprResult
-CodeGenerator::handle(const FrameDimensionExpr& expr) {
-    auto plane_res = generate(expr.plane_index_expr.get());
-    std::string plane_idx_str = plane_res.postfix.get_expression();
-
-    PostfixBuilder b;
-    b.add_frame_dimension(expr.dimension_name, plane_idx_str);
-    return {.postfix = b, .type = Type::Value};
+Type CodeGenerator::handle(const FrameDimensionExpr& expr,
+                           PostfixBuilder& builder) {
+    std::string plane_idx_str =
+        generate_expr_to_string(expr.plane_index_expr.get());
+    builder.add_frame_dimension(expr.dimension_name, plane_idx_str);
+    return Type::Value;
 }
 
-CodeGenerator::ExprResult CodeGenerator::handle(const ArrayAccessExpr& expr) {
+Type CodeGenerator::handle(const ArrayAccessExpr& expr,
+                           PostfixBuilder& builder) {
     // Get the array variable name
     std::string array_name;
     auto* var_expr = get_if<VariableExpr>(expr.array.get());
@@ -277,22 +281,24 @@ CodeGenerator::ExprResult CodeGenerator::handle(const ArrayAccessExpr& expr) {
         array_name = expr.array_symbol->name;
     }
 
-    auto index_result = generate(expr.index.get());
+    generate(expr.index.get(), builder);
+    builder.add_array_load(array_name);
 
-    PostfixBuilder b;
-    b.append(index_result.postfix);
-    b.add_array_load(array_name);
-
-    return {.postfix = b, .type = Type::Value};
+    return Type::Value;
 }
 
-PostfixBuilder CodeGenerator::handle(const ExprStmt& stmt) {
-    PostfixBuilder b = generate(stmt.expr.get()).postfix;
-    check_stack_effect(b.get_expression(), 0, stmt.range);
-    return b;
+void CodeGenerator::handle(const ExprStmt& stmt, PostfixBuilder& builder) {
+#ifndef NDEBUG
+    PostfixBuilder temp_builder;
+    generate(stmt.expr.get(), temp_builder);
+    check_stack_effect(temp_builder.get_expression(), 0, stmt.range);
+    builder.append(temp_builder);
+#else
+    generate(stmt.expr.get(), builder);
+#endif
 }
 
-PostfixBuilder CodeGenerator::handle(const AssignStmt& stmt) {
+void CodeGenerator::handle(const AssignStmt& stmt, PostfixBuilder& builder) {
     std::string name = stmt.name.value;
 
     std::string var_name = name;
@@ -301,11 +307,15 @@ PostfixBuilder CodeGenerator::handle(const AssignStmt& stmt) {
     } else if (stmt.symbol) {
         var_name = stmt.symbol->name;
     }
+
     // Check if this is a new() or resize() call for array allocation
     if (auto* call_expr = get_if<CallExpr>(stmt.value.get())) {
         if (call_expr->callee == "new" || call_expr->callee == "resize") {
+#ifndef NDEBUG
             PostfixBuilder b;
-
+#else
+            PostfixBuilder& b = builder;
+#endif
             if (mode == Mode::Expr) {
                 auto* arg_expr = call_expr->args[0].get();
 
@@ -325,28 +335,31 @@ PostfixBuilder CodeGenerator::handle(const AssignStmt& stmt) {
 
                 b.add_array_alloc_static(var_name, size_value);
             } else {
-                auto size_result = generate(call_expr->args[0].get());
-                b.append(size_result.postfix);
+                generate(call_expr->args[0].get(), b);
                 b.add_array_alloc_dynamic(var_name);
             }
-
+#ifndef NDEBUG
             check_stack_effect(b.get_expression(), 0, stmt.range);
-            return b;
+            builder.append(b);
+#endif
+            return;
         }
     }
 
-    auto value_code = generate(stmt.value.get());
-
+#ifndef NDEBUG
     PostfixBuilder b;
-    b.append(value_code.postfix);
+    generate(stmt.value.get(), b);
     b.add_variable_store(var_name);
-
     check_stack_effect(b.get_expression(), 0, stmt.range);
-
-    return b;
+    builder.append(b);
+#else
+    generate(stmt.value.get(), builder);
+    builder.add_variable_store(var_name);
+#endif
 }
 
-PostfixBuilder CodeGenerator::handle(const ArrayAssignStmt& stmt) {
+void CodeGenerator::handle(const ArrayAssignStmt& stmt,
+                           PostfixBuilder& builder) {
     auto* array_access = get_if<ArrayAccessExpr>(stmt.target.get());
 
     std::string array_name;
@@ -363,136 +376,117 @@ PostfixBuilder CodeGenerator::handle(const ArrayAssignStmt& stmt) {
         array_name = array_access->array_symbol->name;
     }
 
+#ifndef NDEBUG
     PostfixBuilder b;
-
-    auto value_result = generate(stmt.value.get());
-    b.append(value_result.postfix);
-
-    auto index_result = generate(array_access->index.get());
-    b.append(index_result.postfix);
-
+    generate(stmt.value.get(), b);
+    generate(array_access->index.get(), b);
     b.add_array_store(array_name);
-
     check_stack_effect(b.get_expression(), 0, stmt.range);
-
-    return b;
+    builder.append(b);
+#else
+    generate(stmt.value.get(), builder);
+    generate(array_access->index.get(), builder);
+    builder.add_array_store(array_name);
+#endif
 }
 
-PostfixBuilder CodeGenerator::handle(const BlockStmt& stmt) {
-    PostfixBuilder b;
+void CodeGenerator::handle(const BlockStmt& stmt, PostfixBuilder& builder) {
     for (const auto& s : stmt.statements) {
-        b.append(generate(s.get()));
+        generate(s.get(), builder);
     }
-    return b;
 }
 
-PostfixBuilder CodeGenerator::handle(const IfStmt& stmt) {
+void CodeGenerator::handle(const IfStmt& stmt, PostfixBuilder& builder) {
     std::string else_label = std::format("__internal_else_{}", label_counter++);
     std::string endif_label =
         std::format("__internal_endif_{}", label_counter++);
 
-    PostfixBuilder b;
-    b.append(generate(stmt.condition.get()).postfix);
-    b.add_number("0");
-    b.add_op(TokenType::Eq);
-    b.add_conditional_jump(else_label);
+    generate(stmt.condition.get(), builder);
+    builder.add_number("0");
+    builder.add_op(TokenType::Eq);
+    builder.add_conditional_jump(else_label);
 
-    b.append(generate(stmt.then_branch.get()));
+    generate(stmt.then_branch.get(), builder);
 
     if (stmt.else_branch) {
-        b.add_unconditional_jump(endif_label);
-        b.add_label(else_label);
-        b.append(generate(stmt.else_branch.get()));
-        b.add_label(endif_label);
+        builder.add_unconditional_jump(endif_label);
+        builder.add_label(else_label);
+        generate(stmt.else_branch.get(), builder);
+        builder.add_label(endif_label);
     } else {
-        b.add_label(else_label);
+        builder.add_label(else_label);
     }
-    return b;
 }
 
-PostfixBuilder CodeGenerator::handle(const WhileStmt& stmt) {
+void CodeGenerator::handle(const WhileStmt& stmt, PostfixBuilder& builder) {
     std::string start_label =
         std::format("__internal_while_start_{}", label_counter++);
     std::string end_label =
         std::format("__internal_while_end_{}", label_counter++);
 
-    PostfixBuilder b;
-    b.add_label(start_label);
-    b.append(generate(stmt.condition.get()).postfix);
-    b.add_number("0");
-    b.add_op(TokenType::Eq);
-    b.add_conditional_jump(end_label);
-    b.append(generate(stmt.body.get()));
-    b.add_unconditional_jump(start_label);
-    b.add_label(end_label);
-    return b;
+    builder.add_label(start_label);
+    generate(stmt.condition.get(), builder);
+    builder.add_number("0");
+    builder.add_op(TokenType::Eq);
+    builder.add_conditional_jump(end_label);
+    generate(stmt.body.get(), builder);
+    builder.add_unconditional_jump(start_label);
+    builder.add_label(end_label);
 }
 
-PostfixBuilder CodeGenerator::handle(const ReturnStmt& stmt) {
-    PostfixBuilder b;
-
+void CodeGenerator::handle(const ReturnStmt& stmt, PostfixBuilder& builder) {
     if (stmt.value) {
-        auto result = generate(stmt.value.get());
-        b.append(result.postfix);
+        generate(stmt.value.get(), builder);
         const int call_id = call_site_id_stack.back();
         std::string ret_var_name = std::format("__internal_ret_{}_{}",
                                                current_function->name, call_id);
-        b.add_variable_store(ret_var_name);
+        builder.add_variable_store(ret_var_name);
     }
 
     const int call_id = call_site_id_stack.back();
     std::string ret_label = std::format("__internal_ret_label_{}_{}",
                                         current_function->name, call_id);
-    b.add_unconditional_jump(ret_label);
-
-    return b;
+    builder.add_unconditional_jump(ret_label);
 }
 
-PostfixBuilder CodeGenerator::handle(const LabelStmt& stmt) {
-    PostfixBuilder b;
+void CodeGenerator::handle(const LabelStmt& stmt, PostfixBuilder& builder) {
     std::string label_name = stmt.symbol ? stmt.symbol->name : stmt.name.value;
-    b.add_label(label_name);
-    return b;
+    builder.add_label(label_name);
 }
 
-PostfixBuilder CodeGenerator::handle(const GotoStmt& stmt) {
-    PostfixBuilder b;
+void CodeGenerator::handle(const GotoStmt& stmt, PostfixBuilder& builder) {
     std::string label_name = stmt.target_label_symbol
                                  ? stmt.target_label_symbol->name
                                  : stmt.label.value;
     if (stmt.condition) {
-        b.append(generate(stmt.condition.get()).postfix);
-        b.add_number("0");
-        b.add_op(TokenType::Eq);
-        b.add_unary_op(TokenType::Not);
-        b.add_conditional_jump(label_name);
+        generate(stmt.condition.get(), builder);
+        builder.add_number("0");
+        builder.add_op(TokenType::Eq);
+        builder.add_unary_op(TokenType::Not);
+        builder.add_conditional_jump(label_name);
     } else {
-        b.add_unconditional_jump(label_name);
+        builder.add_unconditional_jump(label_name);
     }
-    return b;
 }
 
-PostfixBuilder CodeGenerator::handle([[maybe_unused]] const FunctionDef& stmt) {
+void CodeGenerator::handle([[maybe_unused]] const FunctionDef& stmt,
+                           [[maybe_unused]] PostfixBuilder& builder) {
     // Inlined at call sites
-    return {};
 }
 
-PostfixBuilder CodeGenerator::handle([[maybe_unused]] const GlobalDecl& stmt) {
+void CodeGenerator::handle([[maybe_unused]] const GlobalDecl& stmt,
+                           [[maybe_unused]] PostfixBuilder& builder) {
     // Global declarations don't generate code
-    return {};
 }
 
-void CodeGenerator::check_stack_effect(const std::string& s, int expected,
-                                       const Range& range) {
-#ifdef NDEBUG
-    (void)s;
-    (void)expected;
-    (void)range;
-    return;
-#else
+void CodeGenerator::check_stack_effect([[maybe_unused]] const std::string& s,
+                                       [[maybe_unused]] int expected,
+                                       [[maybe_unused]] const Range& range) {
+#ifndef NDEBUG
     int effect = compute_stack_effect(s, range);
     if (effect != expected) {
-        throw CodeGenError(std::format("Unbalanced stack. Expected {}, got {}",
+        throw CodeGenError(std::format("Unbalanced stack. "
+                                       "Expected {}, got {}",
                                        expected, effect),
                            range);
     }
@@ -512,9 +506,10 @@ int CodeGenerator::compute_stack_effect(const std::string& s,
     }
 }
 
-PostfixBuilder CodeGenerator::inline_function_call(
+void CodeGenerator::inline_function_call(
     const FunctionSignature& sig, FunctionDef* func_def,
-    const std::vector<std::unique_ptr<Expr>>& args, const Range& call_range) {
+    const std::vector<std::unique_ptr<Expr>>& args,
+    [[maybe_unused]] const Range& call_range, PostfixBuilder& builder) {
 
     const auto& func_name = sig.name;
     const int call_id = call_site_counter++;
@@ -553,11 +548,12 @@ PostfixBuilder CodeGenerator::inline_function_call(
                 }
             }
         } else {
-            std::string renamed_param = std::format(
-                "__internal_func_{}_{}_{}", func_name, call_id, param_name);
+            std::string renamed_param =
+                std::format("__internal_func_{}_"
+                            "{}_{}",
+                            func_name, call_id, param_name);
 
-            PostfixBuilder arg_value = generate(args[i].get()).postfix;
-            param_assignments.append(arg_value);
+            generate(args[i].get(), param_assignments);
             param_assignments.add_variable_store(renamed_param);
             param_map[param_name] = renamed_param;
         }
@@ -571,8 +567,13 @@ PostfixBuilder CodeGenerator::inline_function_call(
         if (auto* assign = get_if<AssignStmt>(stmt)) {
             std::string var_name = assign->name.value;
             if (!param_map.contains(var_name)) {
-                std::string renamed_var = std::format(
-                    "__internal_func_{}_{}_{}", func_name, call_id, var_name);
+                std::string renamed_var =
+                    std::format("__"
+                                "interna"
+                                "l_func_"
+                                "{}_{}_{"
+                                "}",
+                                func_name, call_id, var_name);
                 param_map[var_name] = renamed_var;
             }
         } else if (auto* block = get_if<BlockStmt>(stmt)) {
@@ -600,7 +601,8 @@ PostfixBuilder CodeGenerator::inline_function_call(
     std::string label_prefix =
         std::format("__internal_{}_{}_", func_name, call_id);
 
-    PostfixBuilder body_builder = handle(*func_def->body);
+    PostfixBuilder body_builder;
+    handle(*func_def->body, body_builder);
     body_builder.prefix_labels(label_prefix);
 
     std::string ret_label =
@@ -629,11 +631,14 @@ PostfixBuilder CodeGenerator::inline_function_call(
         int actual_effect =
             compute_stack_effect(inlined_builder.get_expression(), call_range);
         if (actual_effect != expected_effect) {
-            throw CodeGenError(
-                std::format("Function '{}' has unbalanced stack. Expected "
-                            "effect: {}, actual: {}",
-                            func_name, expected_effect, actual_effect),
-                sig.range);
+            throw CodeGenError(std::format("Function '{}' has "
+                                           "unbalanced stack. "
+                                           "Expected "
+                                           "effect: {}, "
+                                           "actual: {}",
+                                           func_name, expected_effect,
+                                           actual_effect),
+                               sig.range);
         }
     } catch (const CodeGenError& e) {
         throw CodeGenError(
@@ -641,8 +646,7 @@ PostfixBuilder CodeGenerator::inline_function_call(
             sig.range);
     }
 #endif
-
-    return inlined_builder;
+    builder.append(inlined_builder);
 }
 
 } // namespace infix2postfix

@@ -221,14 +221,26 @@ void PostfixBuilder::add_raw(const std::string& raw_string) {
 }
 
 std::string PostfixBuilder::get_expression() const {
-    std::stringstream ss;
-    for (size_t i = 0; i < tokens.size(); ++i) {
-        ss << tokens[i];
-        if (i < tokens.size() - 1) {
-            ss << " ";
-        }
+    if (tokens.empty()) {
+        return "";
     }
-    return ss.str();
+
+    size_t total_len = 0;
+    for (const auto& token : tokens) {
+        total_len += token.length();
+    }
+    total_len += tokens.size() - 1; // for spaces
+
+    std::string result;
+    result.reserve(total_len);
+
+    result.append(tokens[0]);
+    for (size_t i = 1; i < tokens.size(); ++i) {
+        result.push_back(' ');
+        result.append(tokens[i]);
+    }
+
+    return result;
 }
 
 void PostfixBuilder::clear() { tokens.clear(); }
